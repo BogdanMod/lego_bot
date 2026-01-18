@@ -3,13 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "echo 'Build not needed for static files' && exit 0",
-    "preview": "echo 'Use a static server'",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 || true",
-    "clean": "rm -rf dist node_modules/.vite",
-    "type-check": "tsc --noEmit || true"
-  },
-  "dependencies": {},
-  "devDependencies": {}
+    "build": "true"
+  }
 }
