@@ -1,0 +1,70 @@
+services:
+  router:
+    build:
+      context: ../..
+      dockerfile: packages/router/Dockerfile
+    container_name: dialogue-constructor-router
+    ports:
+      - "${ROUTER_PORT:-3002}:3001"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - PORT=3001
+      - NODE_ENV=${NODE_ENV:-production}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - router-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: router-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-dialogue_constructor}
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - router_postgres_data:/var/lib/postgresql/data
+    networks:
+      - router-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: router-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - router_redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - router-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  router_postgres_data:
+  router_redis_data:
+
+networks:
+  router-network:
+    driver: bridge
+

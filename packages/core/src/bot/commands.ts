@@ -1,6 +1,7 @@
 import { Context } from 'telegraf';
 import { Scenes } from 'telegraf';
 import { getBotsByUserId } from '../db/bots';
+import { getMainMenuKeyboard, getBackButtonKeyboard, getBotsListKeyboard } from './keyboards';
 
 /**
  * Обработчик команды /start
@@ -26,7 +27,10 @@ export async function handleStart(ctx: Context) {
 Начните с команды /create_bot для создания вашего первого бота!
 `;
 
-  await ctx.reply(welcomeMessage, { parse_mode: 'HTML' });
+  await ctx.reply(welcomeMessage, {
+    parse_mode: 'HTML',
+    reply_markup: getMainMenuKeyboard(),
+  });
 }
 
 /**
@@ -53,7 +57,10 @@ export async function handleMyBots(ctx: Context) {
     if (bots.length === 0) {
       await ctx.reply(
         '📭 У вас пока нет созданных ботов.\n\n' +
-        'Используйте команду /create_bot для создания нового бота.'
+        'Используйте команду /create_bot для создания нового бота.',
+        {
+          reply_markup: getBotsListKeyboard(),
+        }
       );
       return;
     }
@@ -63,10 +70,14 @@ export async function handleMyBots(ctx: Context) {
     bots.forEach((bot, index) => {
       message += `${index + 1}. <b>${bot.name}</b>\n`;
       message += `   🆔 ID: <code>${bot.id}</code>\n`;
-      message += `   📅 Создан: ${new Date(bot.created_at).toLocaleString('ru-RU')}\n\n`;
+      message += `   📅 Создан: ${new Date(bot.created_at).toLocaleString('ru-RU')}\n`;
+      message += `   ${bot.webhook_set ? '🔗 Webhook: ✅ Настроен' : '🔗 Webhook: ❌ Не настроен'}\n\n`;
     });
 
-    await ctx.reply(message, { parse_mode: 'HTML' });
+    await ctx.reply(message, {
+      parse_mode: 'HTML',
+      reply_markup: getBotsListKeyboard(),
+    });
   } catch (error) {
     console.error('Error getting bots:', error);
     await ctx.reply('❌ Произошла ошибка при получении списка ботов.');
@@ -99,6 +110,9 @@ export async function handleHelp(ctx: Context) {
 ⚠️ Никогда не делитесь токенами ваших ботов с посторонними!
 `;
 
-  await ctx.reply(helpMessage, { parse_mode: 'HTML' });
+  await ctx.reply(helpMessage, {
+    parse_mode: 'HTML',
+    reply_markup: getBackButtonKeyboard(),
+  });
 }
 
