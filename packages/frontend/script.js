@@ -1,10 +1,9 @@
 // Конфигурация API
 // Для локальной разработки используйте: http://localhost:3000
 // Для продакшена укажите URL вашего API сервера
-// TODO: Обновите 'https://your-api-domain.com' на реальный URL вашего API
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:3000' 
-  : 'https://your-api-domain.com'; // ← ОБНОВИТЕ ЭТО НА РЕАЛЬНЫЙ URL API
+  : 'https://lego-bot-core.vercel.app'; // ← API URL для продакшена
 
 // Глобальные переменные
 let currentUser = null;
