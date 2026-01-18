@@ -1,15 +1,11 @@
 {
+  "buildCommand": "cd ../.. && npm run build --filter=@dialogue-constructor/shared...@dialogue-constructor/core",
+  "installCommand": "cd ../.. && npm install",
   "version": 2,
   "builds": [
     {
       "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "dist/**",
-          "node_modules/**"
-        ]
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
