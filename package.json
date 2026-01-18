@@ -1,0 +1,24 @@
+{
+  "name": "dialogue-constructor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram bot and Mini App for dialogue constructor",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "type-check": "turbo run type-check"
+  },
+  "devDependencies": {
+    "turbo": "^1.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
