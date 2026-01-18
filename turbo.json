@@ -6,6 +6,9 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"]
     },
+    "@dialogue-constructor/frontend#build": {
+      "outputs": []
+    },
     "dev": {
       "cache": false,
       "persistent": true
