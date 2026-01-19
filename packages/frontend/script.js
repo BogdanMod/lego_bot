@@ -18,29 +18,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Проверка инициализации Telegram Widget
 function checkTelegramWidget() {
-    setTimeout(() => {
+    // Проверяем несколько раз с интервалами
+    let attempts = 0;
+    const maxAttempts = 10; // Проверяем 10 раз (30 секунд)
+    
+    const checkInterval = setInterval(() => {
+        attempts++;
         const widget = document.getElementById('telegram-login');
+        
         if (widget) {
-            console.log('Telegram login widget element found:', widget);
-            console.log('Widget innerHTML:', widget.innerHTML);
-            console.log('Widget children:', widget.children);
+            console.log(`[Attempt ${attempts}] Telegram login widget element found`);
             
             // Проверяем, создал ли виджет iframe
             const iframe = widget.querySelector('iframe');
             if (iframe) {
-                console.log('Telegram Widget iframe found:', iframe);
-                console.log('Iframe src:', iframe.src);
+                console.log('✅ Telegram Widget iframe found!');
+                console.log('✅ Iframe src:', iframe.src);
+                console.log('✅ Widget initialized successfully');
+                clearInterval(checkInterval);
             } else {
-                console.warn('Telegram Widget iframe not found. Widget may not be initialized.');
-                console.warn('Possible reasons:');
-                console.warn('1. Domain not set in @BotFather');
-                console.warn('2. Script not loaded (check Network tab)');
-                console.warn('3. Domain mismatch (current domain:', window.location.hostname, ')');
+                // Проверяем, есть ли вообще содержимое
+                if (widget.innerHTML.trim() === '') {
+                    console.warn(`[Attempt ${attempts}] Widget container is empty`);
+                } else {
+                    console.log(`[Attempt ${attempts}] Widget has content:`, widget.innerHTML.substring(0, 100));
+                }
+                
+                if (attempts >= maxAttempts) {
+                    console.error('❌ Telegram Widget iframe not found after', maxAttempts, 'attempts');
+                    console.error('Possible reasons:');
+                    console.error('1. Domain not set correctly in @BotFather');
+                    console.error('2. Script telegram-widget.js not loaded (check Network tab)');
+                    console.error('3. Domain mismatch - current domain:', window.location.hostname);
+                    console.error('4. Telegram Widget script error (check Console for errors)');
+                    clearInterval(checkInterval);
+                }
             }
         } else {
-            console.error('Telegram login widget element not found!');
+            console.error(`[Attempt ${attempts}] Telegram login widget element not found!`);
+            if (attempts >= maxAttempts) {
+                clearInterval(checkInterval);
+            }
         }
-    }, 3000); // Ждем 3 секунды для загрузки виджета
+    }, 3000); // Проверяем каждые 3 секунды
 }
 
 function initializeApp() {
