@@ -5,8 +5,18 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Получить user_id из Telegram WebApp
 function getUserId(): number | null {
-  const initData = window.Telegram?.WebApp?.initDataUnsafe;
+  // Проверяем, что мы в Telegram WebApp
+  if (!window.Telegram?.WebApp) {
+    return null;
+  }
+  
+  const initData = window.Telegram.WebApp.initDataUnsafe;
   return initData?.user?.id || null;
+}
+
+// Проверка, что приложение запущено в Telegram
+export function isTelegramWebApp(): boolean {
+  return typeof window !== 'undefined' && !!window.Telegram?.WebApp;
 }
 
 async function apiRequest<T>(

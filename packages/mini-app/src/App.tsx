@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import BotList from './pages/BotList';
 import BotEditor from './pages/BotEditor';
 import Templates from './pages/Templates';
+import TelegramOnly from './components/TelegramOnly';
+import { isTelegramWebApp } from './utils/api';
 import './App.css';
 
 declare global {
@@ -53,6 +55,11 @@ function App() {
       }
     }
   }, []);
+
+  // Проверяем, что приложение запущено в Telegram
+  if (!isTelegramWebApp()) {
+    return <TelegramOnly />;
+  }
 
   return (
     <div className="app">
