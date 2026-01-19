@@ -1,13 +1,14 @@
 {
+  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!.*\\.).*)$",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/*.css",
+      "source": "/style.css",
       "headers": [
         {
           "key": "Content-Type",
@@ -16,7 +17,7 @@
       ]
     },
     {
-      "source": "/*.js",
+      "source": "/script.js",
       "headers": [
         {
           "key": "Content-Type",
@@ -25,11 +26,20 @@
       ]
     },
     {
-      "source": "/*.html",
+      "source": "/(.*\\.css)",
       "headers": [
         {
           "key": "Content-Type",
-          "value": "text/html; charset=utf-8"
+          "value": "text/css; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/(.*\\.js)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
         }
       ]
     }
