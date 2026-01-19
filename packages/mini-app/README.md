@@ -66,16 +66,43 @@ src/
 └── types/          # TypeScript типы
 ```
 
-## Деплой
+## Деплой на Vercel
 
-Разверните на Vercel или другом хостинге:
+### Быстрый старт:
+
+1. **Подключите репозиторий в Vercel:**
+   - Перейдите на [vercel.com](https://vercel.com)
+   - Нажмите "Add New Project"
+   - Выберите репозиторий `lego_bot`
+
+2. **Настройте проект:**
+   - **Root Directory**: `packages/mini-app`
+   - **Framework**: Vite (определится автоматически)
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+
+3. **Добавьте переменные окружения:**
+   - `VITE_API_URL` = `https://lego-bot-core.vercel.app`
+   - `VITE_TON_CONNECT_MANIFEST_URL` = `https://your-project.vercel.app/tonconnect-manifest.json`
+
+4. **Деплой:**
+   - Нажмите "Deploy"
+   - После деплоя обновите `tonconnect-manifest.json` с вашим URL
+   - Сделайте Redeploy
+
+**Подробная инструкция:** см. [VERCEL_DEPLOY.md](./VERCEL_DEPLOY.md)
+
+### Через CLI:
 
 ```bash
-npm run build
+cd packages/mini-app
+vercel
+vercel --prod
 ```
 
-Убедитесь, что:
-- `VITE_API_URL` указывает на ваш API
-- `tonconnect-manifest.json` доступен по публичному URL
-- Бот настроен через @BotFather с правильным URL Mini App
+### После деплоя:
+
+1. Скопируйте URL вашего проекта (например: `https://lego-bot-mini-app.vercel.app`)
+2. Настройте бота через @BotFather (см. [BOT_SETUP.md](./BOT_SETUP.md))
+3. Обновите `public/tonconnect-manifest.json` с правильным URL
 
