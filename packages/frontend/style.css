@@ -41,6 +41,18 @@ header h1 {
     gap: 15px;
 }
 
+#telegram-login {
+    min-height: 40px;
+    min-width: 200px;
+    position: relative;
+    z-index: 1;
+}
+
+#telegram-login iframe {
+    pointer-events: auto !important;
+    z-index: 1 !important;
+}
+
 #user-info {
     display: flex;
     align-items: center;

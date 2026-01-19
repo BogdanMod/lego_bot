@@ -13,7 +13,31 @@ let bots = [];
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
+    checkTelegramWidget();
 });
+
+// Проверка инициализации Telegram Widget
+function checkTelegramWidget() {
+    setTimeout(() => {
+        const widget = document.getElementById('telegram-login');
+        if (widget) {
+            console.log('Telegram login widget element found:', widget);
+            console.log('Widget innerHTML:', widget.innerHTML);
+            console.log('Widget children:', widget.children);
+            
+            // Проверяем, создал ли виджет iframe
+            const iframe = widget.querySelector('iframe');
+            if (iframe) {
+                console.log('Telegram Widget iframe found:', iframe);
+                console.log('Iframe src:', iframe.src);
+            } else {
+                console.warn('Telegram Widget iframe not found. Widget may not be initialized.');
+            }
+        } else {
+            console.error('Telegram login widget element not found!');
+        }
+    }, 2000); // Ждем 2 секунды для загрузки виджета
+}
 
 function initializeApp() {
     // Проверяем сохраненные данные пользователя
