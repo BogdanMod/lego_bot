@@ -122,24 +122,34 @@ function verifyTelegramAuth(authData: any, hash: string): boolean {
 // Middleware для проверки авторизации Telegram
 async function authenticateTelegramUser(req: Request, res: Response, next: Function) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid authorization header' });
-    }
+    console.log('🔐 Authentication request:', {
+      method: req.method,
+      path: req.path,
+      query: req.query,
+      authHeader: req.headers.authorization ? 'present' : 'missing',
+    });
 
-    const hash = authHeader.substring(7);
+    const authHeader = req.headers.authorization;
+    const hash = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
     const userId = req.query.user_id as string || req.body.user_id;
+    
+    console.log('🔐 Auth data:', {
+      hasHash: !!hash,
+      userId: userId,
+    });
 
     if (!userId) {
+      console.error('❌ Missing user_id');
       return res.status(401).json({ error: 'Unauthorized: Missing user_id' });
     }
 
     // Для упрощения, проверяем только наличие user_id
     // В продакшене нужно проверять hash через verifyTelegramAuth
     (req as any).user = { id: parseInt(userId, 10) };
+    console.log('✅ User authenticated:', (req as any).user.id);
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('❌ Authentication error:', error);
     return res.status(401).json({ error: 'Unauthorized' });
   }
 }
