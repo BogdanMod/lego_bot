@@ -106,68 +106,27 @@ app.get('/health', async (req: Request, res: Response) => {
   res.status(statusCode).json(health);
 });
 
-// Telegram authentication verification
-function verifyTelegramAuth(authData: any, hash: string): boolean {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return false;
-
-  const dataCheckString = Object.keys(authData)
-    .sort()
-    .map(key => `${key}=${authData[key]}`)
-    .join('\n');
-
-  const secretKey = crypto
-    .createHmac('sha256', 'WebAppData')
-    .update(botToken)
-    .digest();
-
-  const calculatedHash = crypto
-    .createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
-
-  return calculatedHash === hash;
-}
-
-// Middleware для проверки авторизации Telegram
-async function authenticateTelegramUser(req: Request, res: Response, next: Function) {
-  try {
-    console.log('🔐 Authentication request:', {
-      method: req.method,
-      path: req.path,
-      query: req.query,
-      authHeader: req.headers.authorization ? 'present' : 'missing',
-    });
-
-    const authHeader = req.headers.authorization;
-    const hash = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
-    const userId = req.query.user_id as string || req.body.user_id;
-    
-    console.log('🔐 Auth data:', {
-      hasHash: !!hash,
-      userId: userId,
-    });
-
-    if (!userId) {
-      console.error('❌ Missing user_id');
-      return res.status(401).json({ error: 'Unauthorized: Missing user_id' });
-    }
-
-    // Для упрощения, проверяем только наличие user_id
-    // В продакшене нужно проверять hash через verifyTelegramAuth
-    (req as any).user = { id: parseInt(userId, 10) };
-    console.log('✅ User authenticated:', (req as any).user.id);
-    next();
-  } catch (error) {
-    console.error('❌ Authentication error:', error);
-    return res.status(401).json({ error: 'Unauthorized' });
+// Middleware для проверки user_id (упрощенная авторизация)
+async function requireUserId(req: Request, res: Response, next: Function) {
+  const userId = req.query.user_id as string || req.body.user_id;
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing user_id parameter' });
   }
+
+  const userIdNum = parseInt(userId, 10);
+  if (isNaN(userIdNum)) {
+    return res.status(400).json({ error: 'Invalid user_id format' });
+  }
+
+  (req as any).user = { id: userIdNum };
+  next();
 }
 
 // API Routes
 
 // GET /api/bots - получить список ботов пользователя
-app.get('/api/bots', authenticateTelegramUser as any, async (req: Request, res: Response) => {
+app.get('/api/bots', requireUserId as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const bots = await getBotsByUserId(userId);
@@ -189,7 +148,7 @@ app.get('/api/bots', authenticateTelegramUser as any, async (req: Request, res: 
 });
 
 // GET /api/bot/:id/schema - получить схему бота
-app.get('/api/bot/:id/schema', authenticateTelegramUser as any, async (req: Request, res: Response) => {
+app.get('/api/bot/:id/schema', requireUserId as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const botId = req.params.id;
@@ -211,7 +170,7 @@ app.get('/api/bot/:id/schema', authenticateTelegramUser as any, async (req: Requ
 });
 
 // POST /api/bot/:id/schema - обновить схему бота
-app.post('/api/bot/:id/schema', authenticateTelegramUser as any, async (req: Request, res: Response) => {
+app.post('/api/bot/:id/schema', requireUserId as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const botId = req.params.id;

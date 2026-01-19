@@ -6,79 +6,32 @@ const API_BASE_URL = window.location.hostname === 'localhost'
   : 'https://lego-bot-core.vercel.app'; // ← API URL для продакшена
 
 // Глобальные переменные
-let currentUser = null;
+let currentUserId = null;
 let currentBotId = null;
 let bots = [];
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
-    checkTelegramWidget();
 });
 
-// Проверка инициализации Telegram Widget
-function checkTelegramWidget() {
-    // Проверяем несколько раз с интервалами
-    let attempts = 0;
-    const maxAttempts = 10; // Проверяем 10 раз (30 секунд)
-    
-    const checkInterval = setInterval(() => {
-        attempts++;
-        const widget = document.getElementById('telegram-login');
-        
-        if (widget) {
-            console.log(`[Attempt ${attempts}] Telegram login widget element found`);
-            
-            // Проверяем, создал ли виджет iframe
-            const iframe = widget.querySelector('iframe');
-            if (iframe) {
-                console.log('✅ Telegram Widget iframe found!');
-                console.log('✅ Iframe src:', iframe.src);
-                console.log('✅ Widget initialized successfully');
-                clearInterval(checkInterval);
-            } else {
-                // Проверяем, есть ли вообще содержимое
-                if (widget.innerHTML.trim() === '') {
-                    console.warn(`[Attempt ${attempts}] Widget container is empty`);
-                } else {
-                    console.log(`[Attempt ${attempts}] Widget has content:`, widget.innerHTML.substring(0, 100));
-                }
-                
-                if (attempts >= maxAttempts) {
-                    console.error('❌ Telegram Widget iframe not found after', maxAttempts, 'attempts');
-                    console.error('Possible reasons:');
-                    console.error('1. Domain not set correctly in @BotFather');
-                    console.error('2. Script telegram-widget.js not loaded (check Network tab)');
-                    console.error('3. Domain mismatch - current domain:', window.location.hostname);
-                    console.error('4. Telegram Widget script error (check Console for errors)');
-                    clearInterval(checkInterval);
-                }
-            }
-        } else {
-            console.error(`[Attempt ${attempts}] Telegram login widget element not found!`);
-            if (attempts >= maxAttempts) {
-                clearInterval(checkInterval);
-            }
-        }
-    }, 3000); // Проверяем каждые 3 секунды
-}
-
 function initializeApp() {
-    // Проверяем сохраненные данные пользователя
-    const savedUser = localStorage.getItem('telegram_user');
-    if (savedUser) {
-        try {
-            currentUser = JSON.parse(savedUser);
-            showEditor();
-            loadBots();
-        } catch (e) {
-            console.error('Error parsing saved user:', e);
-            localStorage.removeItem('telegram_user');
-        }
+    // Проверяем сохраненный user_id
+    const savedUserId = localStorage.getItem('user_id');
+    if (savedUserId) {
+        currentUserId = parseInt(savedUserId, 10);
+        showEditor();
+        loadBots();
     }
 
     // Обработчики событий
+    document.getElementById('login-btn')?.addEventListener('click', handleLogin);
     document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+    document.getElementById('user-id-input')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleLogin();
+        }
+    });
     document.getElementById('bot-select')?.addEventListener('change', handleBotSelect);
     document.getElementById('load-schema-btn')?.addEventListener('click', handleLoadSchema);
     document.getElementById('validate-btn')?.addEventListener('click', handleValidate);
@@ -87,67 +40,52 @@ function initializeApp() {
     document.getElementById('schema-editor')?.addEventListener('input', handleEditorInput);
 }
 
-// Обработка авторизации через Telegram
-// Функция должна быть глобальной для работы Telegram Widget
-window.onTelegramAuth = function(user) {
-    console.log('🎉 ===== TELEGRAM AUTH CALLBACK CALLED =====');
-    console.log('✅ Telegram auth received:', user);
-    console.log('✅ User data:', JSON.stringify(user, null, 2));
+function handleLogin() {
+    const userIdInput = document.getElementById('user-id-input');
+    const userId = parseInt(userIdInput.value.trim(), 10);
     
-    if (!user) {
-        console.error('❌ User data is empty!');
-        alert('Ошибка: данные пользователя не получены');
+    if (!userId || isNaN(userId)) {
+        alert('Пожалуйста, введите корректный User ID');
         return;
     }
     
-    currentUser = user;
-    localStorage.setItem('telegram_user', JSON.stringify(user));
-    
-    // Показываем сообщение об успешной авторизации
-    console.log('✅ User authenticated:', user.first_name, user.last_name);
-    console.log('✅ User ID:', user.id);
-    console.log('✅ User hash:', user.hash);
-    
+    currentUserId = userId;
+    localStorage.setItem('user_id', userId.toString());
     showEditor();
-    
-    // Загружаем ботов
-    loadBots().catch(error => {
-        console.error('❌ Error loading bots:', error);
-        alert('Ошибка при загрузке ботов: ' + error.message);
-    });
-    
-    console.log('✅ ===== AUTHENTICATION COMPLETE =====');
-};
-
-// Проверяем, что функция доступна глобально
-console.log('✅ onTelegramAuth function defined:', typeof window.onTelegramAuth);
+    loadBots();
+}
 
 function handleLogout() {
-    currentUser = null;
-    localStorage.removeItem('telegram_user');
+    currentUserId = null;
+    localStorage.removeItem('user_id');
+    document.getElementById('user-id-input').value = '';
     location.reload();
 }
 
 function showEditor() {
     document.getElementById('login-prompt').style.display = 'none';
     document.getElementById('editor-section').style.display = 'block';
-    if (currentUser) {
-        document.getElementById('user-name').textContent = `${currentUser.first_name} ${currentUser.last_name || ''}`.trim();
-        document.getElementById('user-info').style.display = 'flex';
-        document.getElementById('telegram-login').style.display = 'none';
+    
+    const authSection = document.getElementById('auth-section');
+    const userInput = authSection.querySelector('.user-input');
+    const userInfo = document.getElementById('user-info');
+    
+    if (currentUserId) {
+        userInput.style.display = 'none';
+        userInfo.style.display = 'flex';
+        document.getElementById('user-id-display').textContent = currentUserId;
+    } else {
+        userInput.style.display = 'flex';
+        userInfo.style.display = 'none';
     }
 }
 
 // Загрузка списка ботов
 async function loadBots() {
-    if (!currentUser) return;
+    if (!currentUserId) return;
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/bots?user_id=${currentUser.id}`, {
-            headers: {
-                'Authorization': `Bearer ${currentUser.hash}`,
-            },
-        });
+        const response = await fetch(`${API_BASE_URL}/api/bots?user_id=${currentUserId}`);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -194,11 +132,7 @@ async function handleLoadSchema() {
     try {
         showLoading('Загрузка схемы...');
         
-        const response = await fetch(`${API_BASE_URL}/api/bot/${currentBotId}/schema`, {
-            headers: {
-                'Authorization': `Bearer ${currentUser.hash}`,
-            },
-        });
+        const response = await fetch(`${API_BASE_URL}/api/bot/${currentBotId}/schema?user_id=${currentUserId}`);
 
         if (!response.ok) {
             if (response.status === 404) {
@@ -243,11 +177,10 @@ async function handleSave() {
             return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/api/bot/${currentBotId}/schema`, {
+        const response = await fetch(`${API_BASE_URL}/api/bot/${currentBotId}/schema?user_id=${currentUserId}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentUser.hash}`,
             },
             body: JSON.stringify(schema),
         });

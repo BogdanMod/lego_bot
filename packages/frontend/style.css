@@ -41,6 +41,31 @@ header h1 {
     gap: 15px;
 }
 
+.user-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-input label {
+    font-weight: 500;
+    color: #555;
+}
+
+.user-input input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.user-input input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
 #telegram-login {
     min-height: 40px;
     min-width: 200px;
