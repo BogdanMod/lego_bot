@@ -32,11 +32,15 @@ function checkTelegramWidget() {
                 console.log('Iframe src:', iframe.src);
             } else {
                 console.warn('Telegram Widget iframe not found. Widget may not be initialized.');
+                console.warn('Possible reasons:');
+                console.warn('1. Domain not set in @BotFather');
+                console.warn('2. Script not loaded (check Network tab)');
+                console.warn('3. Domain mismatch (current domain:', window.location.hostname, ')');
             }
         } else {
             console.error('Telegram login widget element not found!');
         }
-    }, 2000); // Ждем 2 секунды для загрузки виджета
+    }, 3000); // Ждем 3 секунды для загрузки виджета
 }
 
 function initializeApp() {
