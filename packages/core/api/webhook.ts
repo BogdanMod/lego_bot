@@ -17,7 +17,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // @ts-ignore - dist файлы могут не иметь типов
     let coreModule;
     try {
-      coreModule = require('../dist/index');
+      // Путь зависит от того, где находится файл после компиляции
+      // Если файл в dist/api/webhook.js, то путь к dist/index.js будет ../index
+      // Если файл в api/webhook.js (Vercel компилирует автоматически), то путь будет ../dist/index
+      coreModule = require('../dist/index') || require('../index');
       console.log('✅ Core module loaded');
     } catch (importError: any) {
       console.error('❌ Failed to import core module:', importError);
