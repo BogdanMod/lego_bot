@@ -8,7 +8,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@dialogue-constructor/shared': path.resolve(__dirname, '../shared/src'),
     },
+  },
+  optimizeDeps: {
+    include: ['@dialogue-constructor/shared'],
   },
   server: {
     port: 5174,
