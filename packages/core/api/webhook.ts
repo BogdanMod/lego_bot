@@ -101,5 +101,7 @@ const handler = async (req: any, res: any) => {
     // Всегда возвращаем 200 для Telegram, чтобы не было повторных запросов
     return res.status(200).json({ ok: true, error: error?.message });
   }
-}
+};
+
+module.exports = handler;
 
