@@ -526,6 +526,12 @@ if (process.env.VERCEL !== '1') {
 export default app;
 module.exports = app; // Also export as CommonJS for compatibility
 
+// Export botInstance for webhook endpoint
+export { botInstance };
+if (typeof module !== 'undefined') {
+  (module.exports as any).botInstance = botInstance;
+}
+
 // Graceful shutdown
 async function shutdown() {
   console.log('Shutting down gracefully...');
