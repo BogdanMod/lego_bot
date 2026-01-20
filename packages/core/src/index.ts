@@ -73,6 +73,31 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Webhook endpoint для основного бота (должен быть ДО express.json() для raw body)
+// Регистрируем сразу, но обработчик будет работать только если botInstance инициализирован
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req: Request, res: Response) => {
+  try {
+    // Проверяем, что бот инициализирован
+    if (!botInstance) {
+      console.error('❌ Bot instance not initialized in webhook handler');
+      return res.status(503).json({ error: 'Bot not initialized' });
+    }
+    
+    const update = JSON.parse(req.body.toString());
+    console.log('📨 Webhook received:', {
+      updateId: update.update_id,
+      type: update.message ? 'message' : update.callback_query ? 'callback_query' : 'unknown',
+    });
+    
+    await botInstance.handleUpdate(update);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error('❌ Webhook error:', error);
+    // Всегда возвращаем 200 для Telegram, чтобы не было повторных запросов
+    res.status(200).json({ ok: true });
+  }
+});
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -485,24 +510,8 @@ if (!botToken) {
   } else {
     console.log('🔗 Bot configured for webhook mode (Vercel serverless)');
     console.log('📡 Webhook endpoint: /api/webhook');
-    console.log('⚠️  Не забудьте настроить webhook через Telegram API или команду /setup_webhook');
-    
-    // Webhook endpoint для основного бота (только на Vercel)
-    app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req: Request, res: Response) => {
-      try {
-        if (!botInstance) {
-          console.error('Bot instance not initialized');
-          return res.status(503).json({ error: 'Bot not initialized' });
-        }
-        
-        const update = JSON.parse(req.body.toString());
-        await botInstance.handleUpdate(update);
-        res.status(200).json({ ok: true });
-      } catch (error) {
-        console.error('Webhook error:', error);
-        res.status(200).json({ ok: true }); // Всегда возвращаем 200 для Telegram
-      }
-    });
+    console.log('⚠️  Не забудьте настроить webhook через Telegram API');
+    console.log('💡 Используйте: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://lego-bot-core.vercel.app/api/webhook');
   }
 }
 
