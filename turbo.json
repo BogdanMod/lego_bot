@@ -9,6 +9,10 @@
     "@dialogue-constructor/frontend#build": {
       "outputs": []
     },
+    "@dialogue-constructor/mini-app#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true
