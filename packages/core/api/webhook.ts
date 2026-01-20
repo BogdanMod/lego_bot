@@ -1,8 +1,8 @@
 // Vercel Serverless Function для Telegram Webhook
 // Отдельный endpoint для /api/webhook
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+// Используем CommonJS для совместимости с Vercel
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+const handler = async (req: any, res: any) => {
   // Логируем сразу в начале - это поможет понять, вызывается ли функция
   console.log('🚀 Webhook handler called');
   console.log('Method:', req.method);
