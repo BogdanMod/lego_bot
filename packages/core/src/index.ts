@@ -168,7 +168,10 @@ async function requireUserId(req: Request, res: Response, next: Function) {
 app.get('/api/bots', requireUserId as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
+    console.log('📋 GET /api/bots - userId:', userId);
+    
     const bots = await getBotsByUserId(userId);
+    console.log('✅ Found bots:', bots.length);
     
     // Убираем токены из ответа
     const safeBots = bots.map(bot => ({
@@ -179,10 +182,16 @@ app.get('/api/bots', requireUserId as any, async (req: Request, res: Response) =
       created_at: bot.created_at,
     }));
     
+    console.log('✅ Returning safe bots:', safeBots.length);
     res.json(safeBots);
   } catch (error) {
-    console.error('Error fetching bots:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Error fetching bots:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 });
 

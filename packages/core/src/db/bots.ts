@@ -51,20 +51,34 @@ export async function createBot(data: CreateBotData): Promise<Bot> {
  * Получить всех ботов пользователя
  */
 export async function getBotsByUserId(userId: number): Promise<Bot[]> {
-  const client = await getPostgresClient();
+  console.log('🔍 getBotsByUserId - userId:', userId);
   
   try {
-    const result = await client.query<Bot>(
-      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, created_at, updated_at
-       FROM bots
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId]
-    );
+    const client = await getPostgresClient();
+    console.log('✅ PostgreSQL client obtained');
     
-    return result.rows;
-  } finally {
-    client.release();
+    try {
+      const result = await client.query<Bot>(
+        `SELECT id, user_id, token, name, webhook_set, schema, schema_version, created_at, updated_at
+         FROM bots
+         WHERE user_id = $1
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+      
+      console.log('✅ Query executed, rows:', result.rows.length);
+      return result.rows;
+    } catch (queryError) {
+      console.error('❌ Query error:', queryError);
+      throw queryError;
+    } finally {
+      client.release();
+      console.log('✅ PostgreSQL client released');
+    }
+  } catch (error) {
+    console.error('❌ getBotsByUserId error:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+    throw error;
   }
 }
 

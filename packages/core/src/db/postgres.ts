@@ -38,15 +38,28 @@ export function initPostgres(): Pool {
 }
 
 export async function getPostgresClient(): Promise<PoolClient> {
+  console.log('🔌 getPostgresClient - pool exists:', !!pool);
+  
   if (!pool) {
+    console.log('📦 Initializing PostgreSQL pool...');
     initPostgres();
   }
   
   if (!pool) {
+    console.error('❌ PostgreSQL pool is not initialized');
     throw new Error('PostgreSQL pool is not initialized');
   }
 
-  return pool.connect();
+  try {
+    console.log('🔗 Connecting to PostgreSQL...');
+    const client = await pool.connect();
+    console.log('✅ PostgreSQL client connected');
+    return client;
+  } catch (error) {
+    console.error('❌ Error connecting to PostgreSQL:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+    throw error;
+  }
 }
 
 export function closePostgres(): Promise<void> {
