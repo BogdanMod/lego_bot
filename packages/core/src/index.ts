@@ -37,25 +37,40 @@ let dbInitializationPromise: Promise<void> | null = null;
 
 async function initializeDatabases() {
   if (dbInitialized) {
+    console.log('✅ Databases already initialized');
     return;
   }
   
   if (dbInitializationPromise) {
+    console.log('⏳ Database initialization in progress, waiting...');
     return dbInitializationPromise;
   }
   
   console.log('🔧 Initializing databases...');
+  console.log('📊 Environment variables:');
+  console.log('  DATABASE_URL:', process.env.DATABASE_URL ? `${process.env.DATABASE_URL.substring(0, 20)}...` : 'NOT SET');
+  console.log('  REDIS_URL:', process.env.REDIS_URL ? `${process.env.REDIS_URL.substring(0, 20)}...` : 'NOT SET');
+  
   dbInitializationPromise = (async () => {
     try {
+      console.log('🔌 Initializing PostgreSQL...');
       initPostgres();
-      initRedis();
+      console.log('✅ PostgreSQL initialized');
       
+      console.log('🔌 Initializing Redis...');
+      initRedis();
+      console.log('✅ Redis initialized');
+      
+      console.log('📋 Initializing bots table...');
       // Инициализация таблицы bots
       await initializeBotsTable();
       console.log('✅ Database tables initialized');
       dbInitialized = true;
+      console.log('✅ All databases initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize databases:', error);
+      console.error('Error type:', error?.constructor?.name);
+      console.error('Error message:', error instanceof Error ? error.message : String(error));
       console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
       dbInitializationPromise = null; // Reset to allow retry
       throw error;
@@ -68,14 +83,30 @@ async function initializeDatabases() {
 // Middleware для проверки инициализации БД
 async function ensureDatabasesInitialized(req: Request, res: Response, next: Function) {
   try {
+    console.log('🔍 ensureDatabasesInitialized - checking DB initialization...');
+    console.log('📊 DB initialized flag:', dbInitialized);
+    
     await initializeDatabases();
+    console.log('✅ Databases initialized, proceeding with request');
     next();
   } catch (error) {
     console.error('❌ Database initialization error in middleware:', error);
+    console.error('Error type:', error?.constructor?.name);
+    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+    
+    // Логируем переменные окружения (без секретов)
+    console.log('🔍 Environment check:');
+    console.log('  DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+    console.log('  REDIS_URL:', process.env.REDIS_URL ? 'SET' : 'NOT SET');
+    console.log('  VERCEL:', process.env.VERCEL);
+    console.log('  NODE_ENV:', process.env.NODE_ENV);
+    
     res.status(503).json({ 
       error: 'Service temporarily unavailable',
       message: 'Database initialization failed',
       details: error instanceof Error ? error.message : String(error),
+      hint: 'Check Vercel logs for detailed error information',
     });
   }
 }
