@@ -187,6 +187,55 @@ export async function updateBotSchema(
 }
 
 /**
+ * SQL миграции (встроены в код для совместимости с Vercel serverless)
+ */
+const MIGRATIONS = {
+  '001_create_bots_table': `
+-- Создание таблицы bots
+CREATE TABLE IF NOT EXISTS bots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id BIGINT NOT NULL,
+    token TEXT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Индекс для быстрого поиска по user_id
+CREATE INDEX IF NOT EXISTS idx_bots_user_id ON bots(user_id);
+
+-- Индекс для поиска по token (для проверки уникальности)
+CREATE INDEX IF NOT EXISTS idx_bots_token ON bots(token);
+
+-- Комментарии к таблице
+COMMENT ON TABLE bots IS 'Таблица для хранения информации о созданных ботах';
+COMMENT ON COLUMN bots.id IS 'Уникальный идентификатор бота (UUID)';
+COMMENT ON COLUMN bots.user_id IS 'Telegram ID пользователя, создавшего бота';
+COMMENT ON COLUMN bots.token IS 'Токен бота (зашифрованный)';
+COMMENT ON COLUMN bots.name IS 'Название бота';
+`,
+  '002_add_webhook_set_column': `
+-- Добавление поля webhook_set в таблицу bots
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS webhook_set BOOLEAN DEFAULT FALSE;
+
+-- Комментарий к полю
+COMMENT ON COLUMN bots.webhook_set IS 'Флаг, указывающий, настроен ли webhook для бота';
+`,
+  '003_add_schema_fields': `
+-- Добавление полей для хранения схемы бота
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS schema JSONB DEFAULT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS schema_version INTEGER DEFAULT 0;
+
+-- Комментарии к полям
+COMMENT ON COLUMN bots.schema IS 'JSON схема диалогов бота (состояния, сообщения, кнопки)';
+COMMENT ON COLUMN bots.schema_version IS 'Версия схемы для контроля изменений';
+
+-- Индекс для поиска по schema (GIN индекс для JSONB)
+CREATE INDEX IF NOT EXISTS idx_bots_schema ON bots USING GIN (schema);
+`,
+};
+
+/**
  * Инициализация таблицы bots (создание таблицы если не существует)
  */
 export async function initializeBotsTable(): Promise<void> {
@@ -195,28 +244,30 @@ export async function initializeBotsTable(): Promise<void> {
     throw new Error('PostgreSQL pool is not initialized');
   }
 
-  const fs = require('fs');
-  const path = require('path');
-  
-  // Применяем все миграции
-  const migrations = [
-    '001_create_bots_table.sql',
-    '002_add_webhook_set_column.sql',
-    '003_add_schema_fields.sql',
+  // Применяем все миграции (встроены в код для совместимости с Vercel serverless)
+  const migrationKeys = [
+    '001_create_bots_table',
+    '002_add_webhook_set_column',
+    '003_add_schema_fields',
   ];
   
-  for (const migrationFile of migrations) {
+  for (const migrationKey of migrationKeys) {
     try {
-      const migrationPath = path.join(__dirname, 'migrations', migrationFile);
-      const migrationSQL = fs.readFileSync(migrationPath, 'utf-8');
+      const migrationSQL = MIGRATIONS[migrationKey as keyof typeof MIGRATIONS];
+      if (!migrationSQL) {
+        throw new Error(`Migration ${migrationKey} not found`);
+      }
+      
       await pool.query(migrationSQL);
-      console.log(`✅ Migration applied: ${migrationFile}`);
+      console.log(`✅ Migration applied: ${migrationKey}`);
     } catch (error: any) {
       // Если ошибка связана с тем, что поле уже существует - это нормально
       if (error?.message?.includes('already exists') || error?.message?.includes('duplicate')) {
-        console.log(`ℹ️  Migration ${migrationFile} already applied`);
+        console.log(`ℹ️  Migration ${migrationKey} already applied`);
       } else {
-        console.error(`❌ Error applying migration ${migrationFile}:`, error);
+        console.error(`❌ Error applying migration ${migrationKey}:`, error);
+        console.error('Error message:', error?.message);
+        console.error('Error stack:', error?.stack);
         throw error;
       }
     }
