@@ -21,8 +21,7 @@ lego_bot/
 │   │   │   ├── db/                    # Работа с БД
 │   │   │   │   ├── postgres.ts        # PostgreSQL подключение
 │   │   │   │   ├── redis.ts           # Redis подключение
-│   │   │   │   ├── bots.ts            # CRUD операции для ботов
-│   │   │   │   └── migrations/        # SQL миграции
+│   │   │   │   └── bots.ts            # CRUD операции для ботов (миграции встроены в код)
 │   │   │   ├── services/
 │   │   │   │   └── telegram-webhook.ts # Telegram API для webhook
 │   │   │   └── utils/
