@@ -27,29 +27,29 @@ const app = express();
 const PORT = process.env.ROUTER_PORT || 3001;
 let server: ReturnType<typeof app.listen> | null = null;
 
-// ????????????? PostgreSQL
+// Инициализация PostgreSQL
 async function startServer() {
   try {
     await initPostgres();
-    console.log('? PostgreSQL pool initialized');
+    console.log('✅ PostgreSQL pool initialized');
   } catch (error) {
-    console.error('? Failed to initialize PostgreSQL:', error);
+    console.error('❌ Failed to initialize PostgreSQL:', error);
     if (process.env.VERCEL !== '1') {
       process.exit(1);
       return;
     }
-    console.warn('?? PostgreSQL initialization failed, continuing without exit');
+    console.warn('⚠️ PostgreSQL initialization failed, continuing without exit');
   }
 
   try {
     const redisClient = await initRedis();
     if (redisClient) {
-      console.log('? Redis initialized');
+      console.log('✅ Redis initialized');
     } else {
-      console.warn('?? Redis initialization failed, continuing without cache');
+      console.warn('⚠️ Redis initialization failed, continuing without cache');
     }
   } catch (error) {
-    console.warn('?? Redis initialization failed, continuing without cache:', error);
+    console.warn('⚠️ Redis initialization failed, continuing without cache:', error);
   }
 
   server = app.listen(PORT, () => {
@@ -320,7 +320,7 @@ app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// ???????????? ??????????????
+// Запуск сервера
 startServer().catch((error) => {
   console.error('Failed to start router server:', error);
 });
@@ -331,7 +331,7 @@ async function shutdown() {
   
   if (server) {
     server.close(() => {
-      console.log('? HTTP server closed');
+      console.log('✅ HTTP server closed');
     });
   }
   

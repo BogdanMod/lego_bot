@@ -123,7 +123,7 @@ async function connectWithRetry(
 }
 
 /**
- * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РїСѓР»Р° РїРѕРґРєР»СЋС‡РµРЅРёР№ PostgreSQL
+ * Инициализация пула подключений PostgreSQL
  */
 export async function initPostgres(): Promise<Pool> {
   if (pool) {
@@ -171,7 +171,7 @@ export async function initPostgres(): Promise<Pool> {
 }
 
 /**
- * РџРѕР»СѓС‡РёС‚СЊ РєР»РёРµРЅС‚ РёР· РїСѓР»Р°
+ * Получить клиент из пула
  */
 export async function getPostgresClient(): Promise<PoolClient> {
   const connectionString = process.env.DATABASE_URL;
@@ -206,7 +206,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
 }
 
 /**
- * РџРѕР»СѓС‡РёС‚СЊ Р±РѕС‚Р° РїРѕ ID
+ * Получить бота по ID
  */
 export async function getBotById(botId: string): Promise<Bot | null> {
   const client = await getPostgresClient();
@@ -226,7 +226,7 @@ export async function getBotById(botId: string): Promise<Bot | null> {
 }
 
 /**
- * РџРѕР»СѓС‡РёС‚СЊ СЃС…РµРјСѓ Р±РѕС‚Р°
+ * Получить схему бота
  */
 export async function getBotSchema(botId: string): Promise<BotSchema | null> {
   const bot = await getBotById(botId);
@@ -234,7 +234,7 @@ export async function getBotSchema(botId: string): Promise<BotSchema | null> {
 }
 
 /**
- * Р—Р°РєСЂС‹С‚СЊ РїСѓР» РїРѕРґРєР»СЋС‡РµРЅРёР№
+ * Закрыть пул подключений
  */
 export function closePostgres(): Promise<void> {
   if (pool) {

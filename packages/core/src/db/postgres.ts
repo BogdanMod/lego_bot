@@ -122,23 +122,23 @@ export async function initPostgres(): Promise<Pool> {
 
   const connectionInfo = getPostgresConnectionInfo(connectionString);
 
-  // Р›РѕРіРёСЂСѓРµРј С‡Р°СЃС‚Рё URL РґР»СЏ РґРёР°РіРЅРѕСЃС‚РёРєРё (Р±РµР· РїР°СЂРѕР»РµР№)
+  // Логируем части URL для диагностики (без паролей)
   if (connectionInfo) {
-    console.log('рџ”Ќ PostgreSQL connection info:');
+    console.log('📍 PostgreSQL connection info:');
     console.log('  Host:', connectionInfo.host);
     console.log('  Port:', connectionInfo.port);
     console.log('  Database:', connectionInfo.database);
     console.log('  User:', connectionInfo.user);
     console.log('  Password:', 'not logged');
   } else {
-    console.log('вљ пёЏ Could not parse DATABASE_URL (might be invalid format)');
+    console.log('⚠️ Could not parse DATABASE_URL (might be invalid format)');
   }
 
   const candidatePool = new Pool({
     connectionString,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000, // РЈРІРµР»РёС‡РёРІР°РµРј timeout РґР»СЏ РґРёР°РіРЅРѕСЃС‚РёРєРё
+    connectionTimeoutMillis: 5000, // Увеличиваем timeout для диагностики
   });
 
   candidatePool.on('error', (err) => {
@@ -167,17 +167,17 @@ export async function initPostgres(): Promise<Pool> {
 }
 
 export async function getPostgresClient(): Promise<PoolClient> {
-  console.log('рџ”Њ getPostgresClient - pool exists:', !!pool);
+  console.log('🔊 getPostgresClient - pool exists:', !!pool);
   const connectionString = process.env.DATABASE_URL;
   const connectionInfo = connectionString ? getPostgresConnectionInfo(connectionString) : null;
   
   if (!pool) {
-    console.log('рџ“¦ Initializing PostgreSQL pool...');
+    console.log('📦 Initializing PostgreSQL pool...');
     await initPostgres();
   }
   
   if (!pool) {
-    console.error('вќЊ PostgreSQL pool is not initialized');
+    console.error('❌ PostgreSQL pool is not initialized');
     throw new Error('PostgreSQL pool is not initialized');
   }
 
@@ -188,9 +188,9 @@ export async function getPostgresClient(): Promise<PoolClient> {
   }
 
   try {
-    console.log('рџ”— Connecting to PostgreSQL...');
+    console.log('🔗 Connecting to PostgreSQL...');
     const client = await pool.connect();
-    console.log('вњ… PostgreSQL client connected');
+    console.log('✅ PostgreSQL client connected');
     return client;
   } catch (error) {
     logConnectionError('postgres', error, {

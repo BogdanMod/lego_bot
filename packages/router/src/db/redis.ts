@@ -199,7 +199,7 @@ async function connectRedisWithRetry(
 }
 
 /**
- * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Redis РєР»РёРµРЅС‚Р°
+ * Инициализация Redis клиента
  */
 export async function initRedis(): Promise<RedisClientType | null> {
   if (redisClient && redisClient.isReady) {
@@ -233,7 +233,7 @@ export async function initRedis(): Promise<RedisClientType | null> {
 }
 
 /**
- * РџРѕР»СѓС‡РёС‚СЊ Redis РєР»РёРµРЅС‚
+ * Получить Redis клиент
  */
 export async function getRedisClient(): Promise<RedisClientType> {
   if (!redisClient || !redisClient.isReady) {
@@ -262,18 +262,18 @@ export async function getRedisClientOptional(): Promise<RedisClientType | null> 
 }
 
 /**
- * Р—Р°РєСЂС‹С‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ СЃ Redis
+ * Закрыть соединение с Redis
  */
 export async function closeRedis(): Promise<void> {
   if (redisClient) {
-    console.log('рџ›‘ Closing Redis connection...');
+    console.log('🛑 Closing Redis connection...');
     await redisClient.quit();
     redisClient = null;
   }
 }
 
 /**
- * РџРѕР»СѓС‡РёС‚СЊ С‚РµРєСѓС‰РµРµ СЃРѕСЃС‚РѕСЏРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+ * Получить текущее состояние пользователя
  */
 export async function getUserState(botId: string, userId: number): Promise<string | null> {
   const client = await getRedisClientOptional();
@@ -294,7 +294,7 @@ export async function getUserState(botId: string, userId: number): Promise<strin
 }
 
 /**
- * РЈСЃС‚Р°РЅРѕРІРёС‚СЊ СЃРѕСЃС‚РѕСЏРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+ * Установить состояние пользователя
  */
 export async function setUserState(botId: string, userId: number, state: string): Promise<void> {
   const client = await getRedisClientOptional();
@@ -306,7 +306,7 @@ export async function setUserState(botId: string, userId: number, state: string)
   const key = `bot:${botId}:user:${userId}:state`;
   
   try {
-    // РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј СЃРѕСЃС‚РѕСЏРЅРёРµ СЃ TTL 30 РґРЅРµР№ (РІ СЃРµРєСѓРЅРґР°С…)
+    // Устанавливаем состояние с TTL 30 дней (в секундах)
     await client.setEx(key, 30 * 24 * 60 * 60, state);
   } catch (error) {
     console.error('Error setting user state in Redis:', error);
@@ -314,7 +314,7 @@ export async function setUserState(botId: string, userId: number, state: string)
 }
 
 /**
- * РЎР±СЂРѕСЃРёС‚СЊ СЃРѕСЃС‚РѕСЏРЅРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ
+ * Сбросить состояние пользователя
  */
 export async function resetUserState(botId: string, userId: number): Promise<void> {
   const client = await getRedisClientOptional();
