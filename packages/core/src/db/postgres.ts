@@ -1,12 +1,56 @@
 import { Pool, PoolClient } from 'pg';
+import * as vercelFunctions from '@vercel/functions';
 
 let pool: Pool | null = null;
 
-const POSTGRES_RETRY_CONFIG = {
-  maxRetries: 5,
-  initialDelayMs: 1000,
-  maxDelayMs: 10000,
+const isVercel = process.env.VERCEL === '1';
+const attachDatabasePoolAvailable =
+  isVercel && typeof (vercelFunctions as any).attachDatabasePool === 'function';
+
+export type PostgresRetryConfig = {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
 };
+
+export type PostgresPoolConfig = {
+  max: number;
+  idleTimeoutMillis: number;
+  connectionTimeoutMillis: number;
+};
+
+export function getPostgresPoolConfig(): PostgresPoolConfig {
+  return isVercel
+    ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 2000 }
+    : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
+}
+
+export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = isVercel
+  ? {
+      maxRetries: 3,
+      initialDelayMs: 500,
+      maxDelayMs: 1000,
+    }
+  : {
+      maxRetries: 5,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+    };
+
+export function getPostgresConnectRetryBudgetMs(): number {
+  const { connectionTimeoutMillis } = getPostgresPoolConfig();
+  const perAttemptBudgetMs = connectionTimeoutMillis;
+
+  let totalBackoffMs = 0;
+  let delayMs = POSTGRES_RETRY_CONFIG.initialDelayMs;
+
+  for (let attempt = 1; attempt < POSTGRES_RETRY_CONFIG.maxRetries; attempt++) {
+    totalBackoffMs += Math.min(delayMs, POSTGRES_RETRY_CONFIG.maxDelayMs);
+    delayMs = Math.min(delayMs * 2, POSTGRES_RETRY_CONFIG.maxDelayMs);
+  }
+
+  return POSTGRES_RETRY_CONFIG.maxRetries * perAttemptBudgetMs + totalBackoffMs;
+}
 
 type PostgresConnectionInfo = {
   host: string;
@@ -61,17 +105,22 @@ async function connectWithRetry(
 
   console.log('PostgreSQL connection state: connecting', {
     connection: connectionInfo,
+    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
     maxRetries: POSTGRES_RETRY_CONFIG.maxRetries,
+    initialDelayMs: POSTGRES_RETRY_CONFIG.initialDelayMs,
+    maxDelayMs: POSTGRES_RETRY_CONFIG.maxDelayMs,
   });
 
   for (let attempt = 1; attempt <= POSTGRES_RETRY_CONFIG.maxRetries; attempt++) {
     const attemptStart = Date.now();
+    const attemptStartedAt = new Date(attemptStart).toISOString();
     try {
       const result = await activePool.query('SELECT NOW()');
       const durationMs = Date.now() - attemptStart;
       const totalDurationMs = Date.now() - startTime;
       console.log('PostgreSQL connection state: connected', {
         attempt,
+        attemptStartedAt,
         durationMs,
         totalDurationMs,
         databaseTime: result.rows?.[0]?.now,
@@ -83,6 +132,7 @@ async function connectWithRetry(
       const nextDelayMs = Math.min(delayMs, POSTGRES_RETRY_CONFIG.maxDelayMs);
       logConnectionError('postgres', error, {
         attempt,
+        attemptStartedAt,
         durationMs,
         nextDelayMs: attempt < POSTGRES_RETRY_CONFIG.maxRetries ? nextDelayMs : 0,
         connection: connectionInfo,
@@ -100,6 +150,7 @@ async function connectWithRetry(
       }
       console.warn('PostgreSQL connection retry scheduled', {
         attempt,
+        attemptStartedAt,
         delayMs: nextDelayMs,
         connection: connectionInfo,
       });
@@ -120,6 +171,20 @@ export async function initPostgres(): Promise<Pool> {
     throw new Error('DATABASE_URL is not set in environment variables');
   }
 
+  const poolConfig = getPostgresPoolConfig();
+
+  const { max, idleTimeoutMillis, connectionTimeoutMillis } = poolConfig;
+  console.log('🔧 PostgreSQL pool configuration:', {
+    hasDatabaseUrl: Boolean(connectionString),
+    vercel: process.env.VERCEL,
+    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
+    vercelEnv: process.env.VERCEL_ENV,
+    poolConfig: { max, idleTimeoutMillis, connectionTimeoutMillis },
+    attachDatabasePool: attachDatabasePoolAvailable,
+    retryBudgetMs: getPostgresConnectRetryBudgetMs(),
+    retryConfig: POSTGRES_RETRY_CONFIG,
+  });
+
   const connectionInfo = getPostgresConnectionInfo(connectionString);
 
   // Логируем части URL для диагностики (без паролей)
@@ -136,9 +201,7 @@ export async function initPostgres(): Promise<Pool> {
 
   const candidatePool = new Pool({
     connectionString,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000, // Увеличиваем timeout для диагностики
+    ...poolConfig,
   });
 
   candidatePool.on('error', (err) => {
@@ -163,6 +226,11 @@ export async function initPostgres(): Promise<Pool> {
   }
 
   pool = candidatePool;
+
+  if (attachDatabasePoolAvailable) {
+    (vercelFunctions as any).attachDatabasePool(pool);
+  }
+
   return pool;
 }
 

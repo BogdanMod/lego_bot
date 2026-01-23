@@ -1,6 +1,7 @@
 import { Pool, PoolClient } from 'pg';
 
 let pool: Pool | null = null;
+const isVercel = process.env.VERCEL === '1';
 
 import { BotSchema } from '@dialogue-constructor/shared/types/bot-schema';
 
@@ -15,11 +16,17 @@ export interface Bot {
   updated_at: Date;
 }
 
-const POSTGRES_RETRY_CONFIG = {
-  maxRetries: 5,
-  initialDelayMs: 1000,
-  maxDelayMs: 10000,
-};
+const POSTGRES_RETRY_CONFIG = isVercel
+  ? {
+      maxRetries: 7,
+      initialDelayMs: 500,
+      maxDelayMs: 15000,
+    }
+  : {
+      maxRetries: 5,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+    };
 
 type PostgresConnectionInfo = {
   host: string;
@@ -74,17 +81,22 @@ async function connectWithRetry(
 
   console.log('PostgreSQL connection state: connecting', {
     connection: connectionInfo,
+    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
     maxRetries: POSTGRES_RETRY_CONFIG.maxRetries,
+    initialDelayMs: POSTGRES_RETRY_CONFIG.initialDelayMs,
+    maxDelayMs: POSTGRES_RETRY_CONFIG.maxDelayMs,
   });
 
   for (let attempt = 1; attempt <= POSTGRES_RETRY_CONFIG.maxRetries; attempt++) {
     const attemptStart = Date.now();
+    const attemptStartedAt = new Date(attemptStart).toISOString();
     try {
       const result = await activePool.query('SELECT NOW()');
       const durationMs = Date.now() - attemptStart;
       const totalDurationMs = Date.now() - startTime;
       console.log('PostgreSQL connection state: connected', {
         attempt,
+        attemptStartedAt,
         durationMs,
         totalDurationMs,
         databaseTime: result.rows?.[0]?.now,
@@ -96,6 +108,7 @@ async function connectWithRetry(
       const nextDelayMs = Math.min(delayMs, POSTGRES_RETRY_CONFIG.maxDelayMs);
       logConnectionError('postgres', error, {
         attempt,
+        attemptStartedAt,
         durationMs,
         nextDelayMs: attempt < POSTGRES_RETRY_CONFIG.maxRetries ? nextDelayMs : 0,
         connection: connectionInfo,
@@ -113,6 +126,7 @@ async function connectWithRetry(
       }
       console.warn('PostgreSQL connection retry scheduled', {
         attempt,
+        attemptStartedAt,
         delayMs: nextDelayMs,
         connection: connectionInfo,
       });
@@ -136,13 +150,25 @@ export async function initPostgres(): Promise<Pool> {
     throw new Error('DATABASE_URL is not set in environment variables');
   }
 
+  const poolConfig = isVercel
+    ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 15000 }
+    : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
+
+  const { max, idleTimeoutMillis, connectionTimeoutMillis } = poolConfig;
+  console.log('🔧 PostgreSQL pool configuration:', {
+    hasDatabaseUrl: Boolean(connectionString),
+    vercel: process.env.VERCEL,
+    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
+    vercelEnv: process.env.VERCEL_ENV,
+    poolConfig: { max, idleTimeoutMillis, connectionTimeoutMillis },
+    attachDatabasePool: false,
+  });
+
   const connectionInfo = getPostgresConnectionInfo(connectionString);
 
   const candidatePool = new Pool({
     connectionString,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    ...poolConfig,
   });
 
   candidatePool.on('error', (err) => {
