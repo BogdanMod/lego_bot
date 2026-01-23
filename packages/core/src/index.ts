@@ -3,11 +3,11 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import { Telegraf, session } from 'telegraf';
 import { Scenes } from 'telegraf';
-import { initPostgres, closePostgres } from './db/postgres';
+import { initPostgres, closePostgres, getPostgresConnectRetryBudgetMs, POSTGRES_RETRY_CONFIG } from './db/postgres';
 import { initRedis, closeRedis } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotById, updateBotSchema } from './db/bots';
 import { createBotScene } from './bot/scenes';
-import { handleStart, handleCreateBot, handleMyBots, handleHelp } from './bot/commands';
+import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
 import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
@@ -35,29 +35,97 @@ const PORT = process.env.PORT || 3000;
 let dbInitialized = false;
 let dbInitializationPromise: Promise<void> | null = null;
 let redisAvailable = true;
+let dbInitializationStage: string | null = null;
+let lastDatabaseInitialization: {
+  startedAt: string | null;
+  finishedAt: string | null;
+  success: boolean | null;
+  durationMs: number | null;
+  error: string | null;
+} = {
+  startedAt: null,
+  finishedAt: null,
+  success: null,
+  durationMs: null,
+  error: null,
+};
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, createTimeoutError: () => Error): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(createTimeoutError());
+    }, timeoutMs);
+
+    promise
+      .then(resolve, reject)
+      .finally(() => {
+        clearTimeout(timeoutId);
+      });
+  });
+}
+
+function getSafePostgresConnectionInfo(connectionString: string | undefined): Record<string, string> | null {
+  if (!connectionString) {
+    return null;
+  }
+
+  try {
+    const url = new URL(connectionString);
+    return {
+      host: url.hostname,
+      port: url.port || 'default',
+      database: url.pathname ? url.pathname.substring(1) : 'not specified',
+      user: url.username || 'not specified',
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function initializeDatabases() {
+  const isVercel = process.env.VERCEL === '1';
+  const initializationTimeoutMs = isVercel ? getPostgresConnectRetryBudgetMs() + 2000 : 0;
+
   if (dbInitialized) {
-    console.log('??? Databases already initialized');
+    console.log('✅ Databases already initialized');
     return;
   }
   
   if (dbInitializationPromise) {
-    console.log('??? Database initialization in progress, waiting...');
-    return dbInitializationPromise;
+    console.log('⏳ Database initialization in progress, waiting...');
+    return initializationTimeoutMs
+      ? withTimeout(dbInitializationPromise, initializationTimeoutMs, () => {
+          return new Error(
+            `Database initialization timed out after ${initializationTimeoutMs}ms (stage: ${dbInitializationStage || 'unknown'})`
+          );
+        })
+      : dbInitializationPromise;
   }
   
-  console.log('???? Initializing databases...');
-  console.log('???? Environment variables:');
-  console.log('  DATABASE_URL:', process.env.DATABASE_URL ? `${process.env.DATABASE_URL.substring(0, 20)}...` : 'NOT SET');
-  console.log('  REDIS_URL:', process.env.REDIS_URL ? `${process.env.REDIS_URL.substring(0, 20)}...` : 'NOT SET');
+  console.log('🚀 Initializing databases...');
+  console.log('🔧 Environment variables:');
+  console.log('  DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+  console.log('  REDIS_URL:', process.env.REDIS_URL ? 'SET' : 'NOT SET');
+  console.log('  VERCEL:', process.env.VERCEL);
+  console.log('  VERCEL_ENV:', process.env.VERCEL_ENV);
   
+  const initializationStartedAt = Date.now();
+  lastDatabaseInitialization = {
+    startedAt: new Date(initializationStartedAt).toISOString(),
+    finishedAt: null,
+    success: null,
+    durationMs: null,
+    error: null,
+  };
+  dbInitializationStage = 'postgres';
+
   dbInitializationPromise = (async () => {
     try {
-      console.log('???? Initializing PostgreSQL...');
+      console.log('🐘 Initializing PostgreSQL...');
+      const postgresStart = Date.now();
       try {
         await initPostgres();
-        console.log('??? PostgreSQL initialized');
+        console.log('✅ PostgreSQL initialized', { durationMs: Date.now() - postgresStart });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const postgresError = new Error(`PostgreSQL initialization failed: ${message}`);
@@ -65,22 +133,26 @@ async function initializeDatabases() {
         throw postgresError;
       }
       
-      console.log('???? Initializing Redis...');
+      dbInitializationStage = 'redis';
+      console.log('🔴 Initializing Redis...');
+      const redisStart = Date.now();
       try {
         const redisClient = await initRedis();
         if (redisClient) {
-          console.log('??? Redis initialized');
+          console.log('✅ Redis initialized', { durationMs: Date.now() - redisStart });
           redisAvailable = true;
         } else {
           redisAvailable = false;
-          console.warn('?????? Redis initialization failed, continuing without cache');
+          console.warn('⚠️ Redis initialization failed, continuing without cache');
         }
       } catch (error) {
         redisAvailable = false;
-        console.warn('?????? Redis initialization failed, continuing without cache:', error);
+        console.warn('⚠️ Redis initialization failed, continuing without cache:', error);
       }
 
-      console.log('???? Validating PostgreSQL connection...');
+      dbInitializationStage = 'validate_postgres';
+      console.log('🔍 Validating PostgreSQL connection...');
+      const postgresValidationStart = Date.now();
       const { getPool } = await import('./db/postgres');
       const pool = getPool();
       if (!pool) {
@@ -91,7 +163,9 @@ async function initializeDatabases() {
 
       try {
         await pool.query('SELECT 1');
-        console.log('??? PostgreSQL connection verified');
+        console.log('✅ PostgreSQL connection verified', {
+          durationMs: Date.now() - postgresValidationStart,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const postgresError = new Error(`PostgreSQL connection validation failed: ${message}`);
@@ -100,50 +174,106 @@ async function initializeDatabases() {
       }
 
       if (redisAvailable) {
+        dbInitializationStage = 'validate_redis';
         try {
+          const redisValidationStart = Date.now();
           const { getRedisClient } = await import('./db/redis');
           const redisClient = await getRedisClient();
           await redisClient.ping();
-          console.log('??? Redis connection verified');
+          console.log('✅ Redis connection verified', {
+            durationMs: Date.now() - redisValidationStart,
+          });
         } catch (error) {
           redisAvailable = false;
-          console.warn('?????? Redis ping failed, continuing without cache:', error);
+          console.warn('⚠️ Redis ping failed, continuing without cache:', error);
         }
       }
       
-      console.log('???? Initializing bots table...');
-      // ?????????????????????????? ?????????????? bots
+      dbInitializationStage = 'tables';
+      console.log('📊 Initializing bots table...');
+      const tablesStart = Date.now();
+      // Инициализируем таблицу bots
       await initializeBotsTable();
-      console.log('??? Database tables initialized');
+      console.log('✅ Database tables initialized', { durationMs: Date.now() - tablesStart });
       dbInitialized = true;
-      console.log('??? All databases initialized successfully');
+
+      const totalDurationMs = Date.now() - initializationStartedAt;
+      lastDatabaseInitialization = {
+        ...lastDatabaseInitialization,
+        finishedAt: new Date().toISOString(),
+        success: true,
+        durationMs: totalDurationMs,
+        error: null,
+      };
+      dbInitializationStage = 'done';
+      console.log('✅ All databases initialized successfully', { totalDurationMs });
     } catch (error) {
-      console.error('??? Failed to initialize databases:', error);
+      const totalDurationMs = Date.now() - initializationStartedAt;
+      const message = error instanceof Error ? error.message : String(error);
+      lastDatabaseInitialization = {
+        ...lastDatabaseInitialization,
+        finishedAt: new Date().toISOString(),
+        success: false,
+        durationMs: totalDurationMs,
+        error: message,
+      };
+      console.error('❌ Failed to initialize databases:', error);
       console.error('Error type:', error?.constructor?.name);
-      console.error('Error message:', error instanceof Error ? error.message : String(error));
+      console.error('Error message:', message);
       console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
       dbInitializationPromise = null; // Reset to allow retry
       throw error;
     }
   })();
   
-  return dbInitializationPromise;
+  return initializationTimeoutMs
+    ? withTimeout(dbInitializationPromise, initializationTimeoutMs, () => {
+        return new Error(
+          `Database initialization timed out after ${initializationTimeoutMs}ms (stage: ${dbInitializationStage || 'unknown'})`
+        );
+      })
+    : dbInitializationPromise;
 }
 
 // Middleware для проверки инициализации БД
 async function ensureDatabasesInitialized(req: Request, res: Response, next: Function) {
+  const middlewareStart = Date.now();
   try {
     console.log('🔍 ensureDatabasesInitialized - checking DB initialization...');
     console.log('📊 DB initialized flag:', dbInitialized);
     
     await initializeDatabases();
-    console.log('✅ Databases initialized, proceeding with request');
+    console.log('✅ Databases initialized, proceeding with request', {
+      durationMs: Date.now() - middlewareStart,
+    });
     next();
   } catch (error) {
+    const durationMs = Date.now() - middlewareStart;
     console.error('❌ Database initialization error in middleware:', error);
     console.error('Error type:', error?.constructor?.name);
     console.error('Error message:', error instanceof Error ? error.message : String(error));
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+
+    const postgresConnectionInfo = getSafePostgresConnectionInfo(process.env.DATABASE_URL);
+    let poolState: Record<string, unknown> = { exists: false };
+    try {
+      const { getPool } = await import('./db/postgres');
+      const pool = getPool();
+      if (pool) {
+        poolState = {
+          exists: true,
+          ended: Boolean((pool as any).ended),
+          totalCount: (pool as any).totalCount,
+          idleCount: (pool as any).idleCount,
+          waitingCount: (pool as any).waitingCount,
+        };
+      }
+    } catch (poolError) {
+      poolState = {
+        exists: 'unknown',
+        error: poolError instanceof Error ? poolError.message : String(poolError),
+      };
+    }
     
     // Логируем переменные окружения (без секретов)
     console.log('🔍 Environment check:');
@@ -151,14 +281,20 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
     console.log('  REDIS_URL:', process.env.REDIS_URL ? 'SET' : 'NOT SET');
     console.log('  VERCEL:', process.env.VERCEL);
     console.log('  NODE_ENV:', process.env.NODE_ENV);
+    console.log('🔍 PostgreSQL pool state:', poolState);
+    console.log('🔍 PostgreSQL connection info:', postgresConnectionInfo);
     const failedDatabase = (error as any)?.database || 'postgres';
+    const maxRetries = POSTGRES_RETRY_CONFIG.maxRetries;
 
     res.status(503).json({ 
       error: 'Service temporarily unavailable',
       message: 'Database initialization failed',
       database: failedDatabase,
-      details: error instanceof Error ? error.message : String(error),
-      hint: 'Check Vercel logs for detailed error information',
+      stage: dbInitializationStage,
+      attempts: maxRetries,
+      totalDurationMs: lastDatabaseInitialization.durationMs ?? durationMs,
+      lastError: error instanceof Error ? error.message : String(error),
+      recommendation: 'Retry in 5 seconds',
     });
   }
 }
@@ -267,18 +403,27 @@ app.options('*', (req: Request, res: Response) => {
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
+  const isVercel = process.env.VERCEL === '1';
+  const postgresPoolConfig = isVercel
+    ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 15000 }
+    : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
+
   const { getPool } = await import('./db/postgres');
   const { getRedisClientOptional } = await import('./db/redis');
-  
-  const health = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    databases: {
-      postgres: 'connecting',
-      redis: 'connecting',
-    },
-  };
 
+  const pool = getPool();
+  const poolInfo = pool
+    ? {
+        totalCount: (pool as any).totalCount,
+        idleCount: (pool as any).idleCount,
+        waitingCount: (pool as any).waitingCount,
+      }
+    : {
+        totalCount: 0,
+        idleCount: 0,
+        waitingCount: 0,
+      };
+  
   let postgresState: 'connecting' | 'ready' | 'error' = 'connecting';
   if (!dbInitialized) {
     postgresState = dbInitializationPromise ? 'connecting' : 'error';
@@ -295,8 +440,6 @@ app.get('/health', async (req: Request, res: Response) => {
       postgresState = 'error';
     }
   }
-
-  health.databases.postgres = postgresState;
 
   let redisState: 'connecting' | 'ready' | 'error' = 'connecting';
   if (!dbInitialized) {
@@ -317,7 +460,31 @@ app.get('/health', async (req: Request, res: Response) => {
     }
   }
 
-  health.databases.redis = redisState;
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: {
+      vercel: isVercel,
+      vercelEnv: process.env.VERCEL_ENV,
+      nodeEnv: process.env.NODE_ENV,
+    },
+    initialization: {
+      last: lastDatabaseInitialization,
+      stage: dbInitializationStage,
+      initialized: dbInitialized,
+      inProgress: Boolean(dbInitializationPromise) && !dbInitialized,
+    },
+    databases: {
+      postgres: {
+        status: postgresState,
+        pool: poolInfo,
+        poolConfig: postgresPoolConfig,
+      },
+      redis: {
+        status: redisState,
+      },
+    },
+  };
 
   if (postgresState === 'ready') {
     health.status = redisState === 'ready' ? 'ok' : 'degraded';
@@ -584,24 +751,42 @@ if (!botToken) {
         return;
       }
 
-      // Всегда используем production URL для webhook
-      // VERCEL_URL может указывать на preview deployment, поэтому игнорируем его
-      // Используем API_URL если установлен, иначе hardcode production URL
+      // Проверка прав доступа
+      // Уточнение (компромиссный режим): если `ADMIN_USER_IDS` не задан/пустой,
+      // не блокируйте команду полностью. Либо разрешите выполнение с явным предупреждением,
+      // либо применяйте настройку только для текущего чата (chat_id = ctx.chat.id) и сообщайте об этом.
+      const adminUserIds = (process.env.ADMIN_USER_IDS || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+      const userId = ctx.from?.id;
+
+      const isAllowlistConfigured = adminUserIds.length > 0;
+
+      if (isAllowlistConfigured && (!userId || !adminUserIds.includes(userId))) {
+        await ctx.reply('⛔ Недостаточно прав');
+        return;
+      }
+
       const apiUrl = process.env.API_URL || 'https://lego-bot-core.vercel.app';
       const webhookUrl = `${apiUrl}/api/webhook`;
+      const secretToken = process.env.TELEGRAM_SECRET_TOKEN;
       
-      console.log(`🔗 Setting webhook to production URL: ${webhookUrl}`);
-      console.log(`   API_URL env: ${process.env.API_URL || 'not set'}`);
-      console.log(`   VERCEL_URL env: ${process.env.VERCEL_URL || 'not set'} (ignored)`);
+      console.log(`🔗 Setting webhook to: ${webhookUrl}`);
+      console.log(`🔐 Secret token: ${secretToken ? 'SET' : 'NOT SET'}`);
 
       const { setWebhook } = await import('./services/telegram-webhook');
-      const result = await setWebhook(botToken, webhookUrl);
+      const result = await setWebhook(botToken, webhookUrl, secretToken, ['message', 'callback_query']);
 
       if (result.ok) {
         await ctx.reply(
           `✅ <b>Webhook для основного бота настроен!</b>\n\n` +
-          `🔗 URL: <code>${webhookUrl}</code>\n\n` +
-          `Теперь бот будет работать на Vercel.`,
+          `🔗 URL: <code>${webhookUrl}</code>\n` +
+          `🔐 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
+          `Теперь бот будет работать на Vercel.\n\n` +
+          (secretToken ? '' : '⚠️ Рекомендуется установить TELEGRAM_SECRET_TOKEN для безопасности.'),
           { parse_mode: 'HTML' }
         );
         console.log(`✅ Main bot webhook configured: ${webhookUrl}`);
@@ -614,6 +799,24 @@ if (!botToken) {
         `❌ Ошибка настройки webhook: ${error instanceof Error ? error.message : 'Unknown error'}`,
         { parse_mode: 'HTML' }
       );
+    }
+  });
+
+  botInstance.command('setup_miniapp', async (ctx) => {
+    try {
+      await handleSetupMiniApp(ctx as any);
+    } catch (error) {
+      console.error('Error in /setup_miniapp command:', error);
+      ctx.reply('❌ Произошла ошибка при настройке Mini App.').catch(console.error);
+    }
+  });
+
+  botInstance.command('check_webhook', async (ctx) => {
+    try {
+      await handleCheckWebhook(ctx as any);
+    } catch (error) {
+      console.error('Error in /check_webhook command:', error);
+      ctx.reply('❌ Произошла ошибка при проверке webhook.').catch(console.error);
     }
   });
 

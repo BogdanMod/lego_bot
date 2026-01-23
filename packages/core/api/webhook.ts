@@ -2,6 +2,71 @@
 // Отдельный endpoint для /api/webhook
 // Используем CommonJS для совместимости с Vercel
 
+const processedUpdateIds = new Map<number, number>();
+const inFlightUpdateIds = new Map<number, Promise<void>>();
+const PROCESSED_UPDATE_TTL_MS = 10 * 60 * 1000;
+const PROCESSED_UPDATE_MAX_SIZE = 1000;
+
+function cleanupProcessedUpdateIds() {
+  const now = Date.now();
+  for (const [updateId, timestamp] of processedUpdateIds.entries()) {
+    if (now - timestamp > PROCESSED_UPDATE_TTL_MS) {
+      processedUpdateIds.delete(updateId);
+    }
+  }
+
+  while (processedUpdateIds.size > PROCESSED_UPDATE_MAX_SIZE) {
+    const oldestKey = processedUpdateIds.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    processedUpdateIds.delete(oldestKey);
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise
+      .then(resolve, reject)
+      .finally(() => {
+        clearTimeout(timeoutId);
+      });
+  });
+}
+
+function getPostgresPoolState(): Record<string, unknown> {
+  try {
+    let postgresModule: any;
+    try {
+      postgresModule = require('../dist/db/postgres');
+    } catch {
+      postgresModule = require('../db/postgres');
+    }
+
+    const pool = typeof postgresModule.getPool === 'function' ? postgresModule.getPool() : null;
+    if (!pool) {
+      return { exists: false };
+    }
+
+    return {
+      exists: true,
+      ended: Boolean(pool.ended),
+      totalCount: pool.totalCount,
+      idleCount: pool.idleCount,
+      waitingCount: pool.waitingCount,
+    };
+  } catch (error: any) {
+    return {
+      exists: 'unknown',
+      error: error?.message || String(error),
+    };
+  }
+}
+
 const handler = async (req: any, res: any) => {
   // Логируем сразу в начале - это поможет понять, вызывается ли функция
   console.log('🚀 Webhook handler called');
@@ -11,6 +76,29 @@ const handler = async (req: any, res: any) => {
   if (req.method !== 'POST') {
     console.log('❌ Method not allowed:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Валидация Secret Token (если установлен)
+  const expectedSecretToken = process.env.TELEGRAM_SECRET_TOKEN;
+  if (expectedSecretToken) {
+    const receivedSecretTokenHeader = req.headers['x-telegram-bot-api-secret-token'];
+    const receivedSecretToken = Array.isArray(receivedSecretTokenHeader)
+      ? receivedSecretTokenHeader[0]
+      : receivedSecretTokenHeader;
+    
+    if (!receivedSecretToken) {
+      console.log('❌ Missing secret token in request');
+      return res.status(401).json({ error: 'Unauthorized: Missing secret token' });
+    }
+    
+    if (String(receivedSecretToken) !== expectedSecretToken) {
+      console.log('❌ Invalid secret token');
+      return res.status(403).json({ error: 'Forbidden: Invalid secret token' });
+    }
+    
+    console.log('✅ Secret token validated');
+  } else {
+    console.log('⚠️ Secret token validation disabled (TELEGRAM_SECRET_TOKEN not set)');
   }
 
   try {
@@ -29,8 +117,7 @@ const handler = async (req: any, res: any) => {
     } catch (importError: any) {
       console.error('❌ Failed to import core module:', importError);
       console.error('Import error stack:', importError?.stack);
-      // Всегда возвращаем 200 для Telegram
-      return res.status(200).json({ ok: true, error: 'Module import failed' });
+      return res.status(503).json({ ok: false, error: 'Module import failed' });
     }
     
     // Получаем botInstance - он должен быть экспортирован из index.ts
@@ -48,8 +135,7 @@ const handler = async (req: any, res: any) => {
       console.error('❌ Bot instance not available in webhook handler');
       console.error('Available exports:', Object.keys(coreModule));
       console.error('Module default:', typeof coreModule.default);
-      // Всегда возвращаем 200 для Telegram, чтобы не было повторных запросов
-      return res.status(200).json({ ok: true, error: 'Bot not initialized' });
+      return res.status(503).json({ ok: false, error: 'Bot not initialized' });
     }
 
     console.log('✅ Bot instance found');
@@ -73,8 +159,7 @@ const handler = async (req: any, res: any) => {
     } else {
       // Если body пустой, возможно нужно читать из stream
       console.error('❌ No body in request');
-      // Всегда возвращаем 200 для Telegram
-      return res.status(200).json({ ok: true, error: 'No body' });
+      return res.status(400).json({ ok: false, error: 'No body' });
     }
     
     console.log('📨 Webhook received:', {
@@ -82,24 +167,86 @@ const handler = async (req: any, res: any) => {
       type: update?.message ? 'message' : update?.callback_query ? 'callback_query' : 'unknown',
     });
 
-    // Обрабатываем обновление
-    try {
+    const poolStateBefore = getPostgresPoolState();
+    console.log('🔍 PostgreSQL pool state (before):', poolStateBefore);
+
+    const updateId = update?.update_id;
+
+    if (typeof updateId === 'number') {
+      cleanupProcessedUpdateIds();
+
+      if (processedUpdateIds.has(updateId)) {
+        console.log('✅ Duplicate update detected (already processed), skipping', { updateId });
+        return res.status(200).json({ ok: true, deduplicated: true });
+      }
+
+      const existingInFlight = inFlightUpdateIds.get(updateId);
+      if (existingInFlight) {
+        console.log('⏳ Duplicate update detected (in-flight), waiting', { updateId });
+        try {
+          await withTimeout(existingInFlight, 25000, `Webhook processing timed out (update_id: ${updateId})`);
+          return res.status(200).json({ ok: true, deduplicated: true });
+        } catch (inFlightError: any) {
+          console.error('❌ In-flight update failed', { updateId, error: inFlightError?.message || String(inFlightError) });
+          return res.status(503).json({ ok: false, error: 'Update processing failed (in-flight)' });
+        }
+      }
+    }
+
+    const processUpdatePromise = (async () => {
       await botInstance.handleUpdate(update);
+    })();
+
+    if (typeof updateId === 'number') {
+      inFlightUpdateIds.set(updateId, processUpdatePromise);
+    }
+
+    // Обрабатываем обновление с timeout
+    try {
+      await withTimeout(processUpdatePromise, 25000, `Webhook processing timed out (update_id: ${updateId})`);
       console.log('✅ Update processed successfully');
+
+      if (typeof updateId === 'number') {
+        processedUpdateIds.set(updateId, Date.now());
+        inFlightUpdateIds.delete(updateId);
+      }
+
+      return res.status(200).json({ ok: true });
     } catch (handleError: any) {
       console.error('❌ Error handling update:', handleError);
       console.error('Handle error stack:', handleError?.stack);
-      // Продолжаем выполнение, чтобы вернуть 200
+
+      if (typeof updateId === 'number') {
+        inFlightUpdateIds.delete(updateId);
+      }
+
+      const poolStateAfter = getPostgresPoolState();
+      console.log('🔍 PostgreSQL pool state (after):', poolStateAfter);
+
+      return res.status(503).json({ ok: false, error: handleError?.message || String(handleError) });
     }
     
-    // Всегда возвращаем 200 OK для Telegram
-    return res.status(200).json({ ok: true });
   } catch (error: any) {
     console.error('❌ Webhook error:', error);
     console.error('Error message:', error?.message);
     console.error('Error stack:', error?.stack);
-    // Всегда возвращаем 200 для Telegram, чтобы не было повторных запросов
-    return res.status(200).json({ ok: true, error: error?.message });
+    console.error('Error type:', error?.constructor?.name);
+    
+    // Логируем дополнительную информацию для диагностики
+    console.error('🔍 Request details:', {
+      method: req.method,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'x-telegram-bot-api-secret-token': req.headers['x-telegram-bot-api-secret-token'] ? 'SET' : 'NOT SET',
+      },
+      bodyLength: req.body ? req.body.length : 0,
+    });
+    
+    return res.status(503).json({ 
+      ok: false, 
+      error: error?.message || 'Internal server error',
+      timestamp: new Date().toISOString(),
+    });
   }
 };
 

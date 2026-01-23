@@ -57,3 +57,44 @@ export function getBotsListKeyboard(): InlineKeyboardMarkup {
   };
 }
 
+/**
+ * Кнопка для открытия Mini App
+ */
+export function getMiniAppKeyboard(webAppUrl: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: '🚀 Open Mini App',
+          web_app: { url: webAppUrl },
+        },
+      ],
+    ],
+  };
+}
+
+/**
+ * Главное меню с кнопкой Mini App
+ */
+export function getMainMenuWithMiniAppKeyboard(webAppUrl: string): InlineKeyboardMarkup {
+  const mainMenu = getMainMenuKeyboard();
+  const miniAppRow = [
+    {
+      text: '🚀 Open Mini App',
+      web_app: { url: webAppUrl },
+    },
+  ];
+
+  const updatedRows = [...mainMenu.inline_keyboard];
+
+  if (updatedRows.length > 1) {
+    updatedRows.splice(1, 0, miniAppRow);
+  } else {
+    updatedRows.push(miniAppRow);
+  }
+
+  return {
+    inline_keyboard: updatedRows,
+  };
+}
+
