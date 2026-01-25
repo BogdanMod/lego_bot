@@ -1,186 +1,69 @@
 import { Context } from 'telegraf';
 import { getBotById, updateBotSchema } from '../db/bots';
-import { BOT_LIMITS, BotSchema } from '@dialogue-constructor/shared';
+import { BotSchema } from '@dialogue-constructor/shared';
 import { getBackButtonKeyboard } from './keyboards';
 
 /**
  * Валидация схемы бота
  */
-type SchemaValidationError = {
-  error: string;
-  message?: string;
-  currentCount?: number;
-};
-
-type SchemaValidationResult =
-  | { valid: true }
-  | { valid: false; error: SchemaValidationError };
-
-export function validateSchemaLimits(schema: unknown): SchemaValidationResult {
+function validateSchema(schema: any): schema is BotSchema {
   if (!schema || typeof schema !== 'object') {
-    return { valid: false, error: { error: 'Invalid schema format' } };
+    return false;
   }
-
-  const schemaObj = schema as {
-    version?: unknown;
-    states?: unknown;
-    initialState?: unknown;
-  };
-
-  if (schemaObj.version !== 1) {
-    return { valid: false, error: { error: 'Invalid schema version. Must be 1' } };
+  
+  if (schema.version !== 1) {
+    return false;
   }
-
-  if (!schemaObj.states || typeof schemaObj.states !== 'object' || Array.isArray(schemaObj.states)) {
-    return { valid: false, error: { error: 'Invalid states format' } };
+  
+  if (!schema.states || typeof schema.states !== 'object') {
+    return false;
   }
-
-  if (!schemaObj.initialState || typeof schemaObj.initialState !== 'string') {
-    return { valid: false, error: { error: 'Invalid initialState' } };
+  
+  if (!schema.initialState || typeof schema.initialState !== 'string') {
+    return false;
   }
-
-  const states = schemaObj.states as Record<string, unknown>;
-
-  if (!states[schemaObj.initialState]) {
-    return { valid: false, error: { error: 'Invalid initialState' } };
+  
+  // Проверяем, что initialState существует в states
+  if (!schema.states[schema.initialState]) {
+    return false;
   }
-
-  const stateKeys = Object.keys(states);
-  if (stateKeys.length > BOT_LIMITS.MAX_SCHEMA_STATES) {
-    return {
-      valid: false,
-      error: {
-        error: 'Schema too large',
-        message: `Maximum ${BOT_LIMITS.MAX_SCHEMA_STATES} states allowed`,
-        currentCount: stateKeys.length,
-      },
-    };
-  }
-
-  for (const [stateKey, state] of Object.entries(states)) {
-    if (stateKey.length > BOT_LIMITS.MAX_STATE_KEY_LENGTH) {
-      return {
-        valid: false,
-        error: {
-          error: 'Invalid state key',
-          message: `State key "${stateKey}" exceeds maximum length of ${BOT_LIMITS.MAX_STATE_KEY_LENGTH}`,
-        },
-      };
+  
+  // Проверяем каждое состояние
+  for (const [stateKey, state] of Object.entries(schema.states)) {
+    if (typeof state !== 'object' || !state) {
+      return false;
     }
-
-    if (!state || typeof state !== 'object') {
-      return {
-        valid: false,
-        error: {
-          error: 'Invalid state format',
-          message: `State "${stateKey}" must be an object`,
-        },
-      };
-    }
-
+    
+    // Проверяем, что state имеет правильную структуру
     const stateObj = state as { message?: unknown; buttons?: unknown };
-
+    
     if (!stateObj.message || typeof stateObj.message !== 'string') {
-      return {
-        valid: false,
-        error: {
-          error: 'Invalid state.message type',
-          message: `State "${stateKey}" message must be a string`,
-        },
-      };
+      return false;
     }
-
-    if (stateObj.message.length > BOT_LIMITS.MAX_MESSAGE_LENGTH) {
-      return {
-        valid: false,
-        error: {
-          error: 'Message too long',
-          message: `Message in state "${stateKey}" exceeds Telegram limit of ${BOT_LIMITS.MAX_MESSAGE_LENGTH} characters`,
-        },
-      };
-    }
-
+    
+    // Проверяем кнопки, если они есть
     if (stateObj.buttons) {
       if (!Array.isArray(stateObj.buttons)) {
-        return {
-          valid: false,
-          error: {
-            error: 'Invalid state.buttons format',
-            message: `State "${stateKey}" buttons must be an array`,
-          },
-        };
+        return false;
       }
-
-      if (stateObj.buttons.length > BOT_LIMITS.MAX_BUTTONS_PER_STATE) {
-        return {
-          valid: false,
-          error: {
-            error: 'Too many buttons',
-            message: `State "${stateKey}" has ${stateObj.buttons.length} buttons, maximum ${BOT_LIMITS.MAX_BUTTONS_PER_STATE} allowed`,
-          },
-        };
-      }
-
+      
       for (const button of stateObj.buttons) {
-        if (!button || typeof button !== 'object') {
-          return {
-            valid: false,
-            error: {
-              error: 'Invalid button format',
-              message: `Button in state "${stateKey}" must be an object`,
-            },
-          };
-        }
-
         const buttonObj = button as { text?: unknown; nextState?: unknown };
         if (!buttonObj.text || typeof buttonObj.text !== 'string') {
-          return {
-            valid: false,
-            error: {
-              error: 'Invalid button.text type',
-              message: `Button text in state "${stateKey}" must be a string`,
-            },
-          };
+          return false;
         }
-
-        if (buttonObj.text.length > BOT_LIMITS.MAX_BUTTON_TEXT_LENGTH) {
-          return {
-            valid: false,
-            error: {
-              error: 'Button text too long',
-              message: `Button text exceeds maximum length of ${BOT_LIMITS.MAX_BUTTON_TEXT_LENGTH}`,
-            },
-          };
-        }
-
         if (!buttonObj.nextState || typeof buttonObj.nextState !== 'string') {
-          return {
-            valid: false,
-            error: {
-              error: 'Invalid button.nextState type',
-              message: `Button nextState in state "${stateKey}" must be a string`,
-            },
-          };
+          return false;
         }
-
-        if (!states[buttonObj.nextState as string]) {
-          return {
-            valid: false,
-            error: {
-              error: 'Invalid button.nextState',
-              message: `Next state "${buttonObj.nextState as string}" not found`,
-            },
-          };
+        // Проверяем, что nextState существует в states
+        if (!schema.states[buttonObj.nextState as string]) {
+          return false;
         }
       }
     }
   }
-
-  return { valid: true };
-}
-
-function validateSchema(schema: unknown): schema is BotSchema {
-  return validateSchemaLimits(schema).valid;
+  
+  return true;
 }
 
 /**
@@ -257,24 +140,22 @@ export async function handleEditSchema(ctx: Context, botId?: string, schemaJson?
     }
 
     // Валидация схемы
-    const validation = validateSchemaLimits(schema);
-    if (!validation.valid) {
-      const errorPayload = validation.error;
-      const errorLines = [
-        '❌ <b>Schema validation failed</b>',
-        `Error: ${errorPayload.error}`,
-      ];
-      if (errorPayload.message) {
-        errorLines.push(errorPayload.message);
-      }
-      if (typeof errorPayload.currentCount === 'number') {
-        errorLines.push(`Current count: ${errorPayload.currentCount}`);
-      }
-
-      await ctx.reply(errorLines.join('\n\n'), {
-        parse_mode: 'HTML',
-        reply_markup: getBackButtonKeyboard(),
-      });
+    if (!validateSchema(schema)) {
+      await ctx.reply(
+        '❌ <b>Схема невалидна</b>\n\n' +
+        'Схема должна содержать:\n' +
+        '• <code>version: 1</code>\n' +
+        '• <code>states</code> - объект с состояниями\n' +
+        '• <code>initialState</code> - начальное состояние\n\n' +
+        'Каждое состояние должно иметь:\n' +
+        '• <code>message</code> - текст сообщения\n' +
+        '• <code>buttons</code> (опционально) - массив кнопок\n\n' +
+        'Кнопки должны ссылаться на существующие состояния.',
+        {
+          parse_mode: 'HTML',
+          reply_markup: getBackButtonKeyboard(),
+        }
+      );
       return;
     }
 

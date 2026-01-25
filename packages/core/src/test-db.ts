@@ -4,12 +4,10 @@
  */
 
 import dotenv from 'dotenv';
-import { createLogger } from '@dialogue-constructor/shared';
 import { initPostgres, getPostgresClient, closePostgres } from './db/postgres';
 import { initRedis, getRedisClient, closeRedis } from './db/redis';
 
 dotenv.config();
-const logger = createLogger('core');
 
 async function testConnections() {
   console.log('🔍 Testing database connections...\n');
@@ -17,7 +15,7 @@ async function testConnections() {
   // Test PostgreSQL
   console.log('📊 Testing PostgreSQL connection...');
   try {
-    const pool = await initPostgres(logger);
+    const pool = await initPostgres();
     
     // Wait a bit for connection to establish
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -61,7 +59,7 @@ async function testConnections() {
   // Test Redis
   console.log('📦 Testing Redis connection...');
   try {
-    const redis = await initRedis(logger);
+    const redis = await initRedis();
     if (!redis) {
       throw new Error('Redis client is not initialized');
     }

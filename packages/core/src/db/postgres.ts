@@ -1,23 +1,7 @@
 import { Pool, PoolClient } from 'pg';
 import * as vercelFunctions from '@vercel/functions';
-import { CircuitBreaker, CircuitBreakerOpenError } from '@dialogue-constructor/shared';
-import type { Logger } from '@dialogue-constructor/shared';
 
 let pool: Pool | null = null;
-let logger: Logger | null = null;
-const postgresCircuitBreaker = new CircuitBreaker('postgres', {
-  failureThreshold: 5,
-  resetTimeout: 30000,
-  successThreshold: 2,
-  isFailure: (error: unknown) => {
-    const err = error as { code?: string; message?: string };
-    const code = err?.code || '';
-    const message = err?.message || '';
-    return /ECONNREFUSED|ETIMEDOUT|ECONNRESET|EPIPE|ENOTFOUND|EAI_AGAIN/i.test(code + message);
-  },
-});
-
-const postgresRetryStats = { success: 0, failure: 0 };
 
 const isVercel = process.env.VERCEL === '1';
 const attachDatabasePoolAvailable =
@@ -27,7 +11,6 @@ export type PostgresRetryConfig = {
   maxRetries: number;
   initialDelayMs: number;
   maxDelayMs: number;
-  jitterMs: number;
 };
 
 export type PostgresPoolConfig = {
@@ -38,7 +21,7 @@ export type PostgresPoolConfig = {
 
 export function getPostgresPoolConfig(): PostgresPoolConfig {
   return isVercel
-    ? { max: 2, idleTimeoutMillis: 1000, connectionTimeoutMillis: 3000 }
+    ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 2000 }
     : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
 }
 
@@ -47,13 +30,11 @@ export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = isVercel
       maxRetries: 3,
       initialDelayMs: 500,
       maxDelayMs: 1000,
-      jitterMs: 1000,
     }
   : {
       maxRetries: 5,
       initialDelayMs: 1000,
       maxDelayMs: 10000,
-      jitterMs: 2000,
     };
 
 export function getPostgresConnectRetryBudgetMs(): number {
@@ -79,8 +60,6 @@ type PostgresConnectionInfo = {
 };
 
 function getPostgresConnectionInfo(connectionString: string): PostgresConnectionInfo | null {
-  const activePool = pool;
-
   try {
     const url = new URL(connectionString);
     return {
@@ -103,14 +82,14 @@ function formatPostgresConnectionInfo(connectionInfo: PostgresConnectionInfo | n
 
 function logConnectionError(service: string, error: unknown, context: Record<string, unknown>) {
   const err = error as { code?: string; message?: string; stack?: string };
-  logger?.error({
+  console.error(`${service} connection error`, {
     timestamp: new Date().toISOString(),
     service,
     code: err?.code,
     message: err?.message || String(error),
     stack: err?.stack,
     ...context,
-  }, `${service} connection error`);
+  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -124,81 +103,64 @@ async function connectWithRetry(
   const startTime = Date.now();
   let delayMs = POSTGRES_RETRY_CONFIG.initialDelayMs;
 
-  logger?.info({
-    service: 'postgres',
+  console.log('PostgreSQL connection state: connecting', {
     connection: connectionInfo,
     environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
     maxRetries: POSTGRES_RETRY_CONFIG.maxRetries,
     initialDelayMs: POSTGRES_RETRY_CONFIG.initialDelayMs,
     maxDelayMs: POSTGRES_RETRY_CONFIG.maxDelayMs,
-    jitterMs: POSTGRES_RETRY_CONFIG.jitterMs,
-  }, 'PostgreSQL connection state: connecting');
+  });
 
   for (let attempt = 1; attempt <= POSTGRES_RETRY_CONFIG.maxRetries; attempt++) {
     const attemptStart = Date.now();
     const attemptStartedAt = new Date(attemptStart).toISOString();
     try {
       const result = await activePool.query('SELECT NOW()');
-      postgresRetryStats.success += 1;
       const durationMs = Date.now() - attemptStart;
       const totalDurationMs = Date.now() - startTime;
-      logger?.info({
-        service: 'postgres',
+      console.log('PostgreSQL connection state: connected', {
         attempt,
         attemptStartedAt,
-        duration: durationMs,
         durationMs,
         totalDurationMs,
         databaseTime: result.rows?.[0]?.now,
         connection: connectionInfo,
-      }, 'PostgreSQL connection state: connected');
+      });
       return;
     } catch (error) {
-      postgresRetryStats.failure += 1;
       const durationMs = Date.now() - attemptStart;
       const nextDelayMs = Math.min(delayMs, POSTGRES_RETRY_CONFIG.maxDelayMs);
-      const jitter = Math.random() * POSTGRES_RETRY_CONFIG.jitterMs;
-      const actualDelayMs = nextDelayMs + jitter;
       logConnectionError('postgres', error, {
-        service: 'postgres',
         attempt,
         attemptStartedAt,
-        duration: durationMs,
         durationMs,
         nextDelayMs: attempt < POSTGRES_RETRY_CONFIG.maxRetries ? nextDelayMs : 0,
-        actualDelayMs: attempt < POSTGRES_RETRY_CONFIG.maxRetries ? actualDelayMs : 0,
         connection: connectionInfo,
       });
       if (attempt === POSTGRES_RETRY_CONFIG.maxRetries) {
         const totalDurationMs = Date.now() - startTime;
-        logger?.error({
-          service: 'postgres',
+        console.error('PostgreSQL connection state: error', {
           attempts: attempt,
-          duration: totalDurationMs,
           totalDurationMs,
           connection: connectionInfo,
-        }, 'PostgreSQL connection state: error');
+        });
         throw new Error(
           `PostgreSQL connection failed after ${attempt} attempts (${formatPostgresConnectionInfo(connectionInfo)})`
         );
       }
-      logger?.warn({
-        service: 'postgres',
+      console.warn('PostgreSQL connection retry scheduled', {
         attempt,
         attemptStartedAt,
         delayMs: nextDelayMs,
-        actualDelayMs,
         connection: connectionInfo,
-      }, 'PostgreSQL connection retry scheduled');
-      await sleep(actualDelayMs);
+      });
+      await sleep(nextDelayMs);
       delayMs = Math.min(delayMs * 2, POSTGRES_RETRY_CONFIG.maxDelayMs);
     }
   }
 }
 
-export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
-  logger = loggerInstance;
-  postgresCircuitBreaker.setLogger(loggerInstance);
+export async function initPostgres(): Promise<Pool> {
   if (pool) {
     return pool;
   }
@@ -210,12 +172,9 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
   }
 
   const poolConfig = getPostgresPoolConfig();
-  const connectionInfo = getPostgresConnectionInfo(connectionString);
 
   const { max, idleTimeoutMillis, connectionTimeoutMillis } = poolConfig;
-  logger?.info({
-    service: 'postgres',
-    connection: connectionInfo,
+  console.log('🔧 PostgreSQL pool configuration:', {
     hasDatabaseUrl: Boolean(connectionString),
     vercel: process.env.VERCEL,
     environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
@@ -224,21 +183,20 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     attachDatabasePool: attachDatabasePoolAvailable,
     retryBudgetMs: getPostgresConnectRetryBudgetMs(),
     retryConfig: POSTGRES_RETRY_CONFIG,
-  }, '🔧 PostgreSQL pool configuration:');
+  });
+
+  const connectionInfo = getPostgresConnectionInfo(connectionString);
 
   // Логируем части URL для диагностики (без паролей)
   if (connectionInfo) {
-    logger?.info({
-      service: 'postgres',
-      connection: connectionInfo,
-    }, '📍 PostgreSQL connection info:');
-    logger?.info({ service: 'postgres', host: connectionInfo.host }, '  Host:');
-    logger?.info({ service: 'postgres', port: connectionInfo.port }, '  Port:');
-    logger?.info({ service: 'postgres', database: connectionInfo.database }, '  Database:');
-    logger?.info({ service: 'postgres', user: connectionInfo.user }, '  User:');
-    logger?.info({ service: 'postgres', password: 'not logged' }, '  Password:');
+    console.log('📍 PostgreSQL connection info:');
+    console.log('  Host:', connectionInfo.host);
+    console.log('  Port:', connectionInfo.port);
+    console.log('  Database:', connectionInfo.database);
+    console.log('  User:', connectionInfo.user);
+    console.log('  Password:', 'not logged');
   } else {
-    logger?.warn({ service: 'postgres' }, '⚠️ Could not parse DATABASE_URL (might be invalid format)');
+    console.log('⚠️ Could not parse DATABASE_URL (might be invalid format)');
   }
 
   const candidatePool = new Pool({
@@ -248,7 +206,6 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
 
   candidatePool.on('error', (err) => {
     logConnectionError('postgres', err, {
-      service: 'postgres',
       event: 'idle_client_error',
       connection: connectionInfo,
     });
@@ -261,7 +218,6 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       await candidatePool.end();
     } catch (endError) {
       logConnectionError('postgres', endError, {
-        service: 'postgres',
         event: 'pool_end_error',
         connection: connectionInfo,
       });
@@ -279,61 +235,33 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
 }
 
 export async function getPostgresClient(): Promise<PoolClient> {
+  console.log('🔊 getPostgresClient - pool exists:', !!pool);
   const connectionString = process.env.DATABASE_URL;
   const connectionInfo = connectionString ? getPostgresConnectionInfo(connectionString) : null;
-  logger?.info({
-    service: 'postgres',
-    connection: connectionInfo,
-    exists: Boolean(pool),
-  }, '🔊 getPostgresClient - pool exists:');
   
   if (!pool) {
-    if (!logger) {
-      throw new Error('PostgreSQL logger is not initialized');
-    }
-    logger.info({
-      service: 'postgres',
-      connection: connectionInfo,
-    }, '📦 Initializing PostgreSQL pool...');
-    await initPostgres(logger);
+    console.log('📦 Initializing PostgreSQL pool...');
+    await initPostgres();
   }
   
-  const activePool = pool;
-  if (!activePool) {
-    logger?.error({
-      service: 'postgres',
-      connection: connectionInfo,
-    }, '❌ PostgreSQL pool is not initialized');
+  if (!pool) {
+    console.error('❌ PostgreSQL pool is not initialized');
     throw new Error('PostgreSQL pool is not initialized');
   }
 
-  if ((activePool as any).ended) {
+  if ((pool as any).ended) {
     throw new Error(
       `PostgreSQL pool has been closed (${formatPostgresConnectionInfo(connectionInfo)})`
     );
   }
 
   try {
-    logger?.info({
-      service: 'postgres',
-      connection: connectionInfo,
-    }, '🔗 Connecting to PostgreSQL...');
-    const client = await postgresCircuitBreaker.execute(() => activePool.connect());
-    logger?.info({
-      service: 'postgres',
-      connection: connectionInfo,
-    }, '✅ PostgreSQL client connected');
+    console.log('🔗 Connecting to PostgreSQL...');
+    const client = await pool.connect();
+    console.log('✅ PostgreSQL client connected');
     return client;
   } catch (error) {
-    if (error instanceof CircuitBreakerOpenError) {
-      logger?.warn({
-        service: 'postgres',
-        connection: connectionInfo,
-      }, 'PostgreSQL circuit breaker open');
-      throw new Error('PostgreSQL is temporarily unavailable (circuit breaker open)');
-    }
     logConnectionError('postgres', error, {
-      service: 'postgres',
       action: 'connect',
       connection: connectionInfo,
     });
@@ -353,23 +281,4 @@ export function closePostgres(): Promise<void> {
 
 export function getPool(): Pool | null {
   return pool;
-}
-
-export function getPoolStats() {
-  if (!pool) {
-    return { totalCount: 0, idleCount: 0, waitingCount: 0 };
-  }
-  return {
-    totalCount: (pool as any).totalCount ?? 0,
-    idleCount: (pool as any).idleCount ?? 0,
-    waitingCount: (pool as any).waitingCount ?? 0,
-  };
-}
-
-export function getPostgresCircuitBreakerStats() {
-  return postgresCircuitBreaker.getStats();
-}
-
-export function getPostgresRetryStats() {
-  return { ...postgresRetryStats };
 }

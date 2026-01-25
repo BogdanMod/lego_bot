@@ -8,8 +8,6 @@ export interface Bot {
   created_at: string;
 }
 
-export type BotSummary = Bot;
-
 export interface BotWithSchema extends Bot {
   schema: BotSchema | null;
 }

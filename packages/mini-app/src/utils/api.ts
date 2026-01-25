@@ -19,7 +19,7 @@
  *     -H "Content-Type: application/json" \
  *     -d '{"version":1,"initialState":"start","states":{"start":{"message":"Test"}}}'
  */
-import { BotSummary, ApiError } from '../types';
+import { Bot, ApiError } from '../types';
 import { BotSchema } from '@dialogue-constructor/shared';
 
 function getApiUrl(): string {
@@ -58,10 +58,6 @@ function getUserId(): number | null {
   return initData?.user?.id || null;
 }
 
-function getInitData(): string | null {
-  return window.Telegram?.WebApp?.initData || null;
-}
-
 // Проверка, что приложение запущено в Telegram
 export function isTelegramWebApp(): boolean {
   return typeof window !== 'undefined' && !!window.Telegram?.WebApp;
@@ -72,15 +68,10 @@ async function apiRequest<T>(
   options?: RequestInit
 ): Promise<T> {
   const userId = getUserId();
-  const initData = getInitData();
   
   if (!userId) {
     console.error('❌ User ID not found');
     throw new Error('User ID not found. Make sure you are running in Telegram WebApp.');
-  }
-  if (!initData) {
-    console.error('❌ Telegram initData not found');
-    throw new Error('Telegram initData not found. Make sure you are running in Telegram WebApp.');
   }
 
   const apiUrl = getApiUrl();
@@ -100,7 +91,6 @@ async function apiRequest<T>(
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        'X-Telegram-Init-Data': initData,
         ...options?.headers,
       },
     });
@@ -155,18 +145,8 @@ async function apiRequest<T>(
 
 export const api = {
   // Получить список ботов
-  getBots: (params?: { limit?: number; offset?: number }): Promise<{ bots: BotSummary[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }> => {
-    const query = new URLSearchParams();
-    if (params?.limit !== undefined) {
-      query.set('limit', String(params.limit));
-    }
-    if (params?.offset !== undefined) {
-      query.set('offset', String(params.offset));
-    }
-
-    const suffix = query.toString();
-    const endpoint = suffix ? `/api/bots?${suffix}` : '/api/bots';
-    return apiRequest<{ bots: BotSummary[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(endpoint);
+  getBots: (): Promise<Bot[]> => {
+    return apiRequest<Bot[]>('/api/bots');
   },
 
   // Получить схему бота
