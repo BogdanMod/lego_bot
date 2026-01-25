@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Router Service - Webhook роутер для созданных ботов
  * 
  * Функциональность:
@@ -33,6 +33,7 @@ let appInitialized = false;
 // Router должен использовать ROUTER_PORT, чтобы не конфликтовать с core (PORT=3000)
 const PORT = process.env.ROUTER_PORT || 3001;
 let server: Server | null = null;
+const BOT_ID_FORMAT_REGEX = /^[0-9a-fA-F-]{36}$/;
 
 export function createApp(): ReturnType<typeof express> {
   if (!app) {
@@ -72,7 +73,9 @@ async function startServer() {
     logger.warn({ error }, '⚠️ Redis initialization failed, continuing without cache:');
   }
 
-  await initializeRateLimiters();
+  await initializeRateLimiters().catch((error) => {
+    logger.warn({ error }, 'Rate limiter initialization failed, continuing without exit');
+  });
   void prewarmConnections();
 
   const appInstance = createApp();
@@ -115,54 +118,71 @@ async function initializeRateLimiters() {
   }
   if (!rateLimiterInitPromise) {
     rateLimiterInitPromise = (async () => {
-      const redisClientOptional = rateLimiterRedisClient ?? await getRedisClientOptional();
-      if (redisClientOptional) {
-        logger.info({ rateLimiting: { backend: 'redis' } }, 'Rate limiting backend initialized');
-      }
-      webhookPerBotLimiter = createRateLimiter(
-        redisClientOptional,
-        logger,
-        {
-          ...RATE_LIMITS.WEBHOOK_PER_BOT,
-          keyGenerator: (req) => `bot:${req.params.botId}`,
+      try {
+        const redisClientOptional = rateLimiterRedisClient ?? await getRedisClientOptional();
+        if (redisClientOptional) {
+          logger.info({ rateLimiting: { backend: 'redis' } }, 'Rate limiting backend initialized');
         }
-      );
-      webhookGlobalLimiter = createRateLimiter(
-        redisClientOptional,
-        logger,
-        RATE_LIMITS.WEBHOOK_GLOBAL
-      );
+        webhookPerBotLimiter = createRateLimiter(
+          redisClientOptional,
+          logger,
+          {
+            ...RATE_LIMITS.WEBHOOK_PER_BOT,
+            keyGenerator: (req) => {
+              const botId = req.params?.botId;
+              if (typeof botId !== 'string' || !BOT_ID_FORMAT_REGEX.test(botId)) {
+                return 'bot:invalid';
+              }
+              return `bot:${botId}`;
+            },
+          }
+        );
+        webhookGlobalLimiter = createRateLimiter(
+          redisClientOptional,
+          logger,
+          RATE_LIMITS.WEBHOOK_GLOBAL
+        );
+      } catch (error) {
+        rateLimiterInitPromise = null;
+        logger.warn({ error }, 'Rate limiter initialization failed, continuing without exit');
+      }
     })();
   }
   return rateLimiterInitPromise;
 }
 
-const webhookGlobalLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (webhookGlobalLimiter) {
-    return webhookGlobalLimiter(req, res, next);
+const webhookGlobalLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!webhookGlobalLimiter) {
+      await initializeRateLimiters();
+    }
+    if (webhookGlobalLimiter) {
+      return webhookGlobalLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  initializeRateLimiters()
-    .then(() => {
-      if (webhookGlobalLimiter) {
-        return webhookGlobalLimiter(req, res, next);
-      }
-      next();
-    })
-    .catch(next);
 };
 
-const webhookPerBotLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (webhookPerBotLimiter) {
-    return webhookPerBotLimiter(req, res, next);
+const webhookBotIdFormatMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const botId = req.params?.botId;
+  (req as any).botIdFormatValid = typeof botId === 'string' && BOT_ID_FORMAT_REGEX.test(botId);
+  next();
+};
+
+const webhookPerBotLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!webhookPerBotLimiter) {
+      await initializeRateLimiters();
+    }
+    if (webhookPerBotLimiter) {
+      return webhookPerBotLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  initializeRateLimiters()
-    .then(() => {
-      if (webhookPerBotLimiter) {
-        return webhookPerBotLimiter(req, res, next);
-      }
-      next();
-    })
-    .catch(next);
 };
 
 function configureApp(app: ReturnType<typeof express>) {
@@ -245,6 +265,7 @@ app.get('/health', async (req: Request, res: Response) => {
 
   res.status(statusCode).json({
     status,
+    degraded: status === 'degraded',
     timestamp: new Date().toISOString(),
     service: 'router',
     databases: {
@@ -278,6 +299,7 @@ app.get('/health', async (req: Request, res: Response) => {
 // Webhook endpoint
 app.post('/webhook/:botId',
   webhookGlobalLimiterMiddleware,
+  webhookBotIdFormatMiddleware,
   webhookPerBotLimiterMiddleware,
   async (req: Request, res: Response) => {
   const { botId } = req.params;
@@ -298,7 +320,9 @@ app.post('/webhook/:botId',
 
   try {
     // Валидация botId
-    if (!botId || typeof botId !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(botId)) {
+    const botIdFormatValid = (req as any).botIdFormatValid
+      ?? (typeof botId === 'string' && BOT_ID_FORMAT_REGEX.test(botId));
+    if (!botId || typeof botId !== 'string' || !botIdFormatValid) {
       logger.error({ botId, requestId }, '❌ Invalid botId:');
       logger.info({ metric: 'webhook_error', botId, userId, updateType, requestId }, 'Webhook error');
       return res.status(400).json({ error: 'Invalid botId' });
@@ -450,7 +474,7 @@ async function handleUpdateWithSchema(
         '❌ State not found in schema'
       );
       try {
-        await answerCallbackQuery(logger, botToken, callbackQueryId, 'Ошибка: состояние не найдено');
+        await answerCallbackQuery(logger, botToken, callbackQueryId, 'Session expired, try again');
       } catch (error) {
         requestLogger.error({ botId, userId, requestId, error }, 'Failed to answer callback query');
       }

@@ -26,6 +26,7 @@ const IN_MEMORY_STATE_MAX_SIZE = 10000;
 const IN_MEMORY_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const inMemoryStates = new Map<string, { state: string; expiresAt: number }>();
 let inMemoryCleanupInterval: ReturnType<typeof setInterval> | null = null;
+let forceRedisUnavailable = false;
 
 const REDIS_RETRY_CONFIG = isVercel
   ? {
@@ -445,6 +446,9 @@ export async function getRedisClient(): Promise<AnyRedisClient> {
 }
 
 export async function getRedisClientOptional(): Promise<AnyRedisClient | null> {
+  if (forceRedisUnavailable) {
+    return null;
+  }
   if (redisCircuitBreaker.getState() === 'open') {
     return null;
   }
@@ -610,4 +614,22 @@ export function getInMemoryStateStats() {
     count: inMemoryStates.size,
     maxSize: IN_MEMORY_STATE_MAX_SIZE,
   };
+}
+
+export function resetInMemoryStateForTests(): void {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+  inMemoryStates.clear();
+  if (inMemoryCleanupInterval) {
+    clearInterval(inMemoryCleanupInterval);
+    inMemoryCleanupInterval = null;
+  }
+}
+
+export function setRedisUnavailableForTests(unavailable: boolean): void {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+  forceRedisUnavailable = unavailable;
 }

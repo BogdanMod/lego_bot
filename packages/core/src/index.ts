@@ -13,7 +13,7 @@ import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotB
 import { createBotScene } from './bot/scenes';
 import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
-import { handleEditSchema, validateSchemaLimits } from './bot/schema-commands';
+import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
 import * as crypto from 'crypto';
 import { decryptToken, encryptToken } from './utils/encryption';
@@ -423,46 +423,48 @@ async function initializeRateLimiters() {
   return rateLimiterInitPromise;
 }
 
-const apiGeneralLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (apiGeneralLimiter) {
-    return apiGeneralLimiter(req, res, next);
+const rateLimiterReady = initializeRateLimiters();
+
+const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!apiGeneralLimiter) {
+      await rateLimiterReady;
+    }
+    if (apiGeneralLimiter) {
+      return apiGeneralLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  initializeRateLimiters()
-    .then(() => {
-      if (apiGeneralLimiter) {
-        return apiGeneralLimiter(req, res, next);
-      }
-      next();
-    })
-    .catch(next);
 };
 
-const createBotLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (createBotLimiter) {
-    return createBotLimiter(req, res, next);
+const createBotLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!createBotLimiter) {
+      await rateLimiterReady;
+    }
+    if (createBotLimiter) {
+      return createBotLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  initializeRateLimiters()
-    .then(() => {
-      if (createBotLimiter) {
-        return createBotLimiter(req, res, next);
-      }
-      next();
-    })
-    .catch(next);
 };
 
-const updateSchemaLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if (updateSchemaLimiter) {
-    return updateSchemaLimiter(req, res, next);
+const updateSchemaLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!updateSchemaLimiter) {
+      await rateLimiterReady;
+    }
+    if (updateSchemaLimiter) {
+      return updateSchemaLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
   }
-  initializeRateLimiters()
-    .then(() => {
-      if (updateSchemaLimiter) {
-        return updateSchemaLimiter(req, res, next);
-      }
-      next();
-    })
-    .catch(next);
 };
 
 function configureApp(app: ReturnType<typeof express>) {
@@ -586,11 +588,11 @@ app.get('/health', async (req: Request, res: Response) => {
     }
   }
 
-  let redisState: 'connecting' | 'ready' | 'error' = 'connecting';
+  let redisState: 'connecting' | 'ready' | 'degraded' | 'error' = 'connecting';
   if (!dbInitialized) {
     redisState = dbInitializationPromise ? 'connecting' : 'error';
   } else if (!redisAvailable) {
-    redisState = 'error';
+    redisState = 'degraded';
   } else {
     try {
       const redisClient = await getRedisClientOptional();
@@ -598,7 +600,7 @@ app.get('/health', async (req: Request, res: Response) => {
         await redisClient.ping();
         redisState = 'ready';
       } else {
-        redisState = 'error';
+        redisState = 'degraded';
       }
     } catch (error) {
       redisState = 'error';
@@ -857,18 +859,20 @@ const updateSchemaHandler = async (req: Request, res: Response) => {
     const requestId = (req as any).id;
     const bot = (req as any).bot;
 
+    const stateCount = Object.keys((schema as any)?.states ?? {}).length;
+    if (stateCount > BOT_LIMITS.MAX_SCHEMA_STATES) {
+      logger.warn({ userId, botId, requestId, error: 'Schema too large', currentCount: stateCount }, 'Invalid schema');
+      return res.status(400).json({
+        error: 'Schema too large',
+        message: `Maximum ${BOT_LIMITS.MAX_SCHEMA_STATES} states allowed`,
+        currentCount: stateCount,
+      });
+    }
+
     const schemaValidation = validateBotSchema(schema);
     if (!schemaValidation.valid) {
       logger.warn({ userId, botId, requestId, errors: schemaValidation.errors }, 'Invalid schema');
       return res.status(400).json({ error: 'Invalid schema', errors: schemaValidation.errors });
-    }
-    
-    // Валидация схемы
-    const validation = validateSchemaLimits(schema);
-    if (!validation.valid) {
-      const errorPayload = validation.error;
-      logger.warn({ userId, botId, requestId, error: errorPayload.error }, 'Invalid schema');
-      return res.status(400).json(errorPayload);
     }
     
     // Обновляем схему

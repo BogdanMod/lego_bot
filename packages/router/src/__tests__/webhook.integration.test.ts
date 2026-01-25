@@ -10,6 +10,8 @@ import {
   initRedis,
   closeRedis,
   setUserState,
+  resetInMemoryStateForTests,
+  setRedisUnavailableForTests,
 } from '../db/redis';
 import { createTestPostgresPool, cleanupTestDatabase, seedTestData } from '../../../shared/src/test-utils/db-helpers';
 import { createMockBotSchema, createMockTelegramUpdate } from '../../../shared/src/test-utils/mock-factories';
@@ -58,6 +60,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await cleanupTestDatabase(pool);
   await flushRedis();
+  resetInMemoryStateForTests();
   vi.clearAllMocks();
 });
 
@@ -304,45 +307,6 @@ describe('POST /webhook/:botId rate limiting', () => {
 
 describe('POST /webhook/:botId redis fallback', () => {
   it('stores state in memory when redis is unavailable', async () => {
-    vi.resetModules();
-    const inMemoryStates = new Map<string, { state: string; expiresAt: number }>();
-
-    vi.doMock('../db/redis', async () => {
-      const actual = await vi.importActual<typeof import('../db/redis')>('../db/redis');
-      return {
-        ...actual,
-        getRedisClientOptional: vi.fn().mockResolvedValue(null),
-        initRedis: vi.fn().mockResolvedValue(null),
-        getUserState: vi.fn(async (botId: string, userId: number) => {
-          const key = `bot:${botId}:user:${userId}:state`;
-          const entry = inMemoryStates.get(key);
-          if (!entry) {
-            return null;
-          }
-          if (entry.expiresAt <= Date.now()) {
-            inMemoryStates.delete(key);
-            return null;
-          }
-          return entry.state;
-        }),
-        setUserState: vi.fn(async (botId: string, userId: number, state: string) => {
-          const key = `bot:${botId}:user:${userId}:state`;
-          inMemoryStates.set(key, { state, expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 });
-        }),
-        resetUserState: vi.fn(async (botId: string, userId: number) => {
-          const key = `bot:${botId}:user:${userId}:state`;
-          inMemoryStates.delete(key);
-        }),
-        getInMemoryStateStats: vi.fn(() => ({
-          count: inMemoryStates.size,
-          maxSize: 10000,
-        })),
-      };
-    });
-
-    const { createApp: createFallbackApp } = await import('../index');
-    const fallbackRequest = supertest(createFallbackApp());
-
     const botId = '44444444-4444-4444-4444-444444444444';
     await seedTestData(pool, [
       {
@@ -354,18 +318,18 @@ describe('POST /webhook/:botId redis fallback', () => {
         schema: createMockBotSchema(),
       },
     ]);
+    try {
+      setRedisUnavailableForTests(true);
+      const response = await sendWebhook(createMockTelegramUpdate(), webhookSecret, botId);
+      expect(response.status).toBe(200);
 
-    const response = await fallbackRequest
-      .post(`/webhook/${botId}`)
-      .set('x-telegram-bot-api-secret-token', webhookSecret)
-      .send(createMockTelegramUpdate());
-
-    expect(response.status).toBe(200);
-
-    const healthResponse = await fallbackRequest.get('/health');
-    expect(healthResponse.status).toBe(200);
-    expect(healthResponse.body.inMemoryStates.count).toBeGreaterThan(0);
-
-    vi.doUnmock('../db/redis');
+      const healthResponse = await request.get('/health');
+      expect(healthResponse.status).toBe(200);
+      expect(healthResponse.body.degraded).toBe(true);
+      expect(healthResponse.body.inMemoryStates.count).toBeGreaterThan(0);
+    } finally {
+      setRedisUnavailableForTests(false);
+      resetInMemoryStateForTests();
+    }
   });
 });

@@ -23,7 +23,8 @@ export function createTestPostgresPool(): Pool {
 export async function cleanupTestDatabase(pool?: Pool): Promise<void> {
   const client = pool ?? createTestPostgresPool();
   try {
-    await client.query('TRUNCATE TABLE bots CASCADE');
+    await client.query('TRUNCATE TABLE audit_logs CASCADE');
+    await client.query('TRUNCATE TABLE bots RESTART IDENTITY CASCADE');
   } finally {
     if (!pool) {
       await client.end();
