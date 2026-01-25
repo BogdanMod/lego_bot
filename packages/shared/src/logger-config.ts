@@ -7,9 +7,19 @@ const logFilePath = process.env.LOG_FILE_PATH || 'logs/app.log';
 const logSizeMb = process.env.LOG_SIZE_MB ?? '100';
 const logInterval = process.env.LOG_INTERVAL ?? '1d';
 const logMaxFiles = Number(process.env.LOG_MAX_FILES ?? 30);
-const logCompress = process.env.LOG_COMPRESS === 'true';
 
 const redactionPaths = ['req.headers.authorization', 'token', 'password', 'DATABASE_URL'];
+
+function mapIntervalToFrequency(interval: string): string | number {
+  const normalized = interval.toLowerCase();
+  if (normalized === '1d' || normalized === 'daily') return 'daily';
+  if (normalized === '1h' || normalized === 'hourly') return 'hourly';
+
+  const ms = parseInt(interval, 10);
+  if (!isNaN(ms)) return ms;
+
+  return 'daily';
+}
 
 export function getLoggerConfig(): LoggerOptions {
   const redact = {
@@ -19,14 +29,16 @@ export function getLoggerConfig(): LoggerOptions {
   const fileTransport = logToFile
     ? {
         transport: {
-          target: 'pino-rotating-file-roll',
+          target: 'pino-roll',
           options: {
             file: logFilePath,
-            size: `${logSizeMb}M`,
-            interval: logInterval,
-            maxFiles: logMaxFiles,
+            size: logSizeMb,
+            frequency: mapIntervalToFrequency(logInterval),
+            limit: {
+              count: logMaxFiles,
+            },
             mkdir: true,
-            compress: logCompress,
+            // compress не поддерживается в pino-roll
           },
         },
       }

@@ -11,13 +11,13 @@ export interface TelegramUpdate {
     message_id: number;
     from?: {
       id: number;
-      is_bot: boolean;
-      first_name: string;
+      is_bot?: boolean;
+      first_name?: string;
       username?: string;
     };
     chat: {
       id: number;
-      type: string;
+      type?: string;
     };
     text?: string;
   };
@@ -25,8 +25,8 @@ export interface TelegramUpdate {
     id: string;
     from: {
       id: number;
-      is_bot: boolean;
-      first_name: string;
+      is_bot?: boolean;
+      first_name?: string;
       username?: string;
     };
     message?: {

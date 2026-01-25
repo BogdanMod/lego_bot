@@ -1,5 +1,5 @@
 import 'express-async-errors';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { Telegraf, session } from 'telegraf';
@@ -423,7 +423,7 @@ async function initializeRateLimiters() {
   return rateLimiterInitPromise;
 }
 
-const apiGeneralLimiterMiddleware = (req: Request, res: Response, next: Function) => {
+const apiGeneralLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (apiGeneralLimiter) {
     return apiGeneralLimiter(req, res, next);
   }
@@ -437,7 +437,7 @@ const apiGeneralLimiterMiddleware = (req: Request, res: Response, next: Function
     .catch(next);
 };
 
-const createBotLimiterMiddleware = (req: Request, res: Response, next: Function) => {
+const createBotLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (createBotLimiter) {
     return createBotLimiter(req, res, next);
   }
@@ -451,7 +451,7 @@ const createBotLimiterMiddleware = (req: Request, res: Response, next: Function)
     .catch(next);
 };
 
-const updateSchemaLimiterMiddleware = (req: Request, res: Response, next: Function) => {
+const updateSchemaLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (updateSchemaLimiter) {
     return updateSchemaLimiter(req, res, next);
   }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll } from 'vitest';
-import { GenericContainer, PostgreSqlContainer, type StartedTestContainer } from 'testcontainers';
+import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { createLogger } from '@dialogue-constructor/shared';
 import { initPostgres, closePostgres } from '../db/postgres';
 import { initializeBotsTable } from '../db/bots';
@@ -15,13 +15,16 @@ if (!process.env.ENCRYPTION_KEY) {
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
-    const postgres = await new PostgreSqlContainer('postgres:15')
-      .withDatabase('test_db')
-      .withUsername('postgres')
-      .withPassword('test_password')
+    const postgres = await new GenericContainer('postgres:15')
+      .withExposedPorts(5432)
+      .withEnvironment({
+        POSTGRES_DB: 'test_db',
+        POSTGRES_USER: 'postgres',
+        POSTGRES_PASSWORD: 'test_password',
+      })
       .start();
     postgresContainer = postgres;
-    process.env.DATABASE_URL = postgres.getConnectionUri();
+    process.env.DATABASE_URL = `postgresql://postgres:test_password@${postgres.getHost()}:${postgres.getMappedPort(5432)}/test_db`;
   }
 
   if (!process.env.REDIS_URL) {

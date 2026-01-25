@@ -1,11 +1,14 @@
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import type { RedisClientType } from 'redis';
 import type { Logger } from '../logger';
 import { RATE_LIMITS } from '../constants/limits';
 
+type RateLimitRedisClient = {
+  sendCommand: (args: string[]) => Promise<any>;
+};
+
 export function createRateLimiter(
-  redisClient: RedisClientType | null,
+  redisClient: RateLimitRedisClient | null,
   logger: Logger,
   config: {
     windowMs: number;

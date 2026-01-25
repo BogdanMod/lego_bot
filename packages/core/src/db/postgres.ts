@@ -79,6 +79,8 @@ type PostgresConnectionInfo = {
 };
 
 function getPostgresConnectionInfo(connectionString: string): PostgresConnectionInfo | null {
+  const activePool = pool;
+
   try {
     const url = new URL(connectionString);
     return {
@@ -296,7 +298,8 @@ export async function getPostgresClient(): Promise<PoolClient> {
     await initPostgres(logger);
   }
   
-  if (!pool) {
+  const activePool = pool;
+  if (!activePool) {
     logger?.error({
       service: 'postgres',
       connection: connectionInfo,
@@ -304,7 +307,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
     throw new Error('PostgreSQL pool is not initialized');
   }
 
-  if ((pool as any).ended) {
+  if ((activePool as any).ended) {
     throw new Error(
       `PostgreSQL pool has been closed (${formatPostgresConnectionInfo(connectionInfo)})`
     );
@@ -315,7 +318,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
       service: 'postgres',
       connection: connectionInfo,
     }, '🔗 Connecting to PostgreSQL...');
-    const client = await postgresCircuitBreaker.execute(() => pool.connect());
+    const client = await postgresCircuitBreaker.execute(() => activePool.connect());
     logger?.info({
       service: 'postgres',
       connection: connectionInfo,

@@ -270,8 +270,10 @@ export async function getPostgresClient(): Promise<PoolClient> {
     );
   }
 
+  const activePool = pool;
+
   try {
-    return await postgresCircuitBreaker.execute(() => pool.connect());
+    return await postgresCircuitBreaker.execute(() => activePool.connect());
   } catch (error) {
     if (error instanceof CircuitBreakerOpenError) {
       logger?.warn({ service: 'postgres', operation: 'connect' }, 'PostgreSQL circuit breaker open');

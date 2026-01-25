@@ -38,7 +38,9 @@ describe('bots CRUD operations', () => {
   describe('createBot', () => {
     it('should create bot with valid data', async () => {
       const randomBuffer = Buffer.alloc(WEBHOOK_LIMITS.SECRET_TOKEN_LENGTH, 1);
-      const randomBytesSpy = vi.spyOn(crypto, 'randomBytes').mockReturnValue(randomBuffer);
+      const randomBytesSpy = vi
+        .spyOn(crypto, 'randomBytes')
+        .mockImplementation(((size: number) => randomBuffer) as typeof crypto.randomBytes);
       const bot = {
         id: 'bot-1',
         user_id: 1,

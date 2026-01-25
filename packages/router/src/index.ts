@@ -9,7 +9,7 @@
  */
 
 import 'express-async-errors';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -137,7 +137,7 @@ async function initializeRateLimiters() {
   return rateLimiterInitPromise;
 }
 
-const webhookGlobalLimiterMiddleware = (req: Request, res: Response, next: Function) => {
+const webhookGlobalLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (webhookGlobalLimiter) {
     return webhookGlobalLimiter(req, res, next);
   }
@@ -151,7 +151,7 @@ const webhookGlobalLimiterMiddleware = (req: Request, res: Response, next: Funct
     .catch(next);
 };
 
-const webhookPerBotLimiterMiddleware = (req: Request, res: Response, next: Function) => {
+const webhookPerBotLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (webhookPerBotLimiter) {
     return webhookPerBotLimiter(req, res, next);
   }

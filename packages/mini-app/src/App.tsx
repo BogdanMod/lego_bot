@@ -16,6 +16,9 @@ declare global {
         close(): void;
         showAlert(message: string): void;
         showConfirm(message: string, callback?: (confirmed: boolean) => void): void;
+        initData?: string;
+        version?: string;
+        platform?: string;
         colorScheme: 'light' | 'dark';
         themeParams: {
           bg_color?: string;

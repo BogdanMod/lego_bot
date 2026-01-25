@@ -54,7 +54,7 @@ class ErrorBoundary extends React.Component<
 
 // Проверяем, что Telegram WebApp SDK загружен
 function waitForTelegramSDK(): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (window.Telegram?.WebApp) {
       console.log('✅ Telegram WebApp SDK loaded');
       resolve();
