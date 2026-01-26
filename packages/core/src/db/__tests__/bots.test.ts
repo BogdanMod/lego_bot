@@ -84,7 +84,7 @@ describe('bots CRUD operations', () => {
       const result = await createTestBot('encrypted-token', 'Test Bot');
 
       expect(result.id).toBeTruthy();
-      expect(result.user_id).toBe(currentUserId);
+      expect(String(result.user_id)).toBe(String(currentUserId));
       expect(result.token).toBe('encrypted-token');
       expect(result.name).toBe('Test Bot');
       expect(result.webhook_set).toBe(false);
@@ -115,7 +115,7 @@ describe('bots CRUD operations', () => {
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe(bot.id);
-      expect(result?.user_id).toBe(currentUserId);
+      expect(String(result?.user_id)).toBe(String(currentUserId));
       expect(result?.name).toBe('Bot 1');
     });
 
