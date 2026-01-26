@@ -41,14 +41,14 @@ async function cleanupRedis(botIds: string[]): Promise<void> {
 
   const keysToDelete = new Set<string>();
 
-  let cursor = '0';
+  let cursor = 0;
   do {
     const { cursor: nextCursor, keys } = await client.scan(cursor, { MATCH: `${redisKeyPrefix}*`, COUNT: 100 });
-    cursor = String(nextCursor ?? '0');
+    cursor = parseInt(String(nextCursor ?? 0), 10) || 0;
     for (const key of keys ?? []) {
       keysToDelete.add(key);
     }
-  } while (cursor !== '0');
+  } while (cursor !== 0);
 
   for (const botId of botIds) {
     keysToDelete.add(`bot:${botId}:schema`);
