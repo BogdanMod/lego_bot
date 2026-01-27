@@ -467,6 +467,136 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_request_id ON audit_logs(request_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 `,
+  '007_create_bot_users_table': `
+-- Создание таблицы bot_users
+CREATE TABLE IF NOT EXISTS bot_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL,
+    first_name TEXT,
+    last_name TEXT,
+    username TEXT,
+    phone_number TEXT,
+    email TEXT,
+    language_code TEXT,
+    first_interaction_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_interaction_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    interaction_count INTEGER NOT NULL DEFAULT 0,
+    metadata JSONB
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_users_bot_id_telegram_user_id ON bot_users(bot_id, telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_bot_users_bot_id ON bot_users(bot_id);
+CREATE INDEX IF NOT EXISTS idx_bot_users_first_interaction_at ON bot_users(first_interaction_at DESC);
+`,
+  '008_create_webhook_logs': `
+-- Создание таблицы webhook_logs
+CREATE TABLE IF NOT EXISTS webhook_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    state_key VARCHAR(100) NOT NULL,
+    telegram_user_id BIGINT NOT NULL,
+    webhook_url TEXT NOT NULL,
+    request_payload JSONB,
+    response_status INTEGER,
+    response_body TEXT,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_logs_bot_id ON webhook_logs(bot_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_logs_created_at ON webhook_logs(created_at DESC);
+`,
+  '009_create_bot_analytics': `
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS bot_analytics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL,
+    -- Idempotency: prevents duplicate inserts on Telegram webhook retries
+    source_update_id BIGINT NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    state_from VARCHAR(100),
+    state_to VARCHAR(100),
+    button_text TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Idempotency (retry-safe): one row per (bot, update, event_type)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bot_analytics_bot_update_event
+  ON bot_analytics(bot_id, source_update_id, event_type);
+
+-- Query indexes
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_bot_id ON bot_analytics(bot_id);
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_created_at ON bot_analytics(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_bot_id_created_at ON bot_analytics(bot_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_bot_event_created_at ON bot_analytics(bot_id, event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_analytics_state_to ON bot_analytics(state_to);
+`,
+  '010_create_broadcasts_tables': `
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS bot_broadcasts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    media JSONB,
+    parse_mode VARCHAR(20) DEFAULT 'HTML',
+    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+    scheduled_at TIMESTAMPTZ,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    total_recipients INTEGER DEFAULT 0,
+    sent_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcasts_bot_id ON bot_broadcasts(bot_id);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_status ON bot_broadcasts(status);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_scheduled_at ON bot_broadcasts(scheduled_at);
+
+CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    broadcast_id UUID NOT NULL REFERENCES bot_broadcasts(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    sent_at TIMESTAMPTZ,
+    sending_started_at TIMESTAMPTZ,
+    telegram_message_id BIGINT,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    click_count INTEGER NOT NULL DEFAULT 0,
+    engaged_count INTEGER NOT NULL DEFAULT 0,
+    last_engaged_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_messages_broadcast_id ON broadcast_messages(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_broadcast_messages_status ON broadcast_messages(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_broadcast_messages_broadcast_user ON broadcast_messages(broadcast_id, telegram_user_id);
+`,
+  '011_add_broadcast_message_sending_started_at': `
+ALTER TABLE broadcast_messages
+  ADD COLUMN IF NOT EXISTS sending_started_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_messages_sending_started_at
+  ON broadcast_messages(status, sending_started_at);
+`,
+  '012_add_broadcast_message_metrics': `
+ALTER TABLE broadcast_messages
+  ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT,
+  ADD COLUMN IF NOT EXISTS click_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS engaged_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_engaged_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_messages_telegram_message_id
+  ON broadcast_messages(telegram_message_id);
+`,
 };
 
 /**
@@ -486,6 +616,12 @@ export async function initializeBotsTable(): Promise<void> {
     '004_add_webhook_secret',
     '005_optimize_indexes',
     '006_create_audit_logs',
+    '007_create_bot_users_table',
+    '008_create_webhook_logs',
+    '009_create_bot_analytics',
+    '010_create_broadcasts_tables',
+    '011_add_broadcast_message_sending_started_at',
+    '012_add_broadcast_message_metrics',
   ];
   
   for (const migrationKey of migrationKeys) {

@@ -1,0 +1,253 @@
+.templates-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 16px;
+}
+
+.templates-tab {
+  border: none;
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-text-color);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.templates-tab.is-active {
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+.template-card {
+  position: relative;
+  cursor: pointer;
+}
+
+.template-card:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.template-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.template-card-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.template-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.template-card-description {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
+}
+
+.template-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.template-badge--business {
+  background: rgba(36, 129, 204, 0.16);
+  color: var(--tg-theme-link-color);
+}
+
+.template-badge--education {
+  background: rgba(34, 197, 94, 0.16);
+  color: #16a34a;
+}
+
+.template-badge--entertainment {
+  background: rgba(234, 179, 8, 0.18);
+  color: #ca8a04;
+}
+
+.template-badge--other {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--tg-theme-hint-color);
+}
+
+.template-card-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  margin-bottom: 12px;
+}
+
+.template-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.template-features li::before {
+  content: '•';
+  color: var(--tg-theme-link-color);
+  margin-right: 6px;
+}
+
+.template-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+}
+
+.template-preview {
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  width: 100%;
+  max-height: 85vh;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  padding: 20px 16px 24px;
+  overflow-y: auto;
+}
+
+.template-preview-header {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.template-preview-icon {
+  font-size: 28px;
+}
+
+.template-preview-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.template-preview-subtitle {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color);
+  margin-top: 4px;
+}
+
+.template-preview-screenshot {
+  width: 100%;
+  max-height: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--tg-theme-secondary-bg-color);
+  margin-bottom: 16px;
+}
+
+.template-preview-screenshot img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  display: block;
+}
+
+.template-preview-screenshot-placeholder {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--tg-theme-hint-color);
+}
+
+.template-preview-section {
+  margin-bottom: 16px;
+}
+
+.template-preview-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.template-preview-features {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.template-preview-features li::before {
+  content: '✔';
+  color: var(--tg-theme-link-color);
+  margin-right: 6px;
+}
+
+.template-preview-states {
+  display: grid;
+  gap: 10px;
+}
+
+.template-preview-state {
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.template-preview-state-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.template-preview-state-message {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  margin-bottom: 8px;
+}
+
+.template-preview-state-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.template-preview-button {
+  background: var(--tg-theme-bg-color);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--tg-theme-text-color);
+}
+
+.template-preview-flow {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+
+.template-preview-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.template-preview-actions .btn {
+  flex: 1;
+}

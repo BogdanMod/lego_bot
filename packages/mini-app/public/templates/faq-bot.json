@@ -1,0 +1,60 @@
+﻿{
+  "id": "faq-bot",
+  "name": "FAQ бот",
+  "description": "Ответы на частые вопросы с быстрым возвратом в меню.",
+  "category": "other",
+  "icon": "❓",
+  "preview": {
+    "features": [
+      "Категории вопросов",
+      "Готовые ответы",
+      "Быстрый возврат в меню"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Выберите тему вопроса:",
+        "buttons": [
+          { "text": "Общие", "nextState": "faq_general" },
+          { "text": "Оплата", "nextState": "faq_payments" },
+          { "text": "Доставка", "nextState": "faq_delivery" },
+          { "text": "Возвраты", "nextState": "faq_returns" },
+          { "text": "Поддержка", "nextState": "faq_support" }
+        ]
+      },
+      "faq_general": {
+        "message": "Общие вопросы: мы работаем ежедневно с 9:00 до 21:00.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "faq_payments": {
+        "message": "Оплата возможна картой, переводом или наличными.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "faq_delivery": {
+        "message": "Доставка занимает 30-60 минут в пределах города.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "faq_returns": {
+        "message": "Возврат возможен в течение 14 дней при сохранении чека.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "faq_support": {
+        "message": "Поддержка: @support или support@example.com.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      }
+    }
+  }
+}

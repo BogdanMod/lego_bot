@@ -1,0 +1,54 @@
+﻿{
+  "id": "info-bot",
+  "name": "Информационный бот",
+  "description": "Быстрый доступ к информации о компании и услугах.",
+  "category": "other",
+  "icon": "ℹ️",
+  "preview": {
+    "features": [
+      "О компании",
+      "Услуги",
+      "Контакты",
+      "FAQ"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Добро пожаловать! Чем могу помочь?",
+        "buttons": [
+          { "text": "О компании", "nextState": "about" },
+          { "text": "Услуги", "nextState": "services" },
+          { "text": "Контакты", "nextState": "contacts" },
+          { "text": "FAQ", "nextState": "faq" }
+        ]
+      },
+      "about": {
+        "message": "Мы помогаем бизнесу создавать удобные диалоги с клиентами.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "services": {
+        "message": "Наши услуги: поддержка, внедрение, консультации.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "contacts": {
+        "message": "Связаться с нами: @company или hello@example.com.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      },
+      "faq": {
+        "message": "FAQ: ответы на частые вопросы доступны в чате поддержки.",
+        "buttons": [
+          { "text": "В меню", "nextState": "start" }
+        ]
+      }
+    }
+  }
+}

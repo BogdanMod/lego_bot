@@ -3,6 +3,10 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import BotList from './pages/BotList';
 import BotEditor from './pages/BotEditor';
 import Templates from './pages/Templates';
+import Clients from './pages/Clients';
+import Integrations from './pages/Integrations';
+import Analytics from './pages/Analytics';
+import Broadcasts from './pages/Broadcasts';
 import TelegramOnly from './components/TelegramOnly';
 import { isTelegramWebApp } from './utils/api';
 import './App.css';
@@ -94,6 +98,10 @@ function App() {
       <Routes>
         <Route path="/" element={<BotList />} />
         <Route path="/bot/:id" element={<BotEditor />} />
+        <Route path="/bot/:id/clients" element={<Clients />} />
+        <Route path="/bot/:id/integrations" element={<Integrations />} />
+        <Route path="/bot/:id/analytics" element={<Analytics />} />
+        <Route path="/bot/:id/broadcasts" element={<Broadcasts />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

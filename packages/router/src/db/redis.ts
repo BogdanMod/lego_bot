@@ -27,6 +27,17 @@ const IN_MEMORY_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const inMemoryStates = new Map<string, { state: string; expiresAt: number }>();
 let inMemoryCleanupInterval: ReturnType<typeof setInterval> | null = null;
 let forceRedisUnavailable = false;
+const PENDING_INPUT_TTL_MS = 20 * 60 * 1000;
+const pendingInputs = new Map<string, { value: PendingInput; expiresAt: number }>();
+const BROADCAST_UPDATE_TTL_MS = 24 * 60 * 60 * 1000;
+const broadcastUpdateDedup = new Map<string, { expiresAt: number }>();
+
+type PendingInput = {
+  type: 'contact' | 'email';
+  nextState: string;
+  stateId: string;
+  ts: number;
+};
 
 const REDIS_RETRY_CONFIG = isVercel
   ? {
@@ -56,11 +67,37 @@ function buildStateKey(botId: string, userId: number): string {
   return `bot:${botId}:user:${userId}:state`;
 }
 
+function buildPendingInputKey(botId: string, userId: number): string {
+  return `pending_input:${botId}:${userId}`;
+}
+
+function buildBroadcastUpdateKey(botId: string, updateId: number): string {
+  return `broadcast_update:${botId}:${updateId}`;
+}
+
 function cleanupExpiredStates() {
   const now = Date.now();
   for (const [key, value] of inMemoryStates.entries()) {
     if (value.expiresAt <= now) {
       inMemoryStates.delete(key);
+    }
+  }
+}
+
+function cleanupExpiredPendingInputs() {
+  const now = Date.now();
+  for (const [key, value] of pendingInputs.entries()) {
+    if (value.expiresAt <= now) {
+      pendingInputs.delete(key);
+    }
+  }
+}
+
+function cleanupBroadcastUpdateDedup() {
+  const now = Date.now();
+  for (const [key, value] of broadcastUpdateDedup.entries()) {
+    if (value.expiresAt <= now) {
+      broadcastUpdateDedup.delete(key);
     }
   }
 }
@@ -81,6 +118,8 @@ function scheduleInMemoryCleanup() {
   }
   inMemoryCleanupInterval = setInterval(() => {
     cleanupExpiredStates();
+    cleanupExpiredPendingInputs();
+    cleanupBroadcastUpdateDedup();
   }, IN_MEMORY_CLEANUP_INTERVAL_MS);
 }
 
@@ -600,6 +639,132 @@ export async function resetUserState(botId: string, userId: number): Promise<voi
   }
 }
 
+export async function setPendingInput(
+  botId: string,
+  userId: number,
+  pending: PendingInput
+): Promise<void> {
+  const client = await getRedisClientOptional();
+  const key = buildPendingInputKey(botId, userId);
+  const payload = JSON.stringify(pending);
+  const ttlSeconds = Math.ceil(PENDING_INPUT_TTL_MS / 1000);
+  if (!client) {
+    logger?.warn({
+      service: 'redis',
+      operation: 'setPendingInput',
+      botId,
+      userId,
+      fallback: 'memory',
+    }, 'Using in-memory pending input storage');
+    scheduleInMemoryCleanup();
+    cleanupExpiredPendingInputs();
+    pendingInputs.set(key, { value: pending, expiresAt: Date.now() + PENDING_INPUT_TTL_MS });
+    return;
+  }
+
+  try {
+    await client.setEx(key, ttlSeconds, payload);
+  } catch (error) {
+    logger?.error({
+      service: 'redis',
+      operation: 'setPendingInput',
+      botId,
+      userId,
+      error,
+    }, 'Error setting pending input in Redis:');
+  }
+}
+
+export async function getPendingInput(
+  botId: string,
+  userId: number
+): Promise<PendingInput | null> {
+  const client = await getRedisClientOptional();
+  const key = buildPendingInputKey(botId, userId);
+  if (!client) {
+    cleanupExpiredPendingInputs();
+    const entry = pendingInputs.get(key);
+    if (!entry) {
+      return null;
+    }
+    if (entry.expiresAt <= Date.now()) {
+      pendingInputs.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  try {
+    const value = await client.get(key);
+    if (!value) return null;
+    return JSON.parse(value) as PendingInput;
+  } catch (error) {
+    logger?.error({
+      service: 'redis',
+      operation: 'getPendingInput',
+      botId,
+      userId,
+      error,
+    }, 'Error getting pending input from Redis:');
+    return null;
+  }
+}
+
+export async function clearPendingInput(botId: string, userId: number): Promise<void> {
+  const client = await getRedisClientOptional();
+  const key = buildPendingInputKey(botId, userId);
+  if (!client) {
+    cleanupExpiredPendingInputs();
+    pendingInputs.delete(key);
+    return;
+  }
+
+  try {
+    await client.del(key);
+  } catch (error) {
+    logger?.error({
+      service: 'redis',
+      operation: 'clearPendingInput',
+      botId,
+      userId,
+      error,
+    }, 'Error clearing pending input in Redis:');
+  }
+}
+
+export async function markBroadcastUpdateProcessed(
+  botId: string,
+  updateId: number
+): Promise<boolean> {
+  const client = await getRedisClientOptional();
+  const key = buildBroadcastUpdateKey(botId, updateId);
+  const ttlSeconds = Math.ceil(BROADCAST_UPDATE_TTL_MS / 1000);
+
+  if (!client) {
+    cleanupBroadcastUpdateDedup();
+    const entry = broadcastUpdateDedup.get(key);
+    if (entry && entry.expiresAt > Date.now()) {
+      return false;
+    }
+    broadcastUpdateDedup.set(key, { expiresAt: Date.now() + BROADCAST_UPDATE_TTL_MS });
+    return true;
+  }
+
+  try {
+    const result = await client.set(key, '1', { NX: true, EX: ttlSeconds });
+    return result === 'OK';
+  } catch (error) {
+    logger?.error({
+      service: 'redis',
+      operation: 'markBroadcastUpdateProcessed',
+      botId,
+      updateId,
+      error,
+    }, 'Error setting broadcast update dedup key');
+    return false;
+  }
+}
+
 export function getRedisCircuitBreakerStats() {
   return redisCircuitBreaker.getStats();
 }
@@ -621,6 +786,8 @@ export function resetInMemoryStateForTests(): void {
     return;
   }
   inMemoryStates.clear();
+  pendingInputs.clear();
+  broadcastUpdateDedup.clear();
   if (inMemoryCleanupInterval) {
     clearInterval(inMemoryCleanupInterval);
     inMemoryCleanupInterval = null;

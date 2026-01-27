@@ -25,10 +25,12 @@ export default function BotEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contactsCount, setContactsCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (id) {
       loadSchema();
+      loadContactsStats();
     }
   }, [id]);
 
@@ -69,6 +71,16 @@ export default function BotEditor() {
     }
   };
 
+  const loadContactsStats = async () => {
+    if (!id) return;
+    try {
+      const stats = await api.getBotUserStats(id);
+      setContactsCount(stats.total);
+    } catch {
+      setContactsCount(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="page">
@@ -87,6 +99,21 @@ export default function BotEditor() {
           <button className="btn btn-secondary" onClick={() => navigate('/')}>
             ← Назад
           </button>
+          <button className="btn btn-secondary" onClick={() => navigate(`/bot/${id}/clients`)}>
+            Клиенты
+            {contactsCount !== null ? (
+              <span className="clients-badge">{contactsCount}</span>
+            ) : null}
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate(`/bot/${id}/analytics`)}>
+            Аналитика
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate(`/bot/${id}/integrations`)}>
+            Интеграции
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate(`/bot/${id}/broadcasts`)}>
+            Рассылки
+          </button>
           <button
             className="btn btn-primary"
             onClick={handleSave}
@@ -103,8 +130,9 @@ export default function BotEditor() {
         </div>
       )}
 
-      <SchemaEditor schema={schema} onChange={setSchema} />
+      <SchemaEditor schema={schema} onChange={setSchema} botId={id} />
     </div>
   );
 }
+
 

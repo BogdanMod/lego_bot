@@ -1,15 +1,22 @@
-import 'express-async-errors';
+﻿import 'express-async-errors';
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import axios from 'axios';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 import { Telegraf, session } from 'telegraf';
 import { Scenes } from 'telegraf';
 import pinoHttp from 'pino-http';
 import { z } from 'zod';
-import { BOT_LIMITS, RATE_LIMITS, BotIdSchema, CreateBotSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateBotSchema, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
+import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateBotSchema, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, updateBotSchema, createBot, deleteBot } from './db/bots';
+import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
+import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
+import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
+import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
 import { createBotScene } from './bot/scenes';
 import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
@@ -17,10 +24,11 @@ import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
 import * as crypto from 'crypto';
 import { decryptToken, encryptToken } from './utils/encryption';
+import { processBroadcastAsync } from './services/broadcast-processor';
 
 /**
  * Core Server - Основной сервер приложения
- * 
+ *
  * Функциональность:
  * - Express API для фронтенда (/api/bots, /api/bot/:id/schema)
  * - Telegram бот (Telegraf) с командами /start, /create_bot, /my_bots, etc.
@@ -82,6 +90,98 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, createTimeoutErr
         clearTimeout(timeoutId);
       });
   });
+}
+
+const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const PHONE_REGEX = /(\+?\d[\d\s()-]{6,}\d)/g;
+
+const maskSensitive = (value: string) =>
+  value.replace(EMAIL_REGEX, '[redacted]').replace(PHONE_REGEX, '[redacted]');
+
+const parseAllowlist = (value?: string) => {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+};
+
+const isIpPrivate = (ip: string) => {
+  if (ip.includes(':')) {
+    const normalized = ip.toLowerCase();
+    return (
+      normalized === '::1' ||
+      normalized.startsWith('fe80:') ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd')
+    );
+  }
+
+  const parts = ip.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+    return false;
+  }
+
+  const [a, b] = parts;
+  if (a === 10 || a === 127 || a === 0) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  return false;
+};
+
+const isDisallowedHost = (hostname: string) => {
+  const lower = hostname.toLowerCase();
+  if (lower === 'localhost' || lower.endsWith('.localhost')) {
+    return true;
+  }
+  if (isIP(lower)) {
+    return isIpPrivate(lower);
+  }
+  return false;
+};
+
+const isAllowedByAllowlist = (hostname: string, allowlist: string[]) => {
+  if (allowlist.length === 0) {
+    return true;
+  }
+  const lower = hostname.toLowerCase();
+  return allowlist.some((domain) => lower === domain || lower.endsWith(`.${domain}`));
+};
+
+async function ensureSafeWebhookUrl(url: string): Promise<URL> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Webhook URL must use https');
+  }
+
+  const allowlist = parseAllowlist(process.env.WEBHOOK_DOMAIN_ALLOWLIST);
+  if (!isAllowedByAllowlist(parsed.hostname, allowlist)) {
+    throw new Error('Webhook URL is not in allowlist');
+  }
+
+  if (isDisallowedHost(parsed.hostname)) {
+    throw new Error('Webhook URL points to a disallowed host');
+  }
+
+  const resolved = await lookup(parsed.hostname, { all: true });
+  for (const record of resolved) {
+    if (isDisallowedHost(record.address)) {
+      throw new Error('Webhook URL resolves to a disallowed address');
+    }
+  }
+
+  return parsed;
 }
 
 function getSafePostgresConnectionInfo(connectionString: string | undefined): Record<string, string> | null {
@@ -215,7 +315,7 @@ async function initializeDatabases() {
       }
       
       dbInitializationStage = 'tables';
-      logger.info('📊 Initializing bots table...');
+      logger.info('📉 Initializing bots table...');
       const tablesStart = Date.now();
       // Инициализируем таблицу bots
       await initializeBotsTable();
@@ -289,14 +389,14 @@ async function prewarmConnections() {
 
 // Middleware для проверки инициализации БД
 async function ensureDatabasesInitialized(req: Request, res: Response, next: Function) {
-  const middlewareStart = Date.now();
   const requestId = (req as any).id;
+  const middlewareStart = Date.now();
   try {
     logger.info(
       { requestId },
       '🔍 ensureDatabasesInitialized - checking DB initialization...'
     );
-    logger.info({ requestId, dbInitialized }, '📊 DB initialized flag:');
+    logger.info({ requestId, dbInitialized }, '📉 DB initialized flag:');
     
     if (!databasesInitialized) {
       await initializeDatabases();
@@ -390,11 +490,13 @@ if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'test') {
 let apiGeneralLimiter: ReturnType<typeof createRateLimiter> | null = null;
 let createBotLimiter: ReturnType<typeof createRateLimiter> | null = null;
 let updateSchemaLimiter: ReturnType<typeof createRateLimiter> | null = null;
+let exportUsersLimiter: ReturnType<typeof createRateLimiter> | null = null;
+let createBroadcastLimiter: ReturnType<typeof createRateLimiter> | null = null;
 let rateLimiterInitPromise: Promise<void> | null = null;
 let rateLimiterReady: Promise<void> | null = null;
 
 async function initializeRateLimiters() {
-  if (apiGeneralLimiter && createBotLimiter && updateSchemaLimiter) {
+  if (apiGeneralLimiter && createBotLimiter && updateSchemaLimiter && exportUsersLimiter && createBroadcastLimiter) {
     return;
   }
   if (!rateLimiterInitPromise) {
@@ -418,6 +520,20 @@ async function initializeRateLimiters() {
         redisClientOptional,
         logger,
         RATE_LIMITS.API_UPDATE_SCHEMA
+      );
+      exportUsersLimiter = createRateLimiter(
+        redisClientOptional,
+        logger,
+        { windowMs: 60 * 60 * 1000, max: 5 }
+      );
+      createBroadcastLimiter = createRateLimiter(
+        redisClientOptional,
+        logger,
+        {
+          windowMs: 60 * 60 * 1000,
+          max: 10,
+          keyGenerator: (req) => `create_broadcast:${req.user.id}`,
+        }
       );
     })();
   }
@@ -478,6 +594,40 @@ const updateSchemaLimiterMiddleware = async (req: Request, res: Response, next: 
   }
 };
 
+const exportUsersLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!exportUsersLimiter) {
+      if (!rateLimiterReady) {
+        rateLimiterReady = initializeRateLimiters();
+      }
+      await rateLimiterReady;
+    }
+    if (exportUsersLimiter) {
+      return exportUsersLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const createBroadcastLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!createBroadcastLimiter) {
+      if (!rateLimiterReady) {
+        rateLimiterReady = initializeRateLimiters();
+      }
+      await rateLimiterReady;
+    }
+    if (createBroadcastLimiter) {
+      return createBroadcastLimiter(req, res, next);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+
 function configureApp(app: ReturnType<typeof express>) {
 app.set('trust proxy', 1);
 app.locals.getBotById = getBotById;
@@ -488,7 +638,7 @@ const MINI_APP_DEV_URL = 'http://localhost:5174';
 const MINI_APP_DEV_URL_127 = 'http://127.0.0.1:5174';
 const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
 
-logger.info('🌐 CORS configuration:');
+logger.info('🎯 CORS configuration:');
 logger.info({ value: FRONTEND_URL }, '  FRONTEND_URL:');
 logger.info({ value: MINI_APP_URL }, '  MINI_APP_URL:');
 logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
@@ -523,7 +673,6 @@ app.use(metricsMiddleware(logger));
 // Webhook endpoint для основного бота (должен быть ДО express.json() для raw body)
 // Регистрируем сразу, но обработчик будет работать только если botInstance инициализирован
 app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDatabasesInitialized as any, async (req: Request, res: Response) => {
-  const requestId = (req as any).id;
   let updateType: string | undefined;
   let userId: number | null | undefined;
   try {
@@ -569,7 +718,6 @@ app.get('/health', async (req: Request, res: Response) => {
   const postgresPoolConfig = isVercel
     ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 15000 }
     : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
-  const requestId = (req as any).id;
   logger.info({ poolConfig: postgresPoolConfig, requestId }, 'PostgreSQL pool configuration');
 
   const poolInfo = getPoolStats();
@@ -710,7 +858,6 @@ async function requireUserId(req: Request, res: Response, next: Function) {
 app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotSchema) as any, requireUserId as any, createBotLimiterMiddleware as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const requestId = (req as any).id;
     const { token, name } = req.body || {};
 
     // Проверка количества ботов пользователя
@@ -753,7 +900,6 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
       created_at: bot.created_at,
     });
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, '❌ Error creating bot:');
     res.status(500).json({
       error: 'Internal server error',
@@ -766,7 +912,6 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
 app.get('/api/bots', ensureDatabasesInitialized as any, validateQuery(PaginationSchema) as any, requireUserId as any, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const requestId = (req as any).id;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
     const cursor = (req.query.cursor as string) || undefined;
 
@@ -804,7 +949,6 @@ app.get('/api/bots', ensureDatabasesInitialized as any, validateQuery(Pagination
       },
     });
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, '❌ Error fetching bots:');
     logger.error(
       { requestId, stack: error instanceof Error ? error.stack : 'No stack' },
@@ -834,7 +978,6 @@ app.get('/api/bot/:id', ensureDatabasesInitialized as any, validateParams(z.obje
       created_at: bot.created_at,
     });
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, 'Error fetching bot:');
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -844,9 +987,9 @@ app.get('/api/bot/:id', ensureDatabasesInitialized as any, validateParams(z.obje
 app.get('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
   try {
     const bot = (req as any).bot;
-    const requestId = (req as any).id;
     const userId = (req as any).user.id;
     const botId = req.params.id;
+    const requestId = (req as any).id;
 
     if (!bot.schema) {
       logger.warn({ userId, botId, requestId }, 'Schema not found');
@@ -856,7 +999,6 @@ app.get('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams
     logger.info({ userId, botId, requestId }, 'Schema fetched');
     res.json(bot.schema);
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, 'Error fetching schema:');
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -866,8 +1008,8 @@ const updateSchemaHandler = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const botId = req.params.id;
-    const schema = req.body;
     const requestId = (req as any).id;
+    const schema = req.body;
     const bot = (req as any).bot;
 
     const stateCount = Object.keys((schema as any)?.states ?? {}).length;
@@ -920,17 +1062,438 @@ const updateSchemaHandler = async (req: Request, res: Response) => {
       schema_version: newSchemaVersion
     });
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, 'Error updating schema:');
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+const TestWebhookSchema = z.object({
+  stateKey: z.string(),
+});
+const IsoDateSchema = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+  message: 'Invalid date',
+});
+const AnalyticsEventsQuerySchema = PaginationSchema.extend({
+  event_type: z.string().optional(),
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+});
+const AnalyticsStatsQuerySchema = z.object({
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+});
+const AnalyticsPathsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+});
+const AnalyticsFunnelQuerySchema = z.object({
+  states: z.string(),
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+});
+const AnalyticsTimeSeriesQuerySchema = z.object({
+  event_type: z.string(),
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+  granularity: z.enum(['hour', 'day', 'week']).optional(),
+});
+const AnalyticsExportQuerySchema = z.object({
+  date_from: IsoDateSchema.optional(),
+  date_to: IsoDateSchema.optional(),
+});
 
 // POST /api/bot/:id/schema - обновить схему бота
 app.post('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(UpdateBotSchemaSchema) as any, requireUserId as any, requireBotOwnership() as any, updateSchemaLimiterMiddleware as any, updateSchemaHandler as any);
 // PUT /api/bot/:id/schema - обновить схему бота
 app.put('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(UpdateBotSchemaSchema) as any, requireUserId as any, requireBotOwnership() as any, updateSchemaLimiterMiddleware as any, updateSchemaHandler as any);
 
+// GET /api/bot/:id/webhooks - получить логи webhook
+app.get('/api/bot/:id/webhooks', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(PaginationSchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+    const { limit, cursor } = req.query as { limit: number; cursor?: string };
+    const result = await getWebhookLogsByBotId(botId, { limit, cursor });
+    res.json({ logs: result.logs, nextCursor: result.nextCursor, hasMore: result.hasMore });
+  } catch (error) {
+    logger.error({ requestId, error }, 'Error fetching webhook logs:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/webhooks/stats - статистика webhook
+app.get('/api/bot/:id/webhooks/stats', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+    const stats = await getWebhookStats(botId);
+    const total = stats.reduce((sum, row) => sum + row.total, 0);
+    const success = stats.reduce((sum, row) => sum + row.success_count, 0);
+    const successRate = total > 0 ? success / total : 0;
+
+    res.json({ total, successRate, states: stats });
+  } catch (error) {
+    logger.error({ requestId, error }, 'Error fetching webhook stats:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/bot/:id/test-webhook - тестовая отправка webhook
+app.post('/api/bot/:id/test-webhook', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(TestWebhookSchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+    const { stateKey } = req.body as { stateKey: string };
+    const bot = (req as any).bot;
+
+    if (!bot?.schema || !bot.schema.states?.[stateKey]) {
+      return res.status(404).json({ error: 'State not found' });
+    }
+
+    const state = bot.schema.states[stateKey];
+    if (!state.webhook?.url || !state.webhook.enabled) {
+      return res.status(400).json({ error: 'Webhook is not enabled for this state' });
+    }
+
+    await ensureSafeWebhookUrl(state.webhook.url);
+
+    const payload = {
+      bot_id: botId,
+      user_id: 0,
+      state_key: stateKey,
+      timestamp: new Date().toISOString(),
+      user: {
+        first_name: 'Test',
+        phone_number: null,
+        email: null,
+      },
+      context: {
+        previous_state: null,
+      },
+    };
+    const routerInternalUrl = process.env.ROUTER_INTERNAL_URL;
+    if (!routerInternalUrl) {
+      return res.status(500).json({ error: 'Router internal URL is not configured' });
+    }
+
+    const targetUrl = `${routerInternalUrl.replace(/\/$/, '')}/internal/test-webhook`;
+    const headers: Record<string, string> = {};
+    if (process.env.ROUTER_INTERNAL_SECRET) {
+      headers['x-internal-secret'] = process.env.ROUTER_INTERNAL_SECRET;
+    }
+
+    const response = await axios.post(
+      targetUrl,
+      { webhook: state.webhook, payload },
+      {
+        headers,
+        timeout: WEBHOOK_INTEGRATION_LIMITS.AWAIT_FIRST_ATTEMPT_TIMEOUT_MS,
+        validateStatus: () => true,
+      }
+    );
+
+    const data = response.data ?? {};
+    res.json({
+      success: Boolean(data.success),
+      status: data.status ?? response.status,
+      response: data.response ?? null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error({ requestId, error: maskSensitive(message) }, 'Error testing webhook:');
+    res.status(500).json({ error: 'Webhook test failed', message });
+  }
+});
+
+// GET /api/bot/:id/users - получить список контактов
+app.get('/api/bot/:id/users', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(PaginationSchema) as any, requireUserId as any, requireBotOwnership() as any, apiGeneralLimiterMiddleware as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+    const { limit, cursor } = req.query as { limit: number; cursor?: string };
+
+    const result = await getBotUsers(botId, userId, { limit, cursor });
+    logger.info({ metric: 'bot_users_fetched', botId, count: result.users.length, requestId }, 'Bot users fetched');
+    res.json({ users: result.users, nextCursor: result.nextCursor, hasMore: result.hasMore });
+  } catch (error) {
+    logger.error({ requestId, error }, 'Error fetching bot users:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/users/stats - статистика контактов
+app.get('/api/bot/:id/users/stats', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+
+    const stats = await getBotUserStats(botId, userId);
+    res.json(stats);
+  } catch (error) {
+    logger.error({ requestId, error }, 'Error fetching bot users stats:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/users/export - экспорт в CSV
+app.get('/api/bot/:id/users/export', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, requireUserId as any, requireBotOwnership() as any, exportUsersLimiterMiddleware as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const requestId = (req as any).id;
+
+    const csv = await exportBotUsersToCSV(botId, userId);
+    logger.info({ metric: 'bot_users_exported', botId, requestId }, 'Bot users exported');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="contacts-${botId}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error({ requestId, error }, 'Error exporting bot users:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/events - получить события
+app.get('/api/bot/:id/analytics/events', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsEventsQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { limit, cursor, event_type, date_from, date_to } = req.query as {
+      limit: number;
+      cursor?: string;
+      event_type?: string;
+      date_from?: string;
+      date_to?: string;
+    };
+    const result = await getAnalyticsEvents(botId, userId, {
+      limit,
+      cursor,
+      eventType: event_type,
+      dateFrom: date_from,
+      dateTo: date_to,
+    });
+    res.json({ events: result.events, nextCursor: result.nextCursor, hasMore: result.hasMore });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching analytics events:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/stats - получить статистику
+app.get('/api/bot/:id/analytics/stats', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsStatsQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+    const stats = await getAnalyticsStats(botId, userId, date_from, date_to);
+    res.json(stats);
+  } catch (error) {
+    logger.error({ error }, 'Error fetching analytics stats:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/paths - получить популярные пути
+app.get('/api/bot/:id/analytics/paths', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsPathsQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { limit, date_from, date_to } = req.query as { limit: number; date_from?: string; date_to?: string };
+    const paths = await getPopularPaths(botId, userId, limit, date_from, date_to);
+    res.json({ paths });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching analytics paths:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/funnel - получить данные воронки
+app.get('/api/bot/:id/analytics/funnel', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsFunnelQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { states, date_from, date_to } = req.query as { states: string; date_from?: string; date_to?: string };
+    const stateKeys = states.split(',').map((state) => state.trim()).filter(Boolean);
+    const steps = await getFunnelData(botId, userId, stateKeys, date_from, date_to);
+    res.json({ steps });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching analytics funnel:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/timeseries - получить временной ряд
+app.get('/api/bot/:id/analytics/timeseries', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsTimeSeriesQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { event_type, date_from, date_to, granularity } = req.query as {
+      event_type: string;
+      date_from?: string;
+      date_to?: string;
+      granularity?: 'hour' | 'day' | 'week';
+    };
+    const data = await getTimeSeriesData(botId, userId, event_type, date_from, date_to, granularity);
+    res.json({ data });
+  } catch (error) {
+    logger.error({ error }, 'Error fetching analytics timeseries:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/bot/:id/analytics/export - экспорт отчета
+app.get('/api/bot/:id/analytics/export', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateQuery(AnalyticsExportQuerySchema) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+    const csv = await exportAnalyticsToCSV(botId, userId, date_from, date_to);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="analytics-${botId}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    logger.error({ error }, 'Error exporting analytics:');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/bot/:id/broadcasts - создать рассылку
+app.post('/api/bot/:id/broadcasts',
+  ensureDatabasesInitialized as any,
+  validateParams(z.object({ id: BotIdSchema })) as any,
+  validateBody(CreateBroadcastSchema) as any,
+  requireUserId as any,
+  requireBotOwnership() as any,
+  createBroadcastLimiterMiddleware as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const data = req.body;
+
+    const userIds = await getBotTelegramUserIds(botId, userId);
+    const broadcast = await createBroadcast(botId, userId, {
+      ...data,
+      totalRecipients: userIds.length,
+    });
+    await createBroadcastMessages(broadcast.id, userIds);
+    logBroadcastCreated(logger, {
+      broadcastId: broadcast.id,
+      botId,
+      totalRecipients: userIds.length,
+    });
+    res.json(broadcast);
+  }
+);
+
+// GET /api/bot/:id/broadcasts - список рассылок
+app.get('/api/bot/:id/broadcasts',
+  ensureDatabasesInitialized as any,
+  validateParams(z.object({ id: BotIdSchema })) as any,
+  validateQuery(PaginationSchema) as any,
+  requireUserId as any,
+  requireBotOwnership() as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
+    const botId = req.params.id;
+    const { limit, cursor } = req.query as { limit: number; cursor?: string };
+
+    const result = await getBroadcastsByBotId(botId, userId, { limit, cursor });
+    res.json(result);
+  }
+);
+
+// GET /api/bot/:id/broadcasts/:broadcastId - детали рассылки
+app.get('/api/bot/:id/broadcasts/:broadcastId',
+  ensureDatabasesInitialized as any,
+  validateParams(z.object({ id: BotIdSchema, broadcastId: BroadcastIdSchema })) as any,
+  requireUserId as any,
+  requireBotOwnership() as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
+    const { broadcastId } = req.params;
+
+    const broadcast = await getBroadcastById(broadcastId, userId);
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    const stats = await getBroadcastStats(broadcastId);
+    res.json({ ...broadcast, stats });
+  }
+);
+
+// POST /api/bot/:id/broadcasts/:broadcastId/start - запустить рассылку
+app.post('/api/bot/:id/broadcasts/:broadcastId/start',
+  ensureDatabasesInitialized as any,
+  validateParams(z.object({ id: BotIdSchema, broadcastId: BroadcastIdSchema })) as any,
+  requireUserId as any,
+  requireBotOwnership() as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
+    const { broadcastId } = req.params;
+
+    const broadcast = await getBroadcastById(broadcastId, userId);
+    if (!broadcast || broadcast.status !== 'draft') {
+      return res.status(400).json({ error: 'Cannot start this broadcast' });
+    }
+
+    await updateBroadcast(broadcastId, { status: 'processing' });
+    processBroadcastAsync(broadcastId);
+
+    res.json({ success: true });
+  }
+);
+
+// POST /api/bot/:id/broadcasts/:broadcastId/cancel - отменить рассылку
+app.post('/api/bot/:id/broadcasts/:broadcastId/cancel',
+  ensureDatabasesInitialized as any,
+  validateParams(z.object({ id: BotIdSchema, broadcastId: BroadcastIdSchema })) as any,
+  requireUserId as any,
+  requireBotOwnership() as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).user.id;
+    const { broadcastId } = req.params;
+
+    await cancelBroadcast(broadcastId, userId);
+    res.json({ success: true });
+  }
+);
+
+// POST /api/internal/process-broadcast - internal processing trigger
+app.post('/api/internal/process-broadcast',
+  ensureDatabasesInitialized as any,
+  validateBody(z.object({ broadcastId: BroadcastIdSchema })) as any,
+  async (req: Request, res: Response) => {
+    const requestId = (req as any).id;
+    const internalSecret = process.env.CORE_INTERNAL_SECRET;
+    const providedSecret = req.headers['x-internal-secret'];
+    if (!internalSecret || providedSecret !== internalSecret) {
+      logger.warn({ requestId }, 'Unauthorized internal process-broadcast attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { broadcastId } = req.body as { broadcastId: string };
+    const broadcast = await getBroadcastById(broadcastId, null);
+    if (!broadcast) {
+      logger.warn({ requestId, broadcastId }, 'Broadcast not found for processing');
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    if (broadcast.status !== 'scheduled' && broadcast.status !== 'processing') {
+      logger.warn({ requestId, broadcastId, status: broadcast.status }, 'Broadcast status not allowed for processing');
+      return res.status(400).json({ error: 'Broadcast status not allowed' });
+    }
+
+    if (broadcast.status === 'scheduled') {
+      await updateBroadcast(broadcastId, { status: 'processing' });
+    }
+    processBroadcastAsync(broadcastId);
+    res.json({ success: true });
+  }
+);
 // DELETE /api/bot/:id - удалить бота
 app.delete('/api/bot/:id', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, requireUserId as any, requireBotOwnership() as any, async (req: Request, res: Response) => {
   try {
@@ -947,7 +1510,6 @@ app.delete('/api/bot/:id', ensureDatabasesInitialized as any, validateParams(z.o
 
     res.json({ success: true });
   } catch (error) {
-    const requestId = (req as any).id;
     logger.error({ requestId, error }, 'Error deleting bot:');
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1155,7 +1717,7 @@ if (!botToken) {
       const isAllowlistConfigured = adminUserIds.length > 0;
 
       if (isAllowlistConfigured && (!userId || !adminUserIds.includes(userId))) {
-        await ctx.reply('⛔ Недостаточно прав');
+        await ctx.reply('🛑 Недостаточно прав');
         return;
       }
 
@@ -1164,7 +1726,7 @@ if (!botToken) {
       const secretToken = process.env.TELEGRAM_SECRET_TOKEN;
       
       logger.info({ userId, command, webhookUrl }, '🔗 Setting webhook to');
-      logger.info({ userId, command, secretTokenSet: Boolean(secretToken) }, '🔐 Secret token');
+      logger.info({ userId, command, secretTokenSet: Boolean(secretToken) }, '🔒 Secret token');
 
       const { setWebhook } = await import('./services/telegram-webhook');
       const result = await setWebhook(botToken, webhookUrl, secretToken, ['message', 'callback_query']);
@@ -1173,7 +1735,7 @@ if (!botToken) {
         await ctx.reply(
           `✅ <b>Webhook для основного бота настроен!</b>\n\n` +
           `🔗 URL: <code>${webhookUrl}</code>\n` +
-          `🔐 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
+          `🔒 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
           `Теперь бот будет работать на Vercel.\n\n` +
           (secretToken ? '' : '⚠️ Рекомендуется установить TELEGRAM_SECRET_TOKEN для безопасности.'),
           { parse_mode: 'HTML' }
@@ -1332,7 +1894,7 @@ if (!botToken) {
           { id: botInfo.id, username: botInfo.username, firstName: botInfo.first_name },
           '🤖 Bot info:'
         );
-        logger.info('💬 Отправьте боту /start для проверки');
+        logger.info('💡 Отправьте боту /start для проверки');
       }).catch((error) => {
         logger.error({ error }, 'Failed to fetch bot info');
       });
@@ -1447,4 +2009,11 @@ process.on('uncaughtException', (error) => {
 
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
+
+
+
+
+
+
+
 
