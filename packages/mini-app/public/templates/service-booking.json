@@ -1,0 +1,162 @@
+﻿{
+  "id": "service-booking",
+  "name": "Р—Р°РїРёСЃСЊ РЅР° СѓСЃР»СѓРіРё",
+  "description": "Р—Р°РїРёСЃСЊ РєР»РёРµРЅС‚РѕРІ РЅР° СѓСЃР»СѓРіРё СЃ РІС‹Р±РѕСЂРѕРј РІСЂРµРјРµРЅРё Рё РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµРј. РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЃРѕР±РёСЂР°РµС‚ РєРѕРЅС‚Р°РєС‚С‹ РєР»РёРµРЅС‚РѕРІ.",
+  "category": "business",
+  "icon": "рџ“…",
+  "preview": {
+    "screenshot": "/template-screenshots/service-booking.png",
+    "features": [
+      "Р’С‹Р±РѕСЂ СѓСЃР»СѓРіРё",
+      "Р’С‹Р±РѕСЂ РІСЂРµРјРµРЅРё",
+      "РЎР±РѕСЂ РєРѕРЅС‚Р°РєС‚Р°",
+      "РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ Р·Р°РїРёСЃРё"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Р—РґСЂР°РІСЃС‚РІСѓР№С‚Рµ! Р’С‹Р±РµСЂРёС‚Рµ СѓСЃР»СѓРіСѓ:",
+        "buttons": [
+          {
+            "text": "РљРѕРЅСЃСѓР»СЊС‚Р°С†РёСЏ",
+            "nextState": "service_consult"
+          },
+          {
+            "text": "РњР°СЃСЃР°Р¶",
+            "nextState": "service_massage"
+          },
+          {
+            "text": "РњР°РЅРёРєСЋСЂ",
+            "nextState": "service_manicure"
+          }
+        ]
+      },
+      "service_consult": {
+        "message": "РљРѕРЅСЃСѓР»СЊС‚Р°С†РёСЏ СЃРїРµС†РёР°Р»РёСЃС‚Р°, РґР»РёС‚РµР»СЊРЅРѕСЃС‚СЊ 30 РјРёРЅСѓС‚.",
+        "buttons": [
+          {
+            "text": "Р’С‹Р±СЂР°С‚СЊ РІСЂРµРјСЏ",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "РќР°Р·Р°Рґ",
+            "nextState": "start"
+          }
+        ]
+      },
+      "service_massage": {
+        "message": "РњР°СЃСЃР°Р¶, РґР»РёС‚РµР»СЊРЅРѕСЃС‚СЊ 60 РјРёРЅСѓС‚.",
+        "buttons": [
+          {
+            "text": "Р’С‹Р±СЂР°С‚СЊ РІСЂРµРјСЏ",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "РќР°Р·Р°Рґ",
+            "nextState": "start"
+          }
+        ]
+      },
+      "service_manicure": {
+        "message": "РњР°РЅРёРєСЋСЂ, РґР»РёС‚РµР»СЊРЅРѕСЃС‚СЊ 45 РјРёРЅСѓС‚.",
+        "buttons": [
+          {
+            "text": "Р’С‹Р±СЂР°С‚СЊ РІСЂРµРјСЏ",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "РќР°Р·Р°Рґ",
+            "nextState": "start"
+          }
+        ]
+      },
+      "collect_contact": {
+        "message": "Р”Р»СЏ Р·Р°РїРёСЃРё РЅР°Рј РЅСѓР¶РµРЅ РІР°С€ РЅРѕРјРµСЂ С‚РµР»РµС„РѕРЅР°",
+        "buttons": [
+          {
+            "type": "request_contact",
+            "text": "рџ“± РџРѕРґРµР»РёС‚СЊСЃСЏ РЅРѕРјРµСЂРѕРј",
+            "nextState": "confirm_booking"
+          }
+        ]
+      },
+      "choose_time": {
+        "message": "Р’С‹Р±РµСЂРёС‚Рµ СѓРґРѕР±РЅРѕРµ РІСЂРµРјСЏ:",
+        "buttons": [
+          {
+            "text": "РЈС‚СЂРѕ 10:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "Р”РµРЅСЊ 14:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "Р’РµС‡РµСЂ 18:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "РќР°Р·Р°Рґ",
+            "nextState": "start"
+          }
+        ]
+      },
+      "contact_request": {
+        "message": "РћСЃС‚Р°РІСЊС‚Рµ РєРѕРЅС‚Р°РєС‚ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ Р·Р°РїРёСЃРё.",
+        "buttons": [
+          {
+            "text": "РџРµСЂРµРґР°С‚СЊ РєРѕРЅС‚Р°РєС‚",
+            "nextState": "confirm"
+          },
+          {
+            "text": "РќР°Р·Р°Рґ",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "confirm_booking": {
+        "message": "РџСЂРѕРІРµСЂСЊС‚Рµ РґР°РЅРЅС‹Рµ Рё РїРѕРґС‚РІРµСЂРґРёС‚Рµ Р·Р°РїРёСЃСЊ.",
+        "webhook": {
+          "url": "",
+          "enabled": false
+        },
+        "buttons": [
+          {
+            "text": "РџРѕРґС‚РІРµСЂРґРёС‚СЊ Р·Р°РїРёСЃСЊ",
+            "nextState": "done"
+          },
+          {
+            "text": "РР·РјРµРЅРёС‚СЊ РІСЂРµРјСЏ",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "confirm": {
+        "message": "РџСЂРѕРІРµСЂСЊС‚Рµ РґР°РЅРЅС‹Рµ Рё РїРѕРґС‚РІРµСЂРґРёС‚Рµ Р·Р°РїРёСЃСЊ.",
+        "buttons": [
+          {
+            "text": "РџРѕРґС‚РІРµСЂРґРёС‚СЊ Р·Р°РїРёСЃСЊ",
+            "nextState": "done"
+          },
+          {
+            "text": "РР·РјРµРЅРёС‚СЊ РІСЂРµРјСЏ",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "done": {
+        "message": "РЎРїР°СЃРёР±Рѕ! РњС‹ СЃРІСЏР¶РµРјСЃСЏ СЃ РІР°РјРё РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ.",
+        "buttons": [
+          {
+            "text": "Р—Р°РїРёСЃР°С‚СЊСЃСЏ СЃРЅРѕРІР°",
+            "nextState": "start"
+          }
+        ]
+      }
+    }
+  }
+}
+

@@ -100,3 +100,31 @@ export function getCacheMetrics(): Record<string, CacheMetrics> {
     return acc;
   }, {} as Record<string, CacheMetrics>);
 }
+
+export function logBroadcastCreated(
+  logger: Logger,
+  details: { broadcastId?: string; botId?: string; totalRecipients?: number } = {}
+) {
+  logger.info({ metric: 'broadcast_created_total', count: 1, ...details });
+}
+
+export function logBroadcastMessageSent(
+  logger: Logger,
+  details: { broadcastId?: string; botId?: string; telegramUserId?: number } = {}
+) {
+  logger.info({ metric: 'broadcast_messages_sent_total', count: 1, ...details });
+}
+
+export function logBroadcastMessageFailed(
+  logger: Logger,
+  details: { broadcastId?: string; botId?: string; telegramUserId?: number } = {}
+) {
+  logger.info({ metric: 'broadcast_messages_failed_total', count: 1, ...details });
+}
+
+export function logBroadcastProcessingDuration(
+  logger: Logger,
+  details: { broadcastId?: string; botId?: string; durationSeconds: number }
+) {
+  logger.info({ metric: 'broadcast_processing_duration_seconds', ...details });
+}

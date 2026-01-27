@@ -7,9 +7,10 @@ import './SchemaEditor.css';
 interface SchemaEditorProps {
   schema: BotSchema;
   onChange: (schema: BotSchema) => void;
+  botId?: string;
 }
 
-export default function SchemaEditor({ schema, onChange }: SchemaEditorProps) {
+export default function SchemaEditor({ schema, onChange, botId }: SchemaEditorProps) {
   const [selectedState, setSelectedState] = useState<string>(schema.initialState);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
 
@@ -150,6 +151,7 @@ export default function SchemaEditor({ schema, onChange }: SchemaEditorProps) {
               stateKey={selectedState}
               state={schema.states[selectedState]}
               allStates={Object.keys(schema.states)}
+              botId={botId}
               onChange={(updates) => handleStateChange(selectedState, updates)}
             />
           )}

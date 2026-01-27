@@ -14,13 +14,20 @@ import type { Server } from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
 import pinoHttp from 'pino-http';
-import { RATE_LIMITS, TelegramUpdateSchema, WEBHOOK_LIMITS, createChildLogger, createLogger, createRateLimiter, errorMetricsMiddleware, getCacheMetrics, getErrorMetrics, logRateLimitMetrics, metricsMiddleware, requestIdMiddleware } from '@dialogue-constructor/shared';
+import { RATE_LIMITS, TelegramUpdateSchema, WEBHOOK_INTEGRATION_LIMITS, WEBHOOK_LIMITS, createChildLogger, createLogger, createRateLimiter, errorMetricsMiddleware, getCacheMetrics, getErrorMetrics, logRateLimitMetrics, metricsMiddleware, requestIdMiddleware } from '@dialogue-constructor/shared';
 import { initPostgres, getBotById, closePostgres, getBotSchema, getPoolStats, getPostgresCircuitBreakerStats, getPostgresRetryStats, getPostgresClient } from './db/postgres';
-import { initRedis, closeRedis, getUserState, setUserState, resetUserState, getRedisClientOptional, getRedisCircuitBreakerStats, getRedisRetryStats, getInMemoryStateStats } from './db/redis';
+import { initRedis, closeRedis, getUserState, setUserState, resetUserState, getRedisClientOptional, getRedisCircuitBreakerStats, getRedisRetryStats, getInMemoryStateStats, setPendingInput, getPendingInput, clearPendingInput, markBroadcastUpdateProcessed } from './db/redis';
 import { decryptToken } from './utils/encryption';
-import { sendTelegramMessage, sendTelegramMessageWithKeyboard, answerCallbackQuery, TelegramUpdate } from './services/telegram';
+import { sendTelegramMessage, sendTelegramMessageWithKeyboard, sendTelegramMessageWithReplyKeyboard, sendTelegramMessageWithReplyKeyboardRemove, sendPhoto, sendVideo, sendDocument, sendAudio, sendMediaGroup, answerCallbackQuery, TelegramUpdate } from './services/telegram';
 import { BotSchema } from '@dialogue-constructor/shared/types/bot-schema';
 import * as crypto from 'crypto';
+import { createOrUpdateBotUser, getBotUserProfile } from './db/bot-users';
+import { createWebhookLog } from './db/webhook-logs';
+import { logAnalyticsEvent } from './db/bot-analytics';
+import { findBroadcastMessageIdByTelegramMessage, findLatestSentBroadcastMessageId, incrementBroadcastMessageClicks, markBroadcastMessageEngaged } from './db/broadcasts';
+import { prepareWebhookPayload, sendWebhook, sendWebhookWithRetry } from './services/webhook-sender';
+import { sendToGoogleSheets } from './services/integrations/google-sheets';
+import { sendToTelegramChannel } from './services/integrations/telegram-channel';
 
 // Загрузка .env файла из корня проекта
 const envPath = path.resolve(__dirname, '../../../.env');
@@ -34,6 +41,7 @@ let appInitialized = false;
 const PORT = process.env.ROUTER_PORT || 3001;
 let server: Server | null = null;
 const BOT_ID_FORMAT_REGEX = /^[0-9a-fA-F-]{36}$/;
+const BROADCAST_ENGAGEMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function createApp(): ReturnType<typeof express> {
   if (!app) {
@@ -150,6 +158,8 @@ async function initializeRateLimiters() {
   }
   return rateLimiterInitPromise;
 }
+
+export { initializeRateLimiters };
 
 const webhookGlobalLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -296,6 +306,52 @@ app.get('/health', async (req: Request, res: Response) => {
   });
 });
 
+
+// Internal webhook test endpoint
+app.post('/internal/test-webhook', async (req: Request, res: Response) => {
+  const requestId = (req as any).id;
+  const internalSecret = process.env.ROUTER_INTERNAL_SECRET;
+  if (internalSecret) {
+    const providedSecretHeader = req.headers['x-internal-secret'];
+    const providedSecret = Array.isArray(providedSecretHeader)
+      ? providedSecretHeader[0]
+      : providedSecretHeader;
+    if (!providedSecret || providedSecret !== internalSecret) {
+      logger.warn({ requestId }, 'Unauthorized internal webhook test request');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
+  const { webhook, payload } = req.body ?? {};
+  if (!webhook || typeof webhook !== 'object') {
+    return res.status(400).json({ error: 'Invalid webhook config' });
+  }
+  if (!('url' in webhook) || typeof (webhook as any).url !== 'string') {
+    return res.status(400).json({ error: 'Invalid webhook url' });
+  }
+
+  const timeout = typeof (webhook as any).timeout === 'number'
+    ? Math.min((webhook as any).timeout, WEBHOOK_INTEGRATION_LIMITS.AWAIT_FIRST_ATTEMPT_TIMEOUT_MS)
+    : WEBHOOK_INTEGRATION_LIMITS.AWAIT_FIRST_ATTEMPT_TIMEOUT_MS;
+
+  try {
+    const result = await sendWebhook(
+      { ...(webhook as any), timeout },
+      payload ?? {},
+      logger
+    );
+    return res.json({
+      success: !result.error,
+      status: result.status ?? null,
+      response: result.response ?? null,
+      error: result.error ?? null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn({ requestId, error }, 'Internal webhook test failed');
+    return res.status(200).json({ success: false, status: null, response: null, error: message });
+  }
+});
 // Webhook endpoint
 app.post('/webhook/:botId',
   webhookGlobalLimiterMiddleware,
@@ -454,18 +510,60 @@ async function handleUpdateWithSchema(
   if (update.callback_query) {
     const chatId = update.callback_query.message?.chat.id;
     const userId = update.callback_query.from.id;
-    const callbackData = update.callback_query.data;
+    const rawCallbackData = update.callback_query.data;
     const callbackQueryId = update.callback_query.id;
     const requestLogger = createChildLogger(logger, { botId, userId, requestId });
 
-    if (!chatId || !userId || !callbackData) {
+    if (!chatId || !userId || !rawCallbackData) {
       requestLogger.error({ botId, userId, requestId }, '❌ Missing data in callback_query');
       return;
+    }
+
+    let callbackData = rawCallbackData;
+    let broadcastMessageIdFromCallback: string | null = null;
+    if (rawCallbackData.startsWith('broadcast:')) {
+      const parts = rawCallbackData.split(':');
+      broadcastMessageIdFromCallback = parts[1] || null;
+      callbackData = parts.slice(2).join(':') || rawCallbackData;
     }
 
     requestLogger.info('Обработка webhook');
     requestLogger.info({ botId, userId, requestId, callbackData }, '🔘 Callback from user');
     requestLogger.debug({ botId, userId, currentState: callbackData }, 'Processing update');
+
+    try {
+      const shouldCount = await markBroadcastUpdateProcessed(botId, update.update_id);
+      if (shouldCount) {
+        let broadcastMessageId: string | null = null;
+        const telegramMessageId = update.callback_query.message?.message_id;
+        if (telegramMessageId) {
+          broadcastMessageId = await findBroadcastMessageIdByTelegramMessage(
+            botId,
+            userId,
+            telegramMessageId
+          );
+        }
+        if (!broadcastMessageId && broadcastMessageIdFromCallback) {
+          broadcastMessageId = broadcastMessageIdFromCallback;
+        }
+        if (!broadcastMessageId) {
+          broadcastMessageId = await findLatestSentBroadcastMessageId(
+            botId,
+            userId,
+            new Date(Date.now() - BROADCAST_ENGAGEMENT_WINDOW_MS)
+          );
+          if (broadcastMessageId) {
+            requestLogger.info({ broadcastMessageId }, 'Broadcast click attributed via fallback window');
+          }
+        }
+        if (broadcastMessageId) {
+          await incrementBroadcastMessageClicks(broadcastMessageId);
+          await markBroadcastMessageEngaged(broadcastMessageId);
+        }
+      }
+    } catch (error) {
+      requestLogger.warn({ error }, 'Failed to track broadcast click/engagement');
+    }
 
     // Проверяем, что состояние существует в схеме
     if (!schema.states[callbackData]) {
@@ -481,11 +579,59 @@ async function handleUpdateWithSchema(
       return;
     }
 
+    const previousState = await getUserState(botId, userId);
+    const nextState = callbackData;
+    const sourceUpdateId = update.update_id;
+
+    try {
+      await logAnalyticsEvent(
+        botId,
+        userId,
+        sourceUpdateId,
+        'button_click',
+        {
+          stateFrom: previousState ?? null,
+          stateTo: nextState ?? null,
+          buttonText: callbackData,
+        },
+        requestLogger
+      );
+    } catch (error) {
+      requestLogger.warn({ error }, 'Failed to log button click analytics');
+    }
+
+    if (nextState && nextState !== previousState) {
+      try {
+        await logAnalyticsEvent(
+          botId,
+          userId,
+          sourceUpdateId,
+          'state_transition',
+          {
+            stateFrom: previousState ?? null,
+            stateTo: nextState,
+            buttonText: callbackData,
+          },
+          requestLogger
+        );
+      } catch (error) {
+        requestLogger.warn({ error }, 'Failed to log state transition analytics');
+      }
+    }
     // Обновляем состояние пользователя
     await setUserState(botId, userId, callbackData);
 
     // Отправляем сообщение и кнопки для нового состояния
-    await sendStateMessage(botToken, chatId, callbackData, schema, requestLogger);
+    await sendStateMessage(
+      botToken,
+      chatId,
+      callbackData,
+      schema,
+      requestLogger,
+      botId,
+      userId,
+      previousState
+    );
 
     // Отвечаем на callback
     try {
@@ -509,11 +655,270 @@ async function handleUpdateWithSchema(
       return;
     }
 
+    const profileFields = {
+      first_name: update.message.from?.first_name ?? null,
+      last_name: update.message.from?.last_name ?? null,
+      username: update.message.from?.username ?? null,
+      language_code: update.message.from?.language_code ?? null,
+    };
+
     requestLogger.info('Обработка webhook');
     requestLogger.info(
       { botId, userId, requestId, chatId, textPreview: messageText.substring(0, 50) },
       '💬 Message from user'
     );
+
+    try {
+      const shouldCount = await markBroadcastUpdateProcessed(botId, update.update_id);
+      if (shouldCount) {
+        let broadcastMessageId: string | null = null;
+        const replyToMessageId = update.message.reply_to_message?.message_id;
+        if (replyToMessageId) {
+          broadcastMessageId = await findBroadcastMessageIdByTelegramMessage(
+            botId,
+            userId,
+            replyToMessageId
+          );
+        }
+        if (!broadcastMessageId) {
+          broadcastMessageId = await findLatestSentBroadcastMessageId(
+            botId,
+            userId,
+            new Date(Date.now() - BROADCAST_ENGAGEMENT_WINDOW_MS)
+          );
+          if (broadcastMessageId) {
+            requestLogger.info({ broadcastMessageId }, 'Broadcast engagement attributed via fallback window');
+          }
+        }
+        if (broadcastMessageId) {
+          await markBroadcastMessageEngaged(broadcastMessageId);
+        }
+      }
+    } catch (error) {
+      requestLogger.warn({ error }, 'Failed to track broadcast engagement');
+    }
+
+    if (update.message.contact) {
+      const contact = update.message.contact;
+      const pending = await getPendingInput(botId, userId);
+      const contactMatchesUser = !contact.user_id || contact.user_id === userId;
+      const phoneNumberToSave = pending?.type === 'contact' && contactMatchesUser
+        ? contact.phone_number
+        : null;
+
+      const botUser = await createOrUpdateBotUser(
+        botId,
+        String(userId),
+        { ...profileFields, phone_number: phoneNumberToSave },
+        requestLogger
+      );
+      if (botUser?.interaction_count === 1) {
+        try {
+          await logAnalyticsEvent(
+            botId,
+            userId,
+            update.update_id,
+            'bot_start',
+            {},
+            requestLogger
+          );
+        } catch (error) {
+          requestLogger.warn({ error }, 'Failed to log bot start analytics');
+        }
+      }
+
+      if (!pending || pending.type !== 'contact') {
+        requestLogger.warn({ botId, userId, requestId }, 'Pending contact not found');
+        return;
+      }
+
+      if (!contactMatchesUser) {
+        requestLogger.warn({ botId, userId, requestId }, 'Contact user mismatch');
+        return;
+      }
+
+      requestLogger.info({ metric: 'contact_collected', botId, userId }, 'Contact collected');
+      await clearPendingInput(botId, userId);
+      try {
+        await logAnalyticsEvent(
+          botId,
+          userId,
+          update.update_id,
+          'contact_shared',
+          {
+            stateFrom: pending.stateId ?? null,
+            stateTo: pending.nextState ?? null,
+          },
+          requestLogger
+        );
+      } catch (error) {
+        requestLogger.warn({ error }, 'Failed to log contact shared analytics');
+      }
+
+      await sendTelegramMessageWithReplyKeyboardRemove(
+        requestLogger,
+        botToken,
+        chatId,
+        'Спасибо! Ваш номер сохранён.'
+      );
+
+      if (pending.nextState && schema.states[pending.nextState]) {
+        await setUserState(botId, userId, pending.nextState);
+        await sendStateMessage(
+          botToken,
+          chatId,
+          pending.nextState,
+          schema,
+          requestLogger,
+          botId,
+          userId,
+          pending.stateId
+        );
+      }
+      return;
+    }
+
+    if (typeof update.message.text === 'string') {
+      const pending = await getPendingInput(botId, userId);
+      if (pending && pending.type === 'email') {
+        const rawEmail = update.message.text.trim();
+        if (rawEmail.toLowerCase() === '/skip') {
+          const botUser = await createOrUpdateBotUser(
+            botId,
+            String(userId),
+            { ...profileFields, email: null },
+            requestLogger
+          );
+          if (botUser?.interaction_count === 1) {
+            try {
+              await logAnalyticsEvent(
+                botId,
+                userId,
+                update.update_id,
+                'bot_start',
+                {},
+                requestLogger
+              );
+            } catch (error) {
+              requestLogger.warn({ error }, 'Failed to log bot start analytics');
+            }
+          }
+          await clearPendingInput(botId, userId);
+          if (pending.nextState && schema.states[pending.nextState]) {
+            await setUserState(botId, userId, pending.nextState);
+            await sendStateMessage(
+              botToken,
+              chatId,
+              pending.nextState,
+              schema,
+              requestLogger,
+              botId,
+              userId,
+              pending.stateId
+            );
+          }
+          return;
+        }
+
+        if (!isValidEmail(rawEmail)) {
+          const botUser = await createOrUpdateBotUser(
+            botId,
+            String(userId),
+            { ...profileFields, email: null },
+            requestLogger
+          );
+          if (botUser?.interaction_count === 1) {
+            try {
+              await logAnalyticsEvent(
+                botId,
+                userId,
+                update.update_id,
+                'bot_start',
+                {},
+                requestLogger
+              );
+            } catch (error) {
+              requestLogger.warn({ error }, 'Failed to log bot start analytics');
+            }
+          }
+          await sendTelegramMessage(requestLogger, botToken, chatId, 'Введите корректный email.');
+          return;
+        }
+
+        const botUser = await createOrUpdateBotUser(
+          botId,
+          String(userId),
+          { ...profileFields, email: rawEmail },
+          requestLogger
+        );
+        if (botUser?.interaction_count === 1) {
+          try {
+            await logAnalyticsEvent(
+              botId,
+              userId,
+              update.update_id,
+              'bot_start',
+              {},
+              requestLogger
+            );
+          } catch (error) {
+            requestLogger.warn({ error }, 'Failed to log bot start analytics');
+          }
+        }
+        await clearPendingInput(botId, userId);
+        try {
+          await logAnalyticsEvent(
+            botId,
+            userId,
+            update.update_id,
+            'email_shared',
+            {
+              stateFrom: pending.stateId ?? null,
+              stateTo: pending.nextState ?? null,
+            },
+            requestLogger
+          );
+        } catch (error) {
+          requestLogger.warn({ error }, 'Failed to log email shared analytics');
+        }
+
+        if (pending.nextState && schema.states[pending.nextState]) {
+          await setUserState(botId, userId, pending.nextState);
+          await sendStateMessage(
+            botToken,
+            chatId,
+            pending.nextState,
+            schema,
+            requestLogger,
+            botId,
+            userId,
+            pending.stateId
+          );
+        }
+        return;
+      }
+    }
+
+    const botUser = await createOrUpdateBotUser(
+      botId,
+      String(userId),
+      { ...profileFields, phone_number: null },
+      requestLogger
+    );
+    if (botUser?.interaction_count === 1) {
+      try {
+        await logAnalyticsEvent(
+          botId,
+          userId,
+          update.update_id,
+          'bot_start',
+          {},
+          requestLogger
+        );
+      } catch (error) {
+        requestLogger.warn({ error }, 'Failed to log bot start analytics');
+      }
+    }
 
     // Получаем текущее состояние пользователя
     let currentState = await getUserState(botId, userId);
@@ -526,7 +931,16 @@ async function handleUpdateWithSchema(
 
     // Отправляем сообщение и кнопки для текущего состояния
     requestLogger.debug({ botId, userId, currentState }, 'Processing update');
-    await sendStateMessage(botToken, chatId, currentState, schema, requestLogger);
+    await sendStateMessage(
+      botToken,
+      chatId,
+      currentState,
+      schema,
+      requestLogger,
+      botId,
+      userId,
+      null
+    );
   }
 }
 
@@ -538,7 +952,10 @@ async function sendStateMessage(
   chatId: number,
   stateKey: string,
   schema: BotSchema,
-  requestLogger: ReturnType<typeof createLogger>
+  requestLogger: ReturnType<typeof createLogger>,
+  botId: string,
+  userId: number,
+  previousState?: string | null
 ): Promise<void> {
   const state = schema.states[stateKey];
   
@@ -548,14 +965,410 @@ async function sendStateMessage(
   }
 
   try {
-    if (state.buttons && state.buttons.length > 0) {
-      // Отправляем сообщение с кнопками
-      await sendTelegramMessageWithKeyboard(requestLogger, botToken, chatId, state.message, state.buttons);
-      requestLogger.info({ stateKey, hasButtons: true }, 'State message sent');
+    const parseMode = state.parseMode ?? 'HTML';
+    const rawButtons = state.buttons ?? [];
+    const normalizedButtons = rawButtons.map((button) => ({
+      ...button,
+      type: (button as any).type ?? 'navigation',
+    }));
+    const requestContactButtons = normalizedButtons.filter((button) => button.type === 'request_contact');
+    const requestEmailButtons = normalizedButtons.filter((button) => button.type === 'request_email');
+    const inlineButtons = normalizedButtons.filter(
+      (button) => button.type === 'navigation' || button.type === 'url'
+    );
+
+    const inlineKeyboardButtons = inlineButtons.map((button) =>
+      button.type === 'url'
+        ? { text: button.text, url: button.url }
+        : { text: button.text, nextState: button.nextState }
+    );
+    const inlineKeyboard: Array<Array<{ text: string; nextState?: string; url?: string }>> = [];
+    for (let i = 0; i < inlineKeyboardButtons.length; i += 2) {
+      inlineKeyboard.push(inlineKeyboardButtons.slice(i, i + 2));
+    }
+
+    const replyKeyboard = requestContactButtons.map((button) => ({
+      text: button.text,
+      nextState: button.nextState,
+    }));
+
+    if (state.mediaGroup && state.mediaGroup.length > 0) {
+      try {
+        if (requestContactButtons.length > 0) {
+          await sendTelegramMessageWithReplyKeyboard(
+            requestLogger,
+            botToken,
+            chatId,
+            state.message,
+            replyKeyboard,
+            parseMode
+          );
+          const nextButton = requestContactButtons[0];
+          await setPendingInput(botId, userId, {
+            type: 'contact',
+            nextState: nextButton.nextState,
+            stateId: stateKey,
+            ts: Date.now(),
+          });
+        } else if (inlineButtons.length > 0) {
+          await sendTelegramMessageWithKeyboard(
+            requestLogger,
+            botToken,
+            chatId,
+            state.message,
+            inlineKeyboardButtons,
+            parseMode
+          );
+        } else if (state.message) {
+          await sendTelegramMessage(requestLogger, botToken, chatId, state.message, parseMode);
+        }
+
+        await sendMediaGroup(
+          requestLogger,
+          botToken,
+          chatId,
+          state.mediaGroup.map((item) => ({
+            type: item.type,
+            url: item.url,
+            caption: item.caption,
+          })),
+          parseMode
+        );
+
+        if (requestEmailButtons.length > 0) {
+          const nextButton = requestEmailButtons[0];
+          await sendTelegramMessage(requestLogger, botToken, chatId, 'Введите email...', parseMode);
+          await setPendingInput(botId, userId, {
+            type: 'email',
+            nextState: nextButton.nextState,
+            stateId: stateKey,
+            ts: Date.now(),
+          });
+        }
+
+        requestLogger.info({ stateKey, type: 'media_group' }, 'State message sent');
+      } catch (error) {
+        requestLogger.error({ error, stateKey }, 'Failed to send media group');
+        await sendTelegramMessage(requestLogger, botToken, chatId, state.message, parseMode);
+      }
+    } else if (state.media) {
+      const caption = state.media.caption ?? state.message;
+      const inlineReplyMarkup =
+        inlineKeyboardButtons.length > 0
+          ? { inline_keyboard: inlineKeyboard.map((row) => row.map((btn) => (btn.url ? { text: btn.text, url: btn.url } : { text: btn.text, callback_data: btn.nextState ?? '' }))) }
+          : undefined;
+      const replyMarkup =
+        requestContactButtons.length > 0
+          ? {
+              keyboard: replyKeyboard.map((button) => [
+                {
+                  text: button.text,
+                  request_contact: true,
+                },
+              ]),
+              resize_keyboard: true,
+              one_time_keyboard: true,
+            }
+          : inlineReplyMarkup;
+
+      try {
+        if (state.media.type === 'photo') {
+          await sendPhoto(
+            requestLogger,
+            botToken,
+            chatId,
+            state.media.url,
+            caption,
+            parseMode,
+            replyMarkup
+          );
+        } else if (state.media.type === 'video') {
+          await sendVideo(
+            requestLogger,
+            botToken,
+            chatId,
+            state.media.url,
+            caption,
+            parseMode,
+            state.media.cover,
+            replyMarkup,
+            state.media.thumbnail
+          );
+        } else if (state.media.type === 'document') {
+          await sendDocument(
+            requestLogger,
+            botToken,
+            chatId,
+            state.media.url,
+            caption,
+            parseMode,
+            replyMarkup
+          );
+        } else if (state.media.type === 'audio') {
+          await sendAudio(
+            requestLogger,
+            botToken,
+            chatId,
+            state.media.url,
+            caption,
+            parseMode,
+            replyMarkup
+          );
+        }
+
+        if (requestContactButtons.length > 0) {
+          const nextButton = requestContactButtons[0];
+          await setPendingInput(botId, userId, {
+            type: 'contact',
+            nextState: nextButton.nextState,
+            stateId: stateKey,
+            ts: Date.now(),
+          });
+        }
+
+        if (requestEmailButtons.length > 0) {
+          const nextButton = requestEmailButtons[0];
+          await sendTelegramMessage(requestLogger, botToken, chatId, 'Введите email...', parseMode);
+          await setPendingInput(botId, userId, {
+            type: 'email',
+            nextState: nextButton.nextState,
+            stateId: stateKey,
+            ts: Date.now(),
+          });
+        }
+
+        requestLogger.info({ stateKey, type: 'media' }, 'State message sent');
+      } catch (error) {
+        requestLogger.error({ error, stateKey }, 'Failed to send media');
+        await sendTelegramMessage(requestLogger, botToken, chatId, state.message, parseMode);
+      }
+    } else if (requestContactButtons.length > 0) {
+      await sendTelegramMessageWithReplyKeyboard(
+        requestLogger,
+        botToken,
+        chatId,
+        state.message,
+        replyKeyboard,
+        parseMode
+      );
+      const nextButton = requestContactButtons[0];
+      await setPendingInput(botId, userId, {
+        type: 'contact',
+        nextState: nextButton.nextState,
+        stateId: stateKey,
+        ts: Date.now(),
+      });
+      requestLogger.info({ stateKey, hasButtons: true, type: 'request_contact' }, 'State message sent');
+    } else if (requestEmailButtons.length > 0) {
+      await sendTelegramMessage(requestLogger, botToken, chatId, 'Введите email...', parseMode);
+      const nextButton = requestEmailButtons[0];
+      await setPendingInput(botId, userId, {
+        type: 'email',
+        nextState: nextButton.nextState,
+        stateId: stateKey,
+        ts: Date.now(),
+      });
+      requestLogger.info({ stateKey, hasButtons: true, type: 'request_email' }, 'State message sent');
+    } else if (inlineButtons.length > 0) {
+      await sendTelegramMessageWithKeyboard(
+        requestLogger,
+        botToken,
+        chatId,
+        state.message,
+        inlineKeyboardButtons,
+        parseMode
+      );
+      requestLogger.info({ stateKey, hasButtons: true, type: 'navigation' }, 'State message sent');
     } else {
-      // Отправляем простое сообщение без кнопок
-      await sendTelegramMessage(requestLogger, botToken, chatId, state.message);
+      await sendTelegramMessage(requestLogger, botToken, chatId, state.message, parseMode);
       requestLogger.info({ stateKey, hasButtons: false }, 'State message sent');
+    }
+
+    let cachedPayload: ReturnType<typeof prepareWebhookPayload> | null = null;
+    let cachedUserProfile: Awaited<ReturnType<typeof getBotUserProfile>> | null = null;
+    const getPayload = async () => {
+      if (cachedPayload) {
+        return cachedPayload;
+      }
+      cachedUserProfile = cachedUserProfile ?? await getBotUserProfile(botId, userId, requestLogger);
+      cachedPayload = prepareWebhookPayload(
+        botId,
+        userId,
+        stateKey,
+        cachedUserProfile,
+        schema,
+        previousState ?? undefined
+      );
+      return cachedPayload;
+    };
+
+    if (state.webhook?.enabled && state.webhook.url) {
+      try {
+        const payload = await getPayload();
+        const retryCount =
+          typeof state.webhook.retryCount === 'number'
+            ? state.webhook.retryCount
+            : WEBHOOK_INTEGRATION_LIMITS.MAX_RETRY_COUNT;
+
+        const isServerless = process.env.VERCEL === '1';
+        if (isServerless) {
+          const timeout = Math.min(
+            state.webhook.timeout ?? WEBHOOK_INTEGRATION_LIMITS.TIMEOUT_MS,
+            WEBHOOK_INTEGRATION_LIMITS.AWAIT_FIRST_ATTEMPT_TIMEOUT_MS
+          );
+          const result = await sendWebhook(
+            { ...state.webhook, timeout },
+            payload,
+            requestLogger
+          );
+          await createWebhookLog(
+            botId,
+            stateKey,
+            userId,
+            state.webhook.url,
+            payload,
+            result.status,
+            result.response,
+            result.error ?? null,
+            result.retryCount ?? 0
+          );
+        } else {
+          const result = await sendWebhookWithRetry(
+            state.webhook,
+            payload,
+            requestLogger,
+            retryCount
+          );
+          await createWebhookLog(
+            botId,
+            stateKey,
+            userId,
+            state.webhook.url,
+            payload,
+            result.status,
+            result.response,
+            result.error ?? null,
+            result.retryCount ?? 0
+          );
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await createWebhookLog(
+          botId,
+          stateKey,
+          userId,
+          state.webhook.url,
+          null,
+          null,
+          null,
+          message,
+          state.webhook.retryCount ?? 0
+        );
+        requestLogger.error({ error, stateKey }, 'Failed to send webhook');
+      }
+    }
+
+    if (state.integration && state.integration.type && state.integration.type !== 'custom') {
+      const integrationStart = Date.now();
+      try {
+        const payload = await getPayload();
+        const integrationPayload = {
+          provider: state.integration.type,
+          data: payload,
+        };
+        const isServerless = process.env.VERCEL === '1';
+        const timeout = isServerless
+          ? WEBHOOK_INTEGRATION_LIMITS.AWAIT_FIRST_ATTEMPT_TIMEOUT_MS
+          : WEBHOOK_INTEGRATION_LIMITS.TIMEOUT_MS;
+
+        if (state.integration.type === 'google_sheets') {
+          const config = state.integration.config as { spreadsheetUrl?: string; sheetName?: string; columns?: string[] };
+          if (!config?.spreadsheetUrl) {
+            await createWebhookLog(
+              botId,
+              stateKey,
+              userId,
+              'integration:google_sheets',
+              integrationPayload,
+              null,
+              { duration_ms: Date.now() - integrationStart },
+              'Missing spreadsheetUrl in integration config',
+              0
+            );
+          } else {
+            const result = await sendToGoogleSheets(
+              {
+                spreadsheetUrl: config.spreadsheetUrl,
+                sheetName: config.sheetName,
+                columns: config.columns,
+              },
+              payload,
+              timeout
+            );
+            await createWebhookLog(
+              botId,
+              stateKey,
+              userId,
+              config.spreadsheetUrl,
+              integrationPayload,
+              result.status ?? null,
+              { duration_ms: Date.now() - integrationStart, response: result.response ?? null },
+              null,
+              0
+            );
+          }
+        } else if (state.integration.type === 'telegram_channel') {
+          const config = state.integration.config as { channelId?: string; messageTemplate?: string };
+          if (!config?.channelId) {
+            await createWebhookLog(
+              botId,
+              stateKey,
+              userId,
+              'integration:telegram_channel',
+              integrationPayload,
+              null,
+              { duration_ms: Date.now() - integrationStart },
+              'Missing channelId in integration config',
+              0
+            );
+          } else {
+            const result = await sendToTelegramChannel(
+              {
+                channelId: config.channelId,
+                messageTemplate: config.messageTemplate,
+              },
+              botToken,
+              payload,
+              timeout
+            );
+            await createWebhookLog(
+              botId,
+              stateKey,
+              userId,
+              `telegram_channel:${config.channelId}`,
+              integrationPayload,
+              result.status ?? null,
+              { duration_ms: Date.now() - integrationStart, response: result.response ?? null },
+              null,
+              0
+            );
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await createWebhookLog(
+          botId,
+          stateKey,
+          userId,
+          `integration:${state.integration.type}`,
+          null,
+          null,
+          { duration_ms: Date.now() - integrationStart },
+          message,
+          0
+        );
+        requestLogger.error({ error, stateKey }, 'Failed to send provider integration');
+      }
     }
   } catch (error) {
     requestLogger.error(
@@ -564,6 +1377,10 @@ async function sendStateMessage(
     );
     throw error;
   }
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 app.use(errorMetricsMiddleware as any);
@@ -733,4 +1550,6 @@ process.on('uncaughtException', (error) => {
 
 process.once('SIGINT', () => shutdown(0));
 process.once('SIGTERM', () => shutdown(0));
+
+
 

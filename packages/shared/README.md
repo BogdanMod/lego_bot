@@ -67,3 +67,56 @@ sequenceDiagram
 | Telegram API | info | method, chatId, botId | duration, success |
 | Webhook | info | botId, userId, updateType | processingTime |
 | Ошибка | error | requestId, userId, stack | errorType, errorCode |
+
+## Webhook интеграции
+
+### Формат payload
+```json
+{
+  "bot_id": "uuid",
+  "user_id": 123456,
+  "state_key": "confirm_booking",
+  "timestamp": "2026-01-27T12:00:00.000Z",
+  "user": {
+    "first_name": "Анна",
+    "phone_number": "+79990001122",
+    "email": "anna@example.com"
+  },
+  "context": {
+    "previous_state": "collect_contact"
+  }
+}
+```
+
+### Пример Google Sheets (Apps Script)
+```javascript
+function doPost(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Лист1');
+  const data = JSON.parse(e.postData.contents);
+  sheet.appendRow([
+    data.timestamp,
+    data.user_id,
+    data.user?.first_name || '',
+    data.user?.phone_number || '',
+    data.user?.email || ''
+  ]);
+  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+### Пример Telegram канала
+Используйте Bot API `sendMessage`:
+```
+POST https://api.telegram.org/bot<token>/sendMessage
+{
+  "chat_id": "@channel_name",
+  "text": "📩 Новая запись\n👤 {first_name}\n📱 {phone_number}\n📧 {email}"
+}
+```
+
+### Рекомендации по безопасности
+- Используйте только `https://` URL.
+- Включайте подпись запроса через `X-Bot-Timestamp` и `X-Bot-Signature`.
+- Проверяйте подпись на своей стороне (HMAC-SHA256 от `${timestamp}.${body}`).
+- Ограничивайте домены через allowlist при необходимости.

@@ -67,6 +67,10 @@ export default function BotList() {
     navigate(`/bot/${botId}`);
   };
 
+  const handleTemplatesClick = () => {
+    navigate('/templates');
+  };
+
   if (loading) {
     return (
       <div className="page">
@@ -98,6 +102,9 @@ export default function BotList() {
         <div className="page-header">
           <h1 className="page-title">Мои боты</h1>
           <p className="page-subtitle">Создайте бота через основного бота</p>
+          <button className="btn btn-primary" onClick={handleTemplatesClick} style={{ marginTop: '12px' }}>
+            Создать из шаблона
+          </button>
         </div>
         <div className="empty-state">
           <div className="empty-state-icon">🤖</div>
@@ -115,6 +122,9 @@ export default function BotList() {
       <div className="page-header">
         <h1 className="page-title">Мои боты</h1>
         <p className="page-subtitle">{bots.length} ботов</p>
+        <button className="btn btn-primary" onClick={handleTemplatesClick} style={{ marginTop: '12px' }}>
+          Создать из шаблона
+        </button>
       </div>
       
       {bots.map((bot) => (

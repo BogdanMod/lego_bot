@@ -1,131 +1,208 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BotSchema } from '@dialogue-constructor/shared';
+import { validateBotSchema } from '@dialogue-constructor/shared';
+import { api } from '../utils/api';
+import { getTemplates, BotTemplate } from '../data/templates';
+import TemplatePreview from '../components/TemplatePreview';
+import './Templates.css';
 
-const TEMPLATES: Array<{ name: string; description: string; schema: BotSchema }> = [
-  {
-    name: 'Простой привет',
-    description: 'Базовый шаблон с приветствием',
-    schema: {
-      version: 1,
-      initialState: 'start',
-      states: {
-        start: {
-          message: 'Привет! 👋\n\nЧем могу помочь?',
-          buttons: [
-            { text: 'Информация', nextState: 'info' },
-            { text: 'Контакты', nextState: 'contacts' },
-          ],
-        },
-        info: {
-          message: 'Это информационный бот.\n\nВыберите опцию:',
-          buttons: [
-            { text: 'О нас', nextState: 'about' },
-            { text: 'Услуги', nextState: 'services' },
-            { text: '← Назад', nextState: 'start' },
-          ],
-        },
-        contacts: {
-          message: '📞 Контакты:\n\nТелефон: +7 (XXX) XXX-XX-XX\nEmail: info@example.com',
-          buttons: [{ text: '← Назад', nextState: 'start' }],
-        },
-        about: {
-          message: 'О нас:\n\nМы занимаемся...',
-          buttons: [{ text: '← Назад', nextState: 'info' }],
-        },
-        services: {
-          message: 'Наши услуги:\n\n1. Услуга 1\n2. Услуга 2',
-          buttons: [{ text: '← Назад', nextState: 'info' }],
-        },
-      },
-    },
-  },
-  {
-    name: 'Опрос',
-    description: 'Бот для проведения опросов',
-    schema: {
-      version: 1,
-      initialState: 'welcome',
-      states: {
-        welcome: {
-          message: 'Добро пожаловать в опрос!',
-          buttons: [{ text: 'Начать опрос', nextState: 'question1' }],
-        },
-        question1: {
-          message: 'Вопрос 1: Как вам наш сервис?',
-          buttons: [
-            { text: 'Отлично', nextState: 'question2' },
-            { text: 'Хорошо', nextState: 'question2' },
-            { text: 'Плохо', nextState: 'question2' },
-          ],
-        },
-        question2: {
-          message: 'Вопрос 2: Рекомендуете ли вы нас?',
-          buttons: [
-            { text: 'Да', nextState: 'thanks' },
-            { text: 'Нет', nextState: 'thanks' },
-          ],
-        },
-        thanks: {
-          message: 'Спасибо за участие в опросе! 🙏',
-        },
-      },
-    },
-  },
-  {
-    name: 'Пустой шаблон',
-    description: 'Начните с нуля',
-    schema: {
-      version: 1,
-      initialState: 'start',
-      states: {
-        start: {
-          message: 'Привет!',
-        },
-      },
-    },
-  },
-];
+const WebApp = window.Telegram?.WebApp;
+
+const CATEGORY_TABS = [
+  { key: 'all', label: 'Все' },
+  { key: 'business', label: 'Бизнес' },
+  { key: 'education', label: 'Образование' },
+  { key: 'entertainment', label: 'Развлечения' },
+] as const;
+
+const CATEGORY_LABELS: Record<BotTemplate['category'], string> = {
+  business: 'Бизнес',
+  education: 'Образование',
+  entertainment: 'Развлечения',
+  other: 'Другое',
+};
+
+type CategoryKey = (typeof CATEGORY_TABS)[number]['key'];
+
+function showConfirm(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (WebApp?.showConfirm) {
+      WebApp.showConfirm(message, (confirmed) => resolve(Boolean(confirmed)));
+      return;
+    }
+    resolve(window.confirm(message));
+  });
+}
+
+function showAlert(message: string) {
+  if (WebApp?.showAlert) {
+    WebApp.showAlert(message);
+    return;
+  }
+  window.alert(message);
+}
 
 export default function Templates() {
   const navigate = useNavigate();
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>('all');
+  const [selectedTemplate, setSelectedTemplate] = useState<BotTemplate | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [templates, setTemplates] = useState<BotTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
 
-  // В реальном приложении здесь будет функция для применения шаблона к боту
-  const handleTemplateSelect = (_template: BotSchema) => {
-    // Показываем предпросмотр или применяем к текущему боту
-    alert('Выберите бота для применения шаблона в редакторе');
-    navigate('/');
+  const filteredTemplates = useMemo(() => {
+    if (activeCategory === 'all') {
+      return templates;
+    }
+    return templates.filter((template) => template.category === activeCategory);
+  }, [activeCategory, templates]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTemplates = async () => {
+      try {
+        const loadedTemplates = await getTemplates();
+        for (const template of loadedTemplates) {
+          const validation = validateBotSchema(template.schema);
+          if (!validation.valid) {
+            console.warn('Template schema validation failed:', {
+              templateId: template.id,
+              errors: validation.errors,
+            });
+            showAlert(`Шаблон "${template.name}" содержит ошибки: ${validation.errors.join(', ')}`);
+          }
+        }
+        if (isMounted) {
+          setTemplates(loadedTemplates);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Не удалось загрузить шаблоны';
+        showAlert(message);
+      } finally {
+        if (isMounted) {
+          setLoadingTemplates(false);
+        }
+      }
+    };
+
+    loadTemplates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleTemplateSelect = async (template: BotTemplate) => {
+    const confirmed = await showConfirm(`Создать бота '${template.name}'?`);
+    if (!confirmed) {
+      return;
+    }
+
+    const validation = validateBotSchema(template.schema);
+    if (!validation.valid) {
+      showAlert(`Шаблон содержит ошибки: ${validation.errors.join(', ')}`);
+      return;
+    }
+
+    setSelectedTemplate(null);
+    setIsCreating(true);
+
+    try {
+      const createdBot = await api.createBot(template.name, template.schema);
+      showAlert(`Бот "${createdBot.name}" создан`);
+      navigate(`/bot/${createdBot.id}`);
+    } catch (error) {
+      const status = (error as any)?.status;
+      let message = 'Не удалось создать бота. Попробуйте позже.';
+
+      if (status === 429) {
+        message = 'Достигнут лимит ботов. Удалите один из ботов и попробуйте снова.';
+      } else if (error instanceof Error) {
+        if (/failed to fetch|network|timeout/i.test(error.message)) {
+          message = 'Ошибка сети. Проверьте подключение и попробуйте снова.';
+        } else if (error.message) {
+          message = error.message;
+        }
+      }
+
+      showAlert(message);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
     <div className="page">
       <div className="page-header">
         <h1 className="page-title">Шаблоны</h1>
-        <p className="page-subtitle">Выберите готовый шаблон</p>
+        <p className="page-subtitle">Выберите готовый шаблон и создайте бота за минуту</p>
       </div>
 
-      {TEMPLATES.map((template, index) => (
-        <div key={index} className="card">
-          <div style={{ marginBottom: '8px' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
-              {template.name}
-            </h3>
-            <p style={{ fontSize: '14px', color: 'var(--tg-theme-hint-color)' }}>
-              {template.description}
-            </p>
-            <p style={{ fontSize: '12px', color: 'var(--tg-theme-hint-color)', marginTop: '8px' }}>
-              Состояний: {Object.keys(template.schema.states).length}
-            </p>
-          </div>
+      <div className="templates-tabs">
+        {CATEGORY_TABS.map((tab) => (
           <button
-            className="btn btn-primary"
-            onClick={() => handleTemplateSelect(template.schema)}
-            style={{ width: '100%', marginTop: '8px' }}
+            key={tab.key}
+            className={`templates-tab ${activeCategory === tab.key ? 'is-active' : ''}`}
+            onClick={() => setActiveCategory(tab.key)}
           >
-            Использовать шаблон
+            {tab.label}
           </button>
+        ))}
+      </div>
+
+      {isCreating ? (
+        <div className="card">Создаем бота по выбранному шаблону...</div>
+      ) : null}
+
+      {loadingTemplates ? (
+        <div className="card">Загружаем шаблоны...</div>
+      ) : null}
+
+      {filteredTemplates.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📌</div>
+          <div className="empty-state-text">Шаблоны этой категории пока не добавлены</div>
+        </div>
+      ) : null}
+
+      {filteredTemplates.map((template) => (
+        <div
+          key={template.id}
+          className="card template-card"
+          onClick={() => setSelectedTemplate(template)}
+        >
+          <div className="template-card-header">
+            <div className="template-card-icon">{template.icon}</div>
+            <div>
+              <div className="template-card-title">{template.name}</div>
+              <div className="template-card-description">{template.description}</div>
+              <span className={`template-badge template-badge--${template.category}`}>
+                {CATEGORY_LABELS[template.category]}
+              </span>
+            </div>
+          </div>
+
+          <div className="template-card-meta">
+            <span>Состояний: {Object.keys(template.schema.states).length}</span>
+          </div>
+
+          <ul className="template-features">
+            {template.preview.features.map((feature) => (
+              <li key={feature}>{feature}</li>
+            ))}
+          </ul>
         </div>
       ))}
+
+      {selectedTemplate ? (
+        <TemplatePreview
+          template={selectedTemplate}
+          onClose={() => setSelectedTemplate(null)}
+          onUse={() => handleTemplateSelect(selectedTemplate)}
+        />
+      ) : null}
     </div>
   );
 }
-

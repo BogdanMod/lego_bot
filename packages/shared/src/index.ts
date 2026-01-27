@@ -1,14 +1,20 @@
 // Shared types and utilities
+import { createLogger } from './logger';
+
+export const logger = createLogger('shared');
 
 export * from './logger';
 export * from './middleware';
 export * from './constants/limits';
 export * from './types/bot-schema';
+export * from './services/telegram';
 export * from './utils/circuit-breaker';
 export * from './utils/graceful-degradation';
 export * from './utils/sanitize';
 export * from './utils/telegram-auth';
 export * from './validation/schemas';
+export * from './db/bot-users';
+export * from './db/bot-analytics';
 
 export interface User {
   id: number;

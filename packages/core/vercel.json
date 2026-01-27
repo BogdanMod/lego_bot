@@ -8,6 +8,12 @@
       "source": "/(.*)",
       "destination": "/api/index"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/process-broadcasts",
+      "schedule": "* * * * *"
+    }
   ]
 }
 
