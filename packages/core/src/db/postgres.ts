@@ -38,9 +38,13 @@ export type PostgresPoolConfig = {
 };
 
 export function getPostgresPoolConfig(): PostgresPoolConfig {
-  return isVercel
-    ? { max: 2, idleTimeoutMillis: 1000, connectionTimeoutMillis: 3000 }
-    : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
+  if (isVercel) {
+    const vercelMaxRaw = Number(process.env.PG_POOL_MAX_VERCEL ?? 1);
+    const vercelMax =
+      Number.isFinite(vercelMaxRaw) && vercelMaxRaw > 0 ? vercelMaxRaw : 1;
+    return { max: vercelMax, idleTimeoutMillis: 15000, connectionTimeoutMillis: 5000 };
+  }
+  return { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
 }
 
 export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = isVercel
@@ -100,6 +104,42 @@ function formatPostgresConnectionInfo(connectionInfo: PostgresConnectionInfo | n
     return 'unknown';
   }
   return `${connectionInfo.host}:${connectionInfo.port}/${connectionInfo.database}`;
+}
+
+function isValidPostgresUrl(connectionString: string | undefined): boolean {
+  if (!connectionString) {
+    return false;
+  }
+  try {
+    const url = new URL(connectionString);
+    return Boolean(url.protocol && url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function diagnoseConnectionError(error: unknown): { category: string; hint: string } {
+  const err = error as { code?: string; message?: string };
+  const code = (err?.code || '').toString();
+  const message = (err?.message || '').toString();
+  const combined = `${code} ${message}`.toLowerCase();
+
+  if (combined.includes('enotfound') || combined.includes('eai_again')) {
+    return { category: 'dns', hint: 'Database host could not be resolved (check hostname/DNS)' };
+  }
+  if (combined.includes('etimedout') || combined.includes('timeout')) {
+    return { category: 'timeout', hint: 'Connection timed out (check network, Vercel access, firewall)' };
+  }
+  if (combined.includes('econnrefused')) {
+    return { category: 'refused', hint: 'Connection refused (database not reachable or not running)' };
+  }
+  if (combined.includes('28p01') || combined.includes('password authentication failed')) {
+    return { category: 'auth', hint: 'Authentication failed (check username/password)' };
+  }
+  if (combined.includes('ssl') || combined.includes('self signed')) {
+    return { category: 'ssl', hint: 'SSL handshake failed (check sslmode or certs)' };
+  }
+  return { category: 'unknown', hint: 'Check connection string and database accessibility' };
 }
 
 function logConnectionError(service: string, error: unknown, context: Record<string, unknown>) {
@@ -172,15 +212,22 @@ async function connectWithRetry(
       });
       if (attempt === POSTGRES_RETRY_CONFIG.maxRetries) {
         const totalDurationMs = Date.now() - startTime;
+        const diagnostics = diagnoseConnectionError(error);
+        const urlValid = isValidPostgresUrl(process.env.DATABASE_URL);
         logger?.error({
           service: 'postgres',
           attempts: attempt,
           duration: totalDurationMs,
           totalDurationMs,
           connection: connectionInfo,
+          urlValid,
+          diagnostics,
         }, 'PostgreSQL connection state: error');
         throw new Error(
-          `PostgreSQL connection failed after ${attempt} attempts (${formatPostgresConnectionInfo(connectionInfo)})`
+          `PostgreSQL connection failed after ${attempt} attempts ` +
+            `(${formatPostgresConnectionInfo(connectionInfo)}). ` +
+            `URL format: ${urlValid ? 'valid' : 'invalid'}. ` +
+            `Likely cause: ${diagnostics.category} (${diagnostics.hint})`
         );
       }
       logger?.warn({
@@ -204,10 +251,22 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     return pool;
   }
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL?.trim();
   
   if (!connectionString) {
-    throw new Error('DATABASE_URL is not set in environment variables');
+    logger?.error({
+      service: 'postgres',
+      environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
+      vercelEnv: process.env.VERCEL_ENV,
+      availableEnvVars: Object.keys(process.env).filter(
+        (key) => key.startsWith('DATABASE') || key.startsWith('VERCEL')
+      ),
+    }, '❌ DATABASE_URL not found');
+    throw new Error(
+      'DATABASE_URL is not set in environment variables. ' +
+        'Check Vercel Dashboard → Project Settings → Environment Variables, ' +
+        'ensure it is set for the correct environment, and redeploy.'
+    );
   }
 
   const poolConfig = getPostgresPoolConfig();
