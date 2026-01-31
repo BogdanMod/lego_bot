@@ -112,7 +112,7 @@ const handler = async (req: any, res: any) => {
       // Путь зависит от того, где находится файл после компиляции
       // Если файл в dist/api/webhook.js, то путь к dist/index.js будет ../index
       // Если файл в api/webhook.js (Vercel компилирует автоматически), то путь будет ../dist/index
-      coreModule = require('../dist/index') || require('../index');
+      coreModule = require('../src/index') || require('../dist/index');
       console.log('✅ Core module loaded');
     } catch (importError: any) {
       console.error('❌ Failed to import core module:', importError);
@@ -251,4 +251,5 @@ const handler = async (req: any, res: any) => {
 };
 
 module.exports = handler;
+
 
