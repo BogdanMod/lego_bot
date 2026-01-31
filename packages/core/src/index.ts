@@ -1,7 +1,7 @@
 ﻿import 'express-async-errors';
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors';
 import axios from 'axios';
 import { lookup } from 'dns/promises';
 import { isIP } from 'net';
@@ -11,7 +11,7 @@ import pinoHttp from 'pino-http';
 import { z } from 'zod';
 import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
 import { getRequestId, validateBotSchema } from '@dialogue-constructor/shared/server';
-import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient } from './db/postgres';
+import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, updateBotSchema, createBot, deleteBot } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
@@ -74,6 +74,9 @@ export function createApp(): ReturnType<typeof express> {
 let dbInitialized = false;
 let dbInitializationPromise: Promise<void> | null = null;
 let redisAvailable = true;
+let webhookSecurityEnabled = true;
+let botEnabled = true;
+let encryptionAvailable = true;
 let dbInitializationStage: string | null = null;
 let lastDatabaseInitialization: {
   startedAt: string | null;
@@ -213,6 +216,41 @@ function getSafePostgresConnectionInfo(connectionString: string | undefined): Re
   }
 }
 
+type EnvGroupStatus = {
+  present: string[];
+  missing: string[];
+};
+
+type EnvValidationResult = {
+  infraRequired: EnvGroupStatus;
+  featureRequired: EnvGroupStatus;
+  optional: EnvGroupStatus;
+  allInfraPresent: boolean;
+};
+
+function validateRequiredEnvVars(): EnvValidationResult {
+  const isSet = (key: string) => String(process.env[key] ?? '').trim().length > 0;
+  const infraRequired = ['DATABASE_URL'];
+  const featureRequired = ['TELEGRAM_BOT_TOKEN', 'ENCRYPTION_KEY'];
+  const optional = ['REDIS_URL'];
+
+  const buildGroup = (keys: string[]): EnvGroupStatus => ({
+    present: keys.filter((key) => isSet(key)),
+    missing: keys.filter((key) => !isSet(key)),
+  });
+
+  const infraStatus = buildGroup(infraRequired);
+  const featureStatus = buildGroup(featureRequired);
+  const optionalStatus = buildGroup(optional);
+
+  return {
+    infraRequired: infraStatus,
+    featureRequired: featureStatus,
+    optional: optionalStatus,
+    allInfraPresent: infraStatus.missing.length === 0,
+  };
+}
+
 async function initializeDatabases() {
   const isVercel = process.env.VERCEL === '1';
   const initializationTimeoutMs = isVercel ? getPostgresConnectRetryBudgetMs() + 2000 : 0;
@@ -239,6 +277,59 @@ async function initializeDatabases() {
   logger.info({ value: process.env.REDIS_URL ? 'SET' : 'NOT SET' }, '  REDIS_URL:');
   logger.info({ value: process.env.VERCEL }, '  VERCEL:');
   logger.info({ value: process.env.VERCEL_ENV }, '  VERCEL_ENV:');
+
+  logger.info('🔍 Environment Variables Validation:');
+  const envCheck = validateRequiredEnvVars();
+  const isSet = (key: string) => String(process.env[key] ?? '').trim().length > 0;
+  const optionalMissing = envCheck.optional.missing;
+  const secretTokenPresent = isSet('TELEGRAM_SECRET_TOKEN');
+  const botTokenPresent = envCheck.featureRequired.present.includes('TELEGRAM_BOT_TOKEN');
+  const encryptionKeyPresent = envCheck.featureRequired.present.includes('ENCRYPTION_KEY');
+
+  logger.info(
+    {
+      required: envCheck.infraRequired.present.length,
+      missing: envCheck.infraRequired.missing.length,
+      details: {
+        present: envCheck.infraRequired.present,
+        missing: envCheck.infraRequired.missing,
+      },
+    },
+    'Environment check result'
+  );
+  if (envCheck.infraRequired.present.length > 0) {
+    logger.info(`✅ Required: ${envCheck.infraRequired.present.join(', ')}`);
+  }
+  if (envCheck.infraRequired.missing.length > 0) {
+    logger.error(`❌ Missing required: ${envCheck.infraRequired.missing.join(', ')}`);
+  }
+  if (optionalMissing.length > 0) {
+    logger.warn(`⚠️ Optional missing: ${optionalMissing.join(', ')}`);
+  }
+  if (!secretTokenPresent) {
+    logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
+  }
+
+  botEnabled = botTokenPresent;
+  encryptionAvailable = encryptionKeyPresent;
+  webhookSecurityEnabled = secretTokenPresent;
+
+  if (!botEnabled) {
+    logger.error('❌ TELEGRAM_BOT_TOKEN is missing; bot features are disabled');
+  }
+  if (!encryptionAvailable) {
+    logger.error('❌ ENCRYPTION_KEY is missing; encryption-dependent endpoints are disabled');
+  }
+
+  if (!envCheck.allInfraPresent) {
+    const error = new Error(
+      `Missing required environment variables: ${envCheck.infraRequired.missing.join(', ')}. ` +
+        `Present: ${envCheck.infraRequired.present.join(', ') || 'none'}. ` +
+        'Check Vercel Dashboard → Project Settings → Environment Variables.'
+    );
+    (error as any).missingVars = envCheck.infraRequired.missing;
+    throw error;
+  }
   
   const initializationStartedAt = Date.now();
   lastDatabaseInitialization = {
@@ -375,6 +466,7 @@ async function initializeDatabases() {
 }
 
 let databasesInitialized = false;
+let ensureDbInitPromise: Promise<void> | null = null;
 
 async function prewarmConnections() {
   const isVercel = process.env.VERCEL === '1';
@@ -400,6 +492,7 @@ async function prewarmConnections() {
 
 // Middleware для проверки инициализации БД
 async function ensureDatabasesInitialized(req: Request, res: Response, next: Function) {
+  if (req.method === 'OPTIONS') return next();
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const middlewareStart = Date.now();
   try {
@@ -410,9 +503,17 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
     logger.info({ requestId, dbInitialized }, '📉 DB initialized flag:');
     
     if (!databasesInitialized) {
-      await initializeDatabases();
-      databasesInitialized = true;
-      void prewarmConnections();
+      if (!ensureDbInitPromise) {
+        ensureDbInitPromise = initializeDatabases()
+          .then(() => {
+            databasesInitialized = true;
+            void prewarmConnections();
+          })
+          .finally(() => {
+            ensureDbInitPromise = null;
+          });
+      }
+      await ensureDbInitPromise;
     }
     logger.info(
       { requestId, durationMs: Date.now() - middlewareStart },
@@ -469,12 +570,23 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
     logger.warn({ requestId, postgresConnectionInfo }, '🔍 PostgreSQL connection info:');
     const failedDatabase = (error as any)?.database || 'postgres';
     const maxRetries = POSTGRES_RETRY_CONFIG.maxRetries;
+    const allowEnvDetails =
+      process.env.NODE_ENV !== 'production' ||
+      (process.env.HEALTH_TOKEN &&
+        req.headers['x-health-token'] === process.env.HEALTH_TOKEN);
+    const envCheck = validateRequiredEnvVars();
+    const requiresEncryption =
+      (req.path === '/api/bots' && req.method === 'POST') ||
+      (req.path.startsWith('/api/bot/') &&
+        (req.method === 'POST' || req.method === 'PUT') &&
+        req.path.endsWith('/schema'));
+    const requiresBot = req.path === '/api/webhook';
 
     if (req.path === '/api/webhook') {
       logger.info({ metric: 'webhook_error', requestId }, 'Webhook error');
     }
 
-    res.status(503).json({ 
+    const responsePayload: Record<string, any> = {
       error: 'Service temporarily unavailable',
       message: 'Database initialization failed',
       database: failedDatabase,
@@ -483,7 +595,33 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
       totalDurationMs: lastDatabaseInitialization.durationMs ?? durationMs,
       lastError: error instanceof Error ? error.message : String(error),
       recommendation: 'Retry in 5 seconds',
-    });
+    };
+
+    responsePayload.environmentCheck = {
+      infraRequired: {
+        DATABASE_URL: process.env.DATABASE_URL?.trim() ? 'SET' : 'MISSING',
+      },
+      optional: {
+        REDIS_URL: process.env.REDIS_URL?.trim() ? 'SET' : 'MISSING',
+      },
+    };
+    if (allowEnvDetails || requiresEncryption || requiresBot) {
+      responsePayload.environmentCheck.featureRequired = {
+        TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN?.trim() ? 'SET' : 'MISSING',
+        ENCRYPTION_KEY: process.env.ENCRYPTION_KEY?.trim() ? 'SET' : 'MISSING',
+      };
+    }
+    if (allowEnvDetails || requiresEncryption || requiresBot) {
+      responsePayload.troubleshooting = {
+        recommendation:
+          'Check Vercel Dashboard → Project Settings → Environment Variables',
+        vercelEnv: process.env.VERCEL_ENV,
+        isVercel: process.env.VERCEL === '1',
+        missingRequired: envCheck.infraRequired.missing,
+      };
+    }
+
+    res.status(503).json(responsePayload);
   }
 }
 
@@ -663,25 +801,55 @@ logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
 logger.info({ value: MINI_APP_DEV_URL_127 }, '  MINI_APP_DEV_URL_127:');
 logger.info({ value: allowedOrigins }, '  Allowed origins:');
 
-app.use(cors({
+const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
     logger.info({ origin }, '🔍 CORS check - origin:');
-    // Разрешаем запросы без origin (например, мобильные приложения, Telegram)
+    // Non-browser requests: no CORS headers needed.
     if (!origin) {
-      logger.info('✅ CORS: No origin, allowing');
-      return callback(null, true);
+      logger.info('✅ CORS: No origin, skipping CORS headers');
+      return callback(null, false);
     }
     if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
       logger.info({ origin }, '✅ CORS: Origin allowed:');
-      callback(null, true);
-    } else {
-      logger.info({ origin }, '✅ CORS: Allowing all origins (permissive mode):');
-      callback(null, true); // Разрешаем все для упрощения
+      return callback(null, true);
     }
+    logger.info({ origin }, '❌ CORS: Origin not allowed:');
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-telegram-init-data', 'x-health-token'],
+  exposedHeaders: ['x-request-id'],
+  maxAge: 86400,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
+// Ensure caches don't mix CORS responses across different origins
+app.use((req: Request, res: Response, next: Function) => {
+  if (req.headers.origin) {
+    res.vary('Origin');
+  }
+  next();
+});
+
+const logOptionsPreflight = (req: Request, res: Response, next: Function) => {
+  if (req.method === 'OPTIONS') {
+    logger.info({
+      method: req.method,
+      path: req.path,
+      origin: req.headers.origin,
+      acrm: req.header('access-control-request-method'),
+      acrh: req.header('access-control-request-headers'),
+    }, '🔍 OPTIONS preflight received');
+  }
+  next();
+};
+
+app.options('*', logOptionsPreflight, cors(corsOptions));
+
+logger.info('✅ OPTIONS preflight handler registered via cors(corsOptions)');
 
 app.use(requestIdMiddleware());
 app.use(requestContextMiddleware());
@@ -695,6 +863,11 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDataba
   let updateType: string | undefined;
   let userId: number | null | undefined;
   try {
+    if (!botEnabled) {
+      logger.error({ requestId }, '❌ Bot is disabled (missing TELEGRAM_BOT_TOKEN)');
+      logger.info({ metric: 'webhook_error', requestId }, 'Webhook error');
+      return res.status(503).json({ error: 'Bot not initialized' });
+    }
     logger.info({ requestId }, '✅ Webhook DB initialization complete, processing update');
     // Проверяем, что бот инициализирован
     if (!botInstance) {
@@ -735,9 +908,19 @@ app.use(logRateLimitMetrics(logger));
 app.get('/health', async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const isVercel = process.env.VERCEL === '1';
-  const postgresPoolConfig = isVercel
-    ? { max: 3, idleTimeoutMillis: 5000, connectionTimeoutMillis: 15000 }
-    : { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
+  const allowEnvDetails =
+    process.env.NODE_ENV !== 'production' ||
+    (process.env.HEALTH_TOKEN &&
+      req.headers['x-health-token'] === process.env.HEALTH_TOKEN);
+  const envCheck = validateRequiredEnvVars();
+  const isSet = (key: string) => Boolean(process.env[key]?.trim());
+  const botTokenPresent = isSet('TELEGRAM_BOT_TOKEN');
+  const encryptionKeyPresent = isSet('ENCRYPTION_KEY');
+  const secretTokenPresent = isSet('TELEGRAM_SECRET_TOKEN');
+  botEnabled = botTokenPresent;
+  encryptionAvailable = encryptionKeyPresent;
+  webhookSecurityEnabled = secretTokenPresent;
+  const postgresPoolConfig = getPostgresPoolConfig();
   logger.info({ poolConfig: postgresPoolConfig, requestId }, 'PostgreSQL pool configuration');
 
   const poolInfo = getPoolStats();
@@ -789,19 +972,95 @@ app.get('/health', async (req: Request, res: Response) => {
   const postgresBreakerOpen = postgresCircuitBreaker.state !== 'closed';
   const redisBreakerOpen = redisCircuitBreaker.state !== 'closed';
 
+  let status: 'ok' | 'degraded' | 'error' = 'ok';
+  if (!envCheck.allInfraPresent || postgresState !== 'ready' || postgresBreakerOpen) {
+    status = 'error';
+  } else if (
+    redisState !== 'ready' ||
+    redisBreakerOpen ||
+    !botEnabled ||
+    !encryptionAvailable ||
+    !webhookSecurityEnabled
+  ) {
+    status = 'degraded';
+  }
+
+  const statusCode = status === 'error' ? 503 : 200;
+  const timestamp = new Date().toISOString();
+  const minimalHealth = {
+    status,
+    timestamp,
+    databases: {
+      postgres: {
+        status: postgresState,
+      },
+      redis: {
+        status: redisState,
+      },
+    },
+    environmentVariables: {
+      infraRequired: {
+        DATABASE_URL: isSet('DATABASE_URL') ? 'SET' : 'MISSING',
+      },
+      validation: {
+        allInfraPresent: envCheck.allInfraPresent,
+        missingInfraRequired: envCheck.infraRequired.missing,
+      },
+    },
+  };
+
+  if (!allowEnvDetails) {
+    logger.info(
+      { requestId, status, databases: minimalHealth.databases },
+      'Health check'
+    );
+    res.status(statusCode).json(minimalHealth);
+    return;
+  }
+
   const health = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
+    status,
+    timestamp,
     environment: {
       vercel: isVercel,
       vercelEnv: process.env.VERCEL_ENV,
       nodeEnv: process.env.NODE_ENV,
+    },
+    environmentVariables: {
+      infraRequired: {
+        DATABASE_URL: isSet('DATABASE_URL') ? 'SET' : 'MISSING',
+      },
+      optional: {
+        REDIS_URL: isSet('REDIS_URL') ? 'SET' : 'MISSING',
+        MINI_APP_URL: isSet('MINI_APP_URL') ? 'SET' : 'MISSING',
+        API_URL: isSet('API_URL') ? 'SET' : 'MISSING',
+      },
+      validation: {
+        allInfraPresent: envCheck.allInfraPresent,
+        missingInfraRequired: envCheck.infraRequired.missing,
+      },
+    },
+    featureFlags: {
+      botEnabled,
+      encryptionAvailable,
+      webhookSecurityEnabled,
+    },
+    featureRequired: {
+      TELEGRAM_BOT_TOKEN: botTokenPresent ? 'SET' : 'MISSING',
+      ENCRYPTION_KEY: encryptionKeyPresent ? 'SET' : 'MISSING',
+      TELEGRAM_SECRET_TOKEN: secretTokenPresent ? 'SET' : 'MISSING',
     },
     initialization: {
       last: lastDatabaseInitialization,
       stage: dbInitializationStage,
       initialized: dbInitialized,
       inProgress: Boolean(dbInitializationPromise) && !dbInitialized,
+      metrics: {
+        lastInitDurationMs: lastDatabaseInitialization?.durationMs ?? null,
+        lastInitSuccess: lastDatabaseInitialization?.success ?? null,
+        lastInitStartedAt: lastDatabaseInitialization?.startedAt ?? null,
+        lastInitFinishedAt: lastDatabaseInitialization?.finishedAt ?? null,
+      },
     },
     databases: {
       postgres: {
@@ -833,14 +1092,6 @@ app.get('/health', async (req: Request, res: Response) => {
       backend: redisState === 'ready' ? 'redis' : 'memory',
     },
   };
-
-  if (postgresState === 'ready' && !postgresBreakerOpen) {
-    health.status = redisState === 'ready' && !redisBreakerOpen ? 'ok' : 'degraded';
-  } else {
-    health.status = 'error';
-  }
-
-  const statusCode = health.status === 'error' ? 503 : 200;
   logger.info(
     { requestId, status: health.status, databases: health.databases },
     'Health check'
@@ -893,9 +1144,19 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
       });
     }
 
+    if (!encryptionAvailable) {
+      return res.status(503).json({
+        error: 'Service temporarily unavailable',
+        message: 'Encryption is not available',
+      });
+    }
+
     const encryptionKey = process.env.ENCRYPTION_KEY;
     if (!encryptionKey) {
-      return res.status(500).json({ error: 'ENCRYPTION_KEY is not set' });
+      return res.status(503).json({
+        error: 'Service temporarily unavailable',
+        message: 'Encryption is not available',
+      });
     }
 
     const duplicateToken = userBots.some((bot) => {
@@ -1033,6 +1294,12 @@ app.get('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams
 const updateSchemaHandler = async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   try {
+    if (!encryptionAvailable) {
+      return res.status(503).json({
+        error: 'Service temporarily unavailable',
+        message: 'Encryption is not available',
+      });
+    }
     const userId = (req as any).user.id;
     const botId = req.params.id;
     const schema = req.body;
