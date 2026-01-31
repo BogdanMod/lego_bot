@@ -1,9 +1,8 @@
 // Vercel Serverless Function
-// Экспортируем Express app для работы в Vercel
-// Импортируем из скомпилированного dist
-// @ts-ignore - dist файлы могут не иметь типов
-const app = require('../dist/index').default || require('../dist/index');
+// Export Express app for Vercel runtime.
+// Use src so Vercel bundles dependencies correctly.
+// @ts-ignore - src files may not have runtime types
+const app = require('../src/index').default || require('../src/index');
 
-// Vercel ожидает экспорт handler функции
+// Vercel expects a handler export
 module.exports = app;
-
