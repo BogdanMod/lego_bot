@@ -27,6 +27,22 @@
       "import": "./dist/cache/bot-schema-cache.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "server": [
+        "dist/server.d.ts"
+      ],
+      "server/*": [
+        "dist/server/*"
+      ],
+      "browser": [
+        "dist/browser.d.ts"
+      ],
+      "browser/*": [
+        "dist/browser/*"
+      ]
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
