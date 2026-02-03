@@ -792,14 +792,18 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://lego-bot-miniapp.vercel.app';
 const MINI_APP_DEV_URL = 'http://localhost:5174';
 const MINI_APP_DEV_URL_127 = 'http://127.0.0.1:5174';
-const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
+  // NOTE: `t.me/...` — это deep-link, а не реальное значение заголовка `Origin`.
+  // Держим allowlist только для реальных web-origin’ов MiniApp/Frontend.
+  // Если в прод-логах прилетает origin, которого нет в allowlist — добавь именно его (обычно через существующие env: MINI_APP_URL/FRONTEND_URL и т.д.).
+  const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
 
 logger.info('🎯 CORS configuration:');
 logger.info({ value: FRONTEND_URL }, '  FRONTEND_URL:');
 logger.info({ value: MINI_APP_URL }, '  MINI_APP_URL:');
-logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
-logger.info({ value: MINI_APP_DEV_URL_127 }, '  MINI_APP_DEV_URL_127:');
-logger.info({ value: allowedOrigins }, '  Allowed origins:');
+  logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
+  logger.info({ value: MINI_APP_DEV_URL_127 }, '  MINI_APP_DEV_URL_127:');
+  logger.info({ value: allowedOrigins }, '  Allowed origins:');
+  logger.info({ value: allowedOrigins }, '  allowedOrigins:');
 
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
@@ -818,7 +822,7 @@ const corsOptions: CorsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-telegram-init-data', 'x-health-token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-telegram-init-data', 'X-Telegram-Init-Data', 'x-health-token'],
   exposedHeaders: ['x-request-id'],
   maxAge: 86400,
   optionsSuccessStatus: 204,
