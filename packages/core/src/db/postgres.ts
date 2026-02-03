@@ -83,7 +83,26 @@ type PostgresConnectionInfo = {
   user: string;
 };
 
-function getPostgresConnectionInfo(connectionString: string): PostgresConnectionInfo | null {
+const LOCALHOST_HOSTS = new Set([
+  'localhost',
+  'localhost.localdomain',
+  '127.0.0.1',
+  '127.0.1.1',
+  '::1',
+  '0.0.0.0',
+]);
+
+function normalizeHost(host?: string): string {
+  if (!host) return '';
+  return host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+}
+
+function isLocalhostHost(host?: string): boolean {
+  const normalized = normalizeHost(host);
+  return LOCALHOST_HOSTS.has(normalized);
+}
+
+export function getPostgresConnectionInfo(connectionString: string): PostgresConnectionInfo | null {
   const activePool = pool;
 
   try {
@@ -223,11 +242,15 @@ async function connectWithRetry(
           urlValid,
           diagnostics,
         }, 'PostgreSQL connection state: error');
+        const localhostHint =
+          isVercel && connectionInfo && isLocalhostHost(connectionInfo.host)
+            ? ' Check DATABASE_URL: localhost is unreachable on Vercel.'
+            : '';
         throw new Error(
           `PostgreSQL connection failed after ${attempt} attempts ` +
             `(${formatPostgresConnectionInfo(connectionInfo)}). ` +
             `URL format: ${urlValid ? 'valid' : 'invalid'}. ` +
-            `Likely cause: ${diagnostics.category} (${diagnostics.hint})`
+            `Likely cause: ${diagnostics.category} (${diagnostics.hint}).${localhostHint}`
         );
       }
       logger?.warn({
@@ -271,6 +294,21 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
 
   const poolConfig = getPostgresPoolConfig();
   const connectionInfo = getPostgresConnectionInfo(connectionString);
+
+  if (isVercel && connectionInfo && isLocalhostHost(connectionInfo.host)) {
+    logger?.error({
+      service: 'postgres',
+      environment: 'Vercel serverless',
+      detectedHost: connectionInfo.host,
+      vercelEnv: process.env.VERCEL_ENV,
+      hint: 'Use Neon (neon.tech) or Supabase (supabase.com) for serverless PostgreSQL',
+    }, '❌ Invalid DATABASE_URL: localhost detected on Vercel');
+    throw new Error(
+      `DATABASE_URL points to localhost (${connectionInfo.host}) on Vercel. ` +
+        'Use a production PostgreSQL service (Neon, Supabase, AWS RDS) with public endpoint. ' +
+        'Update DATABASE_URL in Vercel Dashboard → Settings → Environment Variables.'
+    );
+  }
 
   const { max, idleTimeoutMillis, connectionTimeoutMillis } = poolConfig;
   logger?.info({

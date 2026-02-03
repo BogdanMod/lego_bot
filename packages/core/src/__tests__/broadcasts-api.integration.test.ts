@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import supertest from 'supertest';
 import crypto from 'crypto';
 import { createApp } from '../index';
@@ -11,7 +11,9 @@ const app = createApp();
 const request = supertest.agent(app);
 let pool: ReturnType<typeof createTestPostgresPool>;
 const encryptionKey = process.env.ENCRYPTION_KEY as string;
-const botToken = process.env.BOT_TOKEN || 'test-bot-token';
+const botToken = process.env.TELEGRAM_BOT_TOKEN || 'test-bot-token';
+let previousTelegramBotToken: string | undefined;
+let previousBotToken: string | undefined;
 const rateLimitCooldownMs = 1500;
 
 async function seedBotUsers(botId: string, telegramIds: string[]) {
@@ -38,13 +40,15 @@ async function seedBotUsers(botId: string, telegramIds: string[]) {
 }
 
 beforeEach(async () => {
+  process.env.TELEGRAM_BOT_TOKEN = botToken;
   const redisClient = await getRedisClientOptional();
   await cleanupAllTestState(pool, redisClient);
   await new Promise((resolve) => setTimeout(resolve, rateLimitCooldownMs));
 });
 
 beforeAll(async () => {
-  process.env.BOT_TOKEN = botToken;
+  previousTelegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+  previousBotToken = process.env.BOT_TOKEN;
   pool = createTestPostgresPool();
 
   const { initializeRateLimiters } = await import('../index');
@@ -54,6 +58,19 @@ beforeAll(async () => {
 afterAll(async () => {
   if (pool) {
     await pool.end();
+  }
+});
+
+afterEach(() => {
+  if (previousTelegramBotToken === undefined) {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+  } else {
+    process.env.TELEGRAM_BOT_TOKEN = previousTelegramBotToken;
+  }
+  if (previousBotToken === undefined) {
+    delete process.env.BOT_TOKEN;
+  } else {
+    process.env.BOT_TOKEN = previousBotToken;
   }
 });
 

@@ -9,9 +9,9 @@ import { Telegraf, session } from 'telegraf';
 import { Scenes } from 'telegraf';
 import pinoHttp from 'pino-http';
 import { z } from 'zod';
-import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
+import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, getTelegramBotToken, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
 import { getRequestId, validateBotSchema } from '@dialogue-constructor/shared/server';
-import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig } from './db/postgres';
+import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, updateBotSchema, createBot, deleteBot } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
@@ -987,12 +987,26 @@ app.get('/health', async (req: Request, res: Response) => {
 
   const statusCode = status === 'error' ? 503 : 200;
   const timestamp = new Date().toISOString();
+  const minimalConnectionInfo = (() => {
+    if (process.env.VERCEL !== '1') return null;
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) return null;
+    const info = getPostgresConnectionInfo(dbUrl);
+    if (!info) return null;
+    const host = info.host?.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    return {
+      host,
+      port: info.port,
+      database: info.database,
+    };
+  })();
   const minimalHealth = {
     status,
     timestamp,
     databases: {
       postgres: {
         status: postgresState,
+        ...(minimalConnectionInfo ? { connectionInfo: minimalConnectionInfo } : {}),
       },
       redis: {
         status: redisState,
@@ -1067,6 +1081,18 @@ app.get('/health', async (req: Request, res: Response) => {
         status: postgresState,
         pool: poolInfo,
         poolConfig: postgresPoolConfig,
+        connectionInfo: (() => {
+          const dbUrl = process.env.DATABASE_URL;
+          if (!dbUrl) return null;
+          const info = getPostgresConnectionInfo(dbUrl);
+          return info
+            ? {
+                host: info.host,
+                port: info.port,
+                database: info.database,
+              }
+            : null;
+        })(),
       },
       redis: {
         status: redisState,
@@ -1109,9 +1135,9 @@ async function requireUserId(req: Request, res: Response, next: Function) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const botToken = process.env.BOT_TOKEN;
+  const botToken = getTelegramBotToken();
   if (!botToken) {
-    return res.status(500).json({ error: 'BOT_TOKEN is not set' });
+    return res.status(500).json({ error: 'TELEGRAM_BOT_TOKEN is not set' });
   }
 
   const validation = validateTelegramWebAppData(initData, botToken);

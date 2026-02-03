@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import type { Test } from 'supertest';
 import { expect } from 'vitest';
 import crypto from 'crypto';
+import { getTelegramBotToken } from '../env/getTelegramBotToken';
 
 export function createTestApp(): Express {
   const app = express();
@@ -28,7 +29,7 @@ export function buildTelegramInitData(userId: number, botToken: string): string 
 }
 
 export function authenticateRequest(request: Test, userId = 1, botToken?: string): Test {
-  const token = botToken ?? process.env.BOT_TOKEN ?? 'test-bot-token';
+  const token = botToken ?? getTelegramBotToken() ?? 'test-bot-token';
   const initData = buildTelegramInitData(userId, token);
   return request.set('X-Telegram-Init-Data', initData);
 }

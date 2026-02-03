@@ -9,7 +9,7 @@
 ## Переменные окружения
 - ENCRYPTION_KEY (обязательная, минимум 32 символа)
 - ENCRYPTION_KEY_VERSION (отслеживает версию ключа)
-- BOT_TOKEN (токен Telegram-бота для валидации initData)
+- TELEGRAM_BOT_TOKEN (токен Telegram-бота для валидации initData; legacy BOT_TOKEN deprecated)
 
 ## Ротация ключей
 1. Сгенерируйте новый ENCRYPTION_KEY
