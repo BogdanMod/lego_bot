@@ -11,7 +11,7 @@
         "types": "./dist/browser.d.ts",
         "import": "./dist/browser.js"
       },
-      "require": "./dist/index.js",
+      "require": "./dist-cjs/index.js",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
@@ -23,13 +23,13 @@
       "default": "./dist/browser.js"
     },
     "./server": {
-      "require": "./dist/server.js",
+      "require": "./dist-cjs/server.js",
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./cache/bot-schema-cache": {
-      "require": "./dist/cache/bot-schema-cache.js",
+      "require": "./dist-cjs/cache/bot-schema-cache.js",
       "types": "./dist/cache/bot-schema-cache.d.ts",
       "import": "./dist/cache/bot-schema-cache.js",
       "default": "./dist/cache/bot-schema-cache.js"
@@ -52,7 +52,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.cjs.json && node ./scripts/write-cjs-package-json.mjs",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit"
