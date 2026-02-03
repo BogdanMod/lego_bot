@@ -88,11 +88,13 @@ async function apiRequest<T>(
   const url = `${apiUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}user_id=${userId}`;
   
   console.log('📡 API Request:', {
+    timestamp: new Date().toISOString(),
     method: options?.method || 'GET',
     url,
     userId,
     apiUrl,
-    isLocalhost: hostname,
+    hostname,
+    isLocalhost: hostname === 'localhost',
   });
 
   try {
@@ -121,20 +123,39 @@ async function apiRequest<T>(
 
     if (!response.ok) {
       let errorData: ApiError;
+      let responseText = '';
       try {
-        errorData = await response.json();
+        responseText = await response.text();
+        errorData = JSON.parse(responseText);
       } catch {
         errorData = {
-          error: `HTTP ${response.status}: ${response.statusText}`,
+          error: responseText || `HTTP ${response.status}: ${response.statusText}`,
         };
       }
-      
-      console.error('❌ API Error:', errorData);
-      console.error('❌ Response details:', {
+
+      const redactTextForLog = (s: string) =>
+        s.replace(/("?(?:password|token|secret)"?\s*:\s*)"[^"]*"/gi, '$1"***"');
+      const redactObjectForLog = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return obj;
+        const out = Array.isArray(obj) ? [...obj] : { ...obj };
+        for (const key of Object.keys(out)) {
+          if (/(password|token|secret)/i.test(key)) out[key] = '***';
+        }
+        return out;
+      };
+
+      const responseTextForLog = redactTextForLog(responseText).substring(0, 500);
+      const errorDataForLog = redactObjectForLog(errorData);
+
+      console.error('❌ API Error:', {
+        timestamp: new Date().toISOString(),
         url: response.url,
-        redirected: response.redirected,
-        type: response.type,
+        status: response.status,
+        statusText: response.statusText,
+        errorData: errorDataForLog,
+        responseText: responseTextForLog,
       });
+
       const message = errorData.error || errorData.message || `API request failed: ${response.status} ${response.statusText}`;
       const requestError = new Error(message);
       (requestError as any).status = response.status;
@@ -147,14 +168,47 @@ async function apiRequest<T>(
     return data;
   } catch (error) {
     console.error('❌ Request failed:', {
+      timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
+      status: (error as any).status,
       apiUrl,
       endpoint,
+      url,
     });
-    console.error('❌ API Request Error:', error);
     throw error;
   }
+}
+
+export function formatApiError(error: unknown): string {
+  const status = (error as any).status;
+
+  if (status === 500) {
+    return 'Ошибка сервера (500). Возможно, база данных недоступна или неверная конфигурация.';
+  }
+  if (status === 503) {
+    return 'Сервис временно недоступен (503). Попробуйте позже.';
+  }
+  if (status === 401 || status === 403) {
+    return 'Ошибка авторизации. Убедитесь, что приложение запущено в Telegram.';
+  }
+  if (status === 404) {
+    return 'Ресурс не найден (404).';
+  }
+
+  if (error instanceof TypeError) {
+    const msg = error.message || '';
+    if (/failed to fetch|networkerror|load failed|fetch/i.test(msg)) {
+      return 'Проблема сети или CORS. Проверьте подключение / попробуйте позже.';
+    }
+    return 'Проблема сети. Проверьте подключение / попробуйте позже.';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Неизвестная ошибка. Проверьте подключение к интернету.';
 }
 
 export const api = {

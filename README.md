@@ -102,6 +102,7 @@ npm install
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=your_bot_token_here
+# BOT_TOKEN is deprecated (legacy). Use TELEGRAM_BOT_TOKEN instead.
 BOT_TOKEN=your_bot_token_here
 
 # Database
@@ -320,7 +321,7 @@ docker-compose up -d
 
 See [SECURITY.md](./SECURITY.md) for details on validation, authentication, encryption, audit logging, and key rotation.
 
-Required security env vars: `ENCRYPTION_KEY`, `BOT_TOKEN`.
+Required security env vars: `ENCRYPTION_KEY`, `TELEGRAM_BOT_TOKEN` (legacy `BOT_TOKEN` is deprecated).
 
 ## 🔐 Безопасность
 

@@ -15,7 +15,9 @@ const request = supertest.agent(app);
 let pool: ReturnType<typeof createTestPostgresPool>;
 let postgresPool: any;
 const encryptionKey = process.env.ENCRYPTION_KEY as string;
-const botToken = process.env.BOT_TOKEN || 'test-bot-token';
+const botToken = process.env.TELEGRAM_BOT_TOKEN || 'test-bot-token';
+let previousTelegramBotToken: string | undefined;
+let previousBotToken: string | undefined;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -60,6 +62,7 @@ async function deleteBotApi(userId: number, botId: string) {
 }
 
 beforeEach(async () => {
+  process.env.TELEGRAM_BOT_TOKEN = botToken;
   const redisClient = await redisModule.getRedisClientOptional();
   await cleanupAllTestState(pool, redisClient);
   
@@ -69,13 +72,24 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  if (previousTelegramBotToken === undefined) {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+  } else {
+    process.env.TELEGRAM_BOT_TOKEN = previousTelegramBotToken;
+  }
+  if (previousBotToken === undefined) {
+    delete process.env.BOT_TOKEN;
+  } else {
+    process.env.BOT_TOKEN = previousBotToken;
+  }
   // Defensive reset in case a test fails before its own `finally` cleanup
   setRedisUnavailableForTests(false);
   setRedisAvailableForTests(true);
 });
 
 beforeAll(async () => {
-  process.env.BOT_TOKEN = botToken;
+  previousTelegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+  previousBotToken = process.env.BOT_TOKEN;
   pool = createTestPostgresPool();
 
   // Initialize databases explicitly to ensure dbInitialized flag is set before any /health request

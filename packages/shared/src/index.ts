@@ -17,6 +17,7 @@ export * from './validation/bot-schema-validation';
 export * from './validation/schemas';
 export * from './db/bot-users';
 export * from './db/bot-analytics';
+export * from './env/getTelegramBotToken';
 
 export interface User {
   id: number;

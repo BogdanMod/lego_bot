@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../utils/api';
+import { api, formatApiError } from '../utils/api';
 import { BotSummary } from '../types';
 
 const WebApp = window.Telegram?.WebApp;
@@ -34,8 +34,13 @@ export default function BotList() {
       setBots(data.bots);
       setPagination(data.pagination);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Ошибка загрузки ботов';
-      console.error('❌ Error loading bots:', err);
+      const status = (err as any).status;
+      const errorMessage = formatApiError(err);
+      console.error('❌ Error loading bots:', {
+        error: err,
+        status,
+        message: errorMessage,
+      });
       setError(errorMessage);
       WebApp?.showAlert(errorMessage);
     } finally {
@@ -55,9 +60,15 @@ export default function BotList() {
       setBots((prev) => [...prev, ...data.bots]);
       setPagination(data.pagination);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Ошибка загрузки ботов';
-      console.error('❌ Error loading more bots:', err);
-      WebApp?.showAlert(errorMessage);
+      const status = (err as any).status;
+      const errorMessage = formatApiError(err);
+      console.error('❌ Error loading more bots:', {
+        error: err,
+        status,
+        message: errorMessage,
+      });
+      
+      // Не спамим модальным алертом при пагинации (loadMore); при желании — мягкий toast/индикатор
     } finally {
       setLoadingMore(false);
     }
@@ -88,6 +99,16 @@ export default function BotList() {
         <div className="empty-state">
           <div className="empty-state-icon">❌</div>
           <div className="empty-state-text">{error}</div>
+          <div
+            className="empty-state-hint"
+            style={{
+              marginTop: '8px',
+              fontSize: '12px',
+              color: 'var(--tg-theme-hint-color)',
+            }}
+          >
+            💡 Если открыто в браузере: откройте F12 → Network и проверьте запросы к API
+          </div>
           <button className="btn btn-primary" onClick={loadBots} style={{ marginTop: '16px' }}>
             Повторить
           </button>
