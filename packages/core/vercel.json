@@ -1,7 +1,10 @@
 {
   "functions": {
     "api/**/*.ts": {
-      "includeFiles": "node_modules/axios/dist/node/**"
+      "includeFiles": [
+        "node_modules/axios/dist/node/**",
+        "node_modules/@dialogue-constructor/shared/**"
+      ]
     }
   },
   "rewrites": [
