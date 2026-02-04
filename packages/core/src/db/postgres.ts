@@ -545,7 +545,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     retryConfig: POSTGRES_RETRY_CONFIG,
   }, '🔧 PostgreSQL pool configuration:');
 
-  // Р›РѕРіРёСЂСѓРµРј С‡Р°СЃС‚Рё URL РґР»СЏ РґРёР°РіРЅРѕСЃС‚РёРєРё (Р±РµР· РїР°СЂРѕР»РµР№)
+  // Логируем части URL для диагностики (без паролей)
   if (finalConnectionInfo) {
     logger?.info({
       service: 'postgres',
