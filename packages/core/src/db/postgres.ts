@@ -348,10 +348,10 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       availableEnvVars: Object.keys(process.env).filter(
         (key) => key.startsWith('DATABASE') || key.startsWith('VERCEL')
       ),
-    }, 'вќЊ DATABASE_URL not found');
+    }, '❌ DATABASE_URL not found');
     throw new Error(
       'DATABASE_URL is not set in environment variables. ' +
-        'Check Vercel Dashboard в†’ Project Settings в†’ Environment Variables, ' +
+        'Check Vercel Dashboard → Project Settings → Environment Variables, ' +
         'ensure it is set for the correct environment, and redeploy.'
     );
   }
@@ -366,11 +366,11 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       detectedHost: connectionInfo.host,
       vercelEnv: process.env.VERCEL_ENV,
       hint: 'Use Neon (neon.tech) or Supabase (supabase.com) for serverless PostgreSQL',
-    }, 'вќЊ Invalid DATABASE_URL: localhost detected on Vercel');
+    }, '❌ Invalid DATABASE_URL: localhost detected on Vercel');
     throw new Error(
       `DATABASE_URL points to localhost (${connectionInfo.host}) on Vercel. ` +
         'Use a production PostgreSQL service (Neon, Supabase, AWS RDS) with public endpoint. ' +
-        'Update DATABASE_URL in Vercel Dashboard в†’ Settings в†’ Environment Variables.'
+        'Update DATABASE_URL in Vercel Dashboard → Settings → Environment Variables.'
     );
   }
 
@@ -543,21 +543,21 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     attachDatabasePool: attachDatabasePoolAvailable,
     retryBudgetMs: getPostgresConnectRetryBudgetMs(),
     retryConfig: POSTGRES_RETRY_CONFIG,
-  }, 'рџ”§ PostgreSQL pool configuration:');
+  }, '🔧 PostgreSQL pool configuration:');
 
   // Р›РѕРіРёСЂСѓРµРј С‡Р°СЃС‚Рё URL РґР»СЏ РґРёР°РіРЅРѕСЃС‚РёРєРё (Р±РµР· РїР°СЂРѕР»РµР№)
   if (finalConnectionInfo) {
     logger?.info({
       service: 'postgres',
       connection: finalConnectionInfo,
-    }, 'рџ“Ќ PostgreSQL connection info:');
+    }, '🔍 PostgreSQL connection info:');
     logger?.info({ service: 'postgres', host: finalConnectionInfo.host }, '  Host:');
     logger?.info({ service: 'postgres', port: finalConnectionInfo.port }, '  Port:');
     logger?.info({ service: 'postgres', database: finalConnectionInfo.database }, '  Database:');
     logger?.info({ service: 'postgres', user: finalConnectionInfo.user }, '  User:');
     logger?.info({ service: 'postgres', password: 'not logged' }, '  Password:');
   } else {
-    logger?.warn({ service: 'postgres' }, 'вљ пёЏ Could not parse DATABASE_URL (might be invalid format)');
+    logger?.warn({ service: 'postgres' }, '⚠️ Could not parse DATABASE_URL (might be invalid format)');
   }
 
   if (poolOverridesActive) {
@@ -616,7 +616,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
     service: 'postgres',
     connection: connectionInfo,
     exists: Boolean(pool),
-  }, 'рџ”Љ getPostgresClient - pool exists:');
+  }, '📊 getPostgresClient - pool exists:');
   
   if (!pool) {
     if (!logger) {
@@ -625,7 +625,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
     logger.info({
       service: 'postgres',
       connection: connectionInfo,
-    }, 'рџ“¦ Initializing PostgreSQL pool...');
+    }, '📦 Initializing PostgreSQL pool...');
     await initPostgres(logger);
   }
   
@@ -634,7 +634,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
     logger?.error({
       service: 'postgres',
       connection: connectionInfo,
-    }, 'вќЊ PostgreSQL pool is not initialized');
+    }, '❌ PostgreSQL pool is not initialized');
     throw new Error('PostgreSQL pool is not initialized');
   }
 
@@ -648,12 +648,12 @@ export async function getPostgresClient(): Promise<PoolClient> {
     logger?.info({
       service: 'postgres',
       connection: connectionInfo,
-    }, 'рџ”— Connecting to PostgreSQL...');
+    }, '🔗 Connecting to PostgreSQL...');
     const client = await postgresCircuitBreaker.execute(() => activePool.connect());
     logger?.info({
       service: 'postgres',
       connection: connectionInfo,
-    }, 'вњ… PostgreSQL client connected');
+    }, '✅ PostgreSQL client connected');
     return client;
   } catch (error) {
     if (error instanceof CircuitBreakerOpenError) {
