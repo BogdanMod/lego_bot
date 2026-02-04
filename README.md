@@ -5,9 +5,9 @@
 
 Telegram-бот для создания и управления диалоговыми бота через веб-интерфейс.
 
-## 🚀 Quick Start
+## 🚀 Быстрый старт
 
-**New to this project?** See [RUNBOOK.md](./RUNBOOK.md) for detailed setup instructions.
+**Новичок в проекте?** См. [RUNBOOK.md](./RUNBOOK.md) для подробных инструкций по настройке.
 
 **TL;DR:**
 ```bash
@@ -19,7 +19,7 @@ cd packages/router && npm run dev      # Terminal 2
 cd packages/mini-app && npm run dev    # Terminal 3
 ```
 
-**Troubleshooting?** Check [RUNBOOK.md - Known Gotchas](./RUNBOOK.md#known-gotchas)
+**Проблемы?** Проверьте [RUNBOOK.md - Известные проблемы](./RUNBOOK.md#known-gotchas)
 
 ## 🏗️ Архитектура
 
@@ -83,58 +83,6 @@ lego_bot/
 │
 ├── docker-compose.yml  # PostgreSQL + Redis для локальной разработки
 └── .env               # Переменные окружения
-```
-
-## 🚀 Быстрый старт
-
-> **📖 Полная инструкция:** См. [RUNBOOK.md](./RUNBOOK.md) для подробного руководства по локальной разработке.
-
-### 1. Установка зависимостей
-
-```bash
-npm install
-```
-
-### 2. Настройка окружения
-
-Создайте `.env` в корне проекта:
-
-```env
-# Telegram
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-# BOT_TOKEN is deprecated (legacy). Use TELEGRAM_BOT_TOKEN instead.
-BOT_TOKEN=your_bot_token_here
-
-# Database
-DATABASE_URL=postgresql://postgres:postgres@localhost:5433/dialogue_constructor
-REDIS_URL=redis://localhost:6379
-
-# Encryption (минимум 32 символа)
-ENCRYPTION_KEY=your-32-character-encryption-key-here
-
-# URLs
-ROUTER_URL=http://localhost:3001
-FRONTEND_URL=http://localhost:8000
-PORT=3000
-```
-
-### 3. Запуск локально
-
-Рекомендуемый запуск (core + router + mini-app):
-
-```bash
-# Запустить PostgreSQL и Redis
-docker-compose up -d
-
-cd packages/core && npm run dev        # Terminal 1 (http://localhost:3000)
-cd packages/router && npm run dev      # Terminal 2 (http://localhost:3001)
-cd packages/mini-app && npm run dev    # Terminal 3 (http://localhost:5174)
-```
-
-Legacy/Optional UI (packages/frontend):
-
-```bash
-cd packages/frontend && python3 -m http.server 8000
 ```
 
 ## 📦 Пакеты
@@ -283,16 +231,16 @@ npm run test-db  # Проверяет подключение к PostgreSQL и Re
 ### Vercel (Core + Frontend)
 
 **Core:**
-- Root Directory: `packages/core`
-- Build Command: `cd ../.. && npm run build`
-- Output Directory: `dist`
+- Корневая директория: `packages/core`
+- Команда сборки: `cd ../.. && npm run build`
+- Директория вывода: `dist`
 - Environment Variables: все из `.env`
 
 **Frontend:**
-- Root Directory: `packages/frontend`
-- Framework: Other
-- Build Command: (пусто)
-- Output Directory: `.`
+- Корневая директория: `packages/frontend`
+- Фреймворк: Other
+- Команда сборки: (пусто)
+- Директория вывода: `.`
 
 ### Router
 
@@ -303,7 +251,7 @@ cd packages/router
 docker-compose up -d
 ```
 
-## 📝 API Endpoints
+## 📝 API эндпоинты
 
 ### Core (`packages/core`)
 
@@ -317,13 +265,11 @@ docker-compose up -d
 - `POST /webhook/:botId` - webhook от Telegram
 - `GET /health` - проверка работоспособности
 
-## Security
-
-See [SECURITY.md](./SECURITY.md) for details on validation, authentication, encryption, audit logging, and key rotation.
-
-Required security env vars: `ENCRYPTION_KEY`, `TELEGRAM_BOT_TOKEN` (legacy `BOT_TOKEN` is deprecated).
-
 ## 🔐 Безопасность
+
+См. [SECURITY.md](./SECURITY.md) для деталей по валидации, аутентификации, шифрованию, аудит-логированию и ротации ключей.
+
+Обязательные переменные окружения для безопасности: `ENCRYPTION_KEY`, `TELEGRAM_BOT_TOKEN` (устаревший `BOT_TOKEN` устарел).
 
 - Токены ботов шифруются AES-256-GCM
 - Telegram Login Widget проверяет hash через HMAC-SHA256

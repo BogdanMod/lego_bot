@@ -19,6 +19,8 @@ const postgresCircuitBreaker = new CircuitBreaker('postgres', {
 });
 
 const postgresRetryStats = { success: 0, failure: 0 };
+type PostgresDiagnostics = ReturnType<typeof diagnoseConnectionError>;
+let lastPostgresDiagnostics: PostgresDiagnostics | null = null;
 
 const isVercel = process.env.VERCEL === '1';
 const attachDatabasePoolAvailable =
@@ -100,6 +102,67 @@ function normalizeHost(host?: string): string {
 function isLocalhostHost(host?: string): boolean {
   const normalized = normalizeHost(host);
   return LOCALHOST_HOSTS.has(normalized);
+}
+
+function isSupabasePooler(connectionInfo: PostgresConnectionInfo | null): boolean {
+  if (!connectionInfo) return false;
+
+  const host = connectionInfo.host;
+  const port = connectionInfo.port;
+
+  // Supabase pooler обычно выглядит как *.pooler.supabase.com (формы строк могут отличаться, но suffix стабилен)
+  const isPoolerHost = host.endsWith('pooler.supabase.com');
+
+  // В Supabase доках для pooler часто встречается 6543, но в реальных строках иногда бывает и 5432.
+  // Принимаем оба, чтобы детект был устойчивым.
+  const isPoolerPort = port === '6543' || port === '5432' || port === 'default';
+
+  return isPoolerHost && isPoolerPort;
+}
+
+function getSupabasePoolerDiagnostics(connectionString: string): {
+  isUrlParsable: boolean;
+  hasPgbouncerParam: boolean;
+  hasPrepareThresholdParam: boolean;
+  hasFragment: boolean;
+} {
+  try {
+    const url = new URL(connectionString);
+    const params = new URLSearchParams(url.search);
+
+    return {
+      isUrlParsable: true,
+      hasPgbouncerParam: params.has('pgbouncer'),
+      hasPrepareThresholdParam: params.has('prepare_threshold'),
+      hasFragment: Boolean(url.hash),
+    };
+  } catch {
+    // Если URL невалидный, возвращаем диагностические флаги по умолчанию
+    return {
+      isUrlParsable: false,
+      hasPgbouncerParam: false,
+      hasPrepareThresholdParam: false,
+      hasFragment: false,
+    };
+  }
+}
+
+export function ensureSupabasePoolerParams(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    const params = url.searchParams;
+
+    // Only add if missing, preserve existing params
+    if (!params.has('pgbouncer')) {
+      params.set('pgbouncer', 'true');
+      params.set('prepare_threshold', '0');
+    }
+
+    // Keep fragment untouched (URL() preserves it)
+    return url.toString();
+  } catch {
+    return connectionString; // fail-safe: no mutation
+  }
 }
 
 export function getPostgresConnectionInfo(connectionString: string): PostgresConnectionInfo | null {
@@ -232,6 +295,7 @@ async function connectWithRetry(
       if (attempt === POSTGRES_RETRY_CONFIG.maxRetries) {
         const totalDurationMs = Date.now() - startTime;
         const diagnostics = diagnoseConnectionError(error);
+        lastPostgresDiagnostics = diagnostics; // Сохраняем для health endpoint
         const urlValid = isValidPostgresUrl(process.env.DATABASE_URL);
         logger?.error({
           service: 'postgres',
@@ -310,11 +374,168 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     );
   }
 
-  const { max, idleTimeoutMillis, connectionTimeoutMillis } = poolConfig;
+  let finalConnectionString = connectionString;
+  let finalPoolConfig = poolConfig;
+  let poolOverridesActive = false;
+  let urlMutation: 'none' | 'added_params' | 'failed_safe' = 'none';
+
+  if (isVercel && isSupabasePooler(connectionInfo)) {
+    let diag = getSupabasePoolerDiagnostics(finalConnectionString);
+
+    if (diag.isUrlParsable && !diag.hasPgbouncerParam) {
+      const original = finalConnectionString;
+      finalConnectionString = ensureSupabasePoolerParams(finalConnectionString);
+      if (finalConnectionString !== original) {
+        urlMutation = 'added_params';
+        logger?.info({
+          service: 'postgres',
+          host: connectionInfo?.host,
+          port: connectionInfo?.port,
+          urlMutation: 'added_params',
+        }, '🔧 Auto-configured Supabase pooler: added pgbouncer=true&prepare_threshold=0');
+      }
+    }
+
+    const derivedConnectionInfo = getPostgresConnectionInfo(finalConnectionString);
+    if (!derivedConnectionInfo && finalConnectionString !== connectionString) {
+      finalConnectionString = connectionString;
+      urlMutation = 'failed_safe';
+      logger?.warn({
+        service: 'postgres',
+        environment: 'Vercel serverless',
+        host: connectionInfo?.host,
+        port: connectionInfo?.port,
+        urlMutation,
+        warning: 'Supabase pooler URL mutation failed; using original DATABASE_URL',
+      }, '⚠️ Supabase pooler URL mutation failed; falling back to original DATABASE_URL');
+    }
+
+    const usesOriginalConnectionString = finalConnectionString === connectionString;
+    const connectionStringHasProtocol = finalConnectionString.includes('://');
+    const connectionStringPotentialMisparse =
+      !connectionStringHasProtocol && finalConnectionString.includes('?');
+
+    logger?.info({
+      service: 'postgres',
+      environment: 'Vercel serverless',
+      host: connectionInfo?.host,
+      urlMutation,
+      usesOriginalConnectionString,
+      connectionStringHasProtocol,
+      connectionStringPotentialMisparse,
+    }, 'ℹ️ Supabase pooler detected on Vercel');
+
+    if (connectionStringPotentialMisparse) {
+      logger?.warn({
+        service: 'postgres',
+        environment: 'Vercel serverless',
+        host: connectionInfo?.host,
+        urlMutation,
+        connectionStringHasProtocol,
+        connectionStringPotentialMisparse,
+        warning: 'DATABASE_URL may be misparsed (ensure original URL without unexpected fragments)',
+      }, '⚠️ Guardrail: DATABASE_URL format may cause dbname misparse (e.g., dbname?...)');
+    }
+
+    // 1) Supabase docs для pooler часто показывают 6543; если видим pooler-хост на 5432 — предупреждаем.
+    if (connectionInfo?.host.endsWith('pooler.supabase.com') && connectionInfo?.port === '5432') {
+      logger?.warn({
+        service: 'postgres',
+        environment: 'Vercel serverless',
+        host: connectionInfo?.host,
+        port: connectionInfo?.port,
+        effectiveHost: connectionInfo?.host,
+        effectivePort: connectionInfo?.port,
+        warning: 'Supabase pooler host uses port 5432; verify whether 6543 is intended',
+      }, '⚠️ Supabase pooler: похоже, порт не от pooler, проверь 6543');
+    }
+
+    if (!diag.isUrlParsable) {
+      logger?.warn({
+        service: 'postgres',
+        environment: 'Vercel serverless',
+        host: connectionInfo?.host,
+        warning: 'DATABASE_URL is not parsable by URL(); skipping URL-based diagnostics',
+      }, '⚠️ DATABASE_URL выглядит не как валидный URL; пропускаю URL-диагностику');
+    } else {
+      if (diag.hasFragment) {
+        logger?.warn({
+          service: 'postgres',
+          environment: 'Vercel serverless',
+          host: connectionInfo?.host,
+          warning: 'DATABASE_URL contains #fragment; it will be ignored by URL() and can be misleading',
+        }, '⚠️ DATABASE_URL содержит #fragment; это может путать при отладке');
+      }
+
+      // pgbouncer/prepare_threshold часто нужны ORM’ам (например Prisma) для transaction pooler.
+      // Для node-postgres мы намеренно НЕ инжектим эти query params автоматически (риски парсинга/совместимости).
+      if (!diag.hasPgbouncerParam || !diag.hasPrepareThresholdParam) {
+        logger?.info({
+          service: 'postgres',
+          environment: 'Vercel serverless',
+          host: connectionInfo?.host,
+          hint: 'If you use an ORM that relies on prepared statements (e.g., Prisma), add pgbouncer=true&prepare_threshold=0 to DATABASE_URL manually. Also keep pool size limited on serverless.',
+          missingParams: {
+            pgbouncer: !diag.hasPgbouncerParam,
+            prepare_threshold: !diag.hasPrepareThresholdParam,
+          },
+        }, 'ℹ️ Supabase pooler detected on serverless: проверь, что prepared statements отключены (если ORM их делает), и что pool size ограничен');
+      }
+    }
+
+    // 3) Реальные ограничения держим на уровне Pool config (и/или через env), без модификации URL
+    const envMax = process.env.PG_POOL_MAX_VERCEL ? Number(process.env.PG_POOL_MAX_VERCEL) : undefined;
+    const envIdleTimeoutRaw =
+      process.env.PG_IDLE_TIMEOUT_MILLIS_VERCEL ?? process.env.PG_POOL_IDLE_TIMEOUT_MILLIS_VERCEL;
+    const envIdleTimeout =
+      envIdleTimeoutRaw !== undefined ? Number(envIdleTimeoutRaw) : undefined;
+    const envConnectionTimeoutRaw =
+      process.env.PG_CONNECTION_TIMEOUT_MILLIS_VERCEL ??
+      process.env.PG_POOL_CONNECTION_TIMEOUT_MILLIS_VERCEL;
+    const envConnectionTimeout =
+      envConnectionTimeoutRaw !== undefined ? Number(envConnectionTimeoutRaw) : undefined;
+    const envAcquireTimeout = process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS_VERCEL
+      ? Number(process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS_VERCEL)
+      : undefined;
+    const resolvedConnectionTimeout = Number.isFinite(envAcquireTimeout)
+      ? envAcquireTimeout
+      : envConnectionTimeout;
+    const hasOverrides =
+      Number.isFinite(envMax) ||
+      Number.isFinite(envIdleTimeout) ||
+      Number.isFinite(resolvedConnectionTimeout);
+    poolOverridesActive = hasOverrides;
+
+    finalPoolConfig = {
+      ...poolConfig,
+      ...(Number.isFinite(envMax) ? { max: envMax } : {}),
+      ...(Number.isFinite(envIdleTimeout) ? { idleTimeoutMillis: envIdleTimeout } : {}),
+      ...(Number.isFinite(resolvedConnectionTimeout)
+        ? { connectionTimeoutMillis: resolvedConnectionTimeout }
+        : {}),
+    };
+
+    if (hasOverrides) {
+      logger?.info({
+        service: 'postgres',
+        environment: 'Vercel serverless',
+        host: connectionInfo?.host,
+        appliedPoolOverrides: {
+          max: (finalPoolConfig as any).max,
+          idleTimeoutMillis: (finalPoolConfig as any).idleTimeoutMillis,
+          connectionTimeoutMillis: (finalPoolConfig as any).connectionTimeoutMillis,
+        },
+      }, '🔧 Applied serverless pool config overrides for Supabase pooler');
+    }
+  }
+
+  const finalConnectionInfo = getPostgresConnectionInfo(finalConnectionString);
+
+  const { max, idleTimeoutMillis, connectionTimeoutMillis } = finalPoolConfig;
   logger?.info({
     service: 'postgres',
-    connection: connectionInfo,
-    hasDatabaseUrl: Boolean(connectionString),
+    connection: finalConnectionInfo,
+    hasDatabaseUrl: Boolean(finalConnectionString),
     vercel: process.env.VERCEL,
     environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
     vercelEnv: process.env.VERCEL_ENV,
@@ -325,35 +546,46 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
   }, '🔧 PostgreSQL pool configuration:');
 
   // Логируем части URL для диагностики (без паролей)
-  if (connectionInfo) {
+  if (finalConnectionInfo) {
     logger?.info({
       service: 'postgres',
-      connection: connectionInfo,
-    }, '📍 PostgreSQL connection info:');
-    logger?.info({ service: 'postgres', host: connectionInfo.host }, '  Host:');
-    logger?.info({ service: 'postgres', port: connectionInfo.port }, '  Port:');
-    logger?.info({ service: 'postgres', database: connectionInfo.database }, '  Database:');
-    logger?.info({ service: 'postgres', user: connectionInfo.user }, '  User:');
+      connection: finalConnectionInfo,
+    }, '🔍 PostgreSQL connection info:');
+    logger?.info({ service: 'postgres', host: finalConnectionInfo.host }, '  Host:');
+    logger?.info({ service: 'postgres', port: finalConnectionInfo.port }, '  Port:');
+    logger?.info({ service: 'postgres', database: finalConnectionInfo.database }, '  Database:');
+    logger?.info({ service: 'postgres', user: finalConnectionInfo.user }, '  User:');
     logger?.info({ service: 'postgres', password: 'not logged' }, '  Password:');
   } else {
     logger?.warn({ service: 'postgres' }, '⚠️ Could not parse DATABASE_URL (might be invalid format)');
   }
 
+  if (poolOverridesActive) {
+    logger?.info({
+      service: 'postgres',
+      pool: {
+        max: (finalPoolConfig as any).max,
+        idleTimeoutMillis: (finalPoolConfig as any).idleTimeoutMillis,
+        connectionTimeoutMillis: (finalPoolConfig as any).connectionTimeoutMillis,
+      },
+    }, '📦 PostgreSQL pool config:');
+  }
+
   const candidatePool = new Pool({
-    connectionString,
-    ...poolConfig,
+    connectionString: finalConnectionString,
+    ...finalPoolConfig,
   });
 
   candidatePool.on('error', (err) => {
     logConnectionError('postgres', err, {
       service: 'postgres',
       event: 'idle_client_error',
-      connection: connectionInfo,
+      connection: finalConnectionInfo,
     });
   });
 
   try {
-    await connectWithRetry(candidatePool, connectionInfo);
+    await connectWithRetry(candidatePool, finalConnectionInfo);
   } catch (error) {
     try {
       await candidatePool.end();
@@ -361,7 +593,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       logConnectionError('postgres', endError, {
         service: 'postgres',
         event: 'pool_end_error',
-        connection: connectionInfo,
+        connection: finalConnectionInfo,
       });
     }
     throw error;
@@ -373,6 +605,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     (vercelFunctions as any).attachDatabasePool(pool);
   }
 
+  lastPostgresDiagnostics = null; // Сброс при реальном успехе
   return pool;
 }
 
@@ -383,7 +616,7 @@ export async function getPostgresClient(): Promise<PoolClient> {
     service: 'postgres',
     connection: connectionInfo,
     exists: Boolean(pool),
-  }, '🔊 getPostgresClient - pool exists:');
+  }, '📊 getPostgresClient - pool exists:');
   
   if (!pool) {
     if (!logger) {
@@ -490,4 +723,8 @@ export function getPostgresCircuitBreakerStats() {
 
 export function getPostgresRetryStats() {
   return { ...postgresRetryStats };
+}
+
+export function getPostgresDiagnostics(): PostgresDiagnostics | null {
+  return lastPostgresDiagnostics;
 }
