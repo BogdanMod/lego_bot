@@ -187,17 +187,23 @@ curl -o contacts.csv "http://localhost:3000/api/bot/<BOT_ID>/users/export?user_i
    - Sessions will use memory instead of Redis
    - Status will show "degraded" instead of "ok"
 
-5. **CORS Issues**
+5. **Redis on Vercel (Optional)**
+   - If `REDIS_URL` is missing or points to `localhost` on Vercel, Redis is skipped
+   - `/health` will show `redis.status: "skipped"` with `skipReason` (`missing_url` or `localhost_on_vercel`)
+   - Rate limiting will fall back to memory backend
+   - To enable Redis on Vercel, use a managed Redis (e.g., Upstash) and set `REDIS_URL`
+
+6. **CORS Issues**
    - Core allows localhost origins by default
    - If mini-app shows CORS errors, check core logs for "🔍 CORS check" messages
    - Verify mini-app is running on port 5174 (configured in `file:packages/mini-app/vite.config.ts`)
 
-6. **Telegram WebApp Context**
+7. **Telegram WebApp Context**
    - Mini-app requires Telegram WebApp context to get user_id
    - For local testing without Telegram, mock `window.Telegram.WebApp` or use curl commands
    - See `file:packages/mini-app/src/utils/api.ts` for user_id extraction logic
 
-7. **Database Initialization Race Condition**
+8. **Database Initialization Race Condition**
    - Core uses `ensureDatabasesInitialized` middleware to prevent race conditions
    - First API request may take 2-3 seconds while databases initialize
    - Subsequent requests will be fast

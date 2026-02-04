@@ -15,8 +15,54 @@ const redisCircuitBreaker = new CircuitBreaker('redis', {
 const redisRetryStats = { success: 0, failure: 0 };
 
 let forceRedisUnavailable = false;
+let lastRedisInitOutcome: 'ready' | 'skipped' | 'failed' = 'failed';
+let lastRedisSkipReason: 'missing_url' | 'localhost_on_vercel' | null = null;
+type RedisDiagnosticsCategory = 'timeout' | 'auth' | 'refused' | 'dns' | 'unknown';
+
+function redactSecrets(input: string): string {
+  return input
+    // Убираем userinfo из URL (redis://user:pass@host:port, postgres://user:pass@...)
+    .replace(/(redis|rediss|postgres|postgresql):\/\/([^:@\s]+):([^@\s]+)@/gi, '$1://***:***@')
+    // Redact распространённые query-параметры
+    .replace(/(password=)[^&\s]+/gi, '$1***')
+    .replace(/(access_token=)[^&\s]+/gi, '$1***')
+    .replace(/(token=)[^&\s]+/gi, '$1***');
+}
+
+function diagnoseRedisError(
+  rawMessage: string,
+  safeMessage: string
+): { category: RedisDiagnosticsCategory; hint: string } {
+  const msg = rawMessage.toLowerCase();
+
+  if (msg.includes('wrongpass') || msg.includes('noauth') || msg.includes('auth')) {
+    return { category: 'auth', hint: 'Redis authentication failed' };
+  }
+  if (msg.includes('etimedout') || msg.includes('timed out') || msg.includes('timeout')) {
+    return { category: 'timeout', hint: 'Redis connection timed out' };
+  }
+  if (msg.includes('econnrefused') || msg.includes('refused')) {
+    return { category: 'refused', hint: 'Redis connection refused' };
+  }
+  if (msg.includes('enotfound') || msg.includes('getaddrinfo') || msg.includes('dns')) {
+    return { category: 'dns', hint: 'Redis DNS/host resolution failed' };
+  }
+
+  return { category: 'unknown', hint: safeMessage };
+}
+
+let lastRedisDiagnostics: { category: RedisDiagnosticsCategory; hint: string } | null = null;
+let lastRedisErrorMessage: string | null = null; // Текст ошибки (sanitized)
 
 const isVercel = process.env.VERCEL === '1';
+
+export function getRedisInitOutcome(): 'ready' | 'skipped' | 'failed' {
+  return lastRedisInitOutcome;
+}
+
+export function getRedisSkipReason(): 'missing_url' | 'localhost_on_vercel' | null {
+  return lastRedisSkipReason;
+}
 
 const REDIS_RETRY_CONFIG = isVercel
   ? {
@@ -325,6 +371,26 @@ export async function initRedis(loggerInstance: Logger): Promise<AnyRedisClient 
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
   const connectionInfo = getRedisConnectionInfo(redisUrl);
 
+  // Early exit for Vercel with localhost/missing Redis
+  if (isVercel) {
+    const isLocalhost = connectionInfo.host === 'localhost' || connectionInfo.host === '127.0.0.1';
+    const noRedisUrl = !process.env.REDIS_URL;
+
+    if (noRedisUrl || isLocalhost) {
+      lastRedisInitOutcome = 'skipped';
+      lastRedisSkipReason = noRedisUrl ? 'missing_url' : 'localhost_on_vercel';
+      lastRedisDiagnostics = null;
+      lastRedisErrorMessage = null; // Не ошибка, а skip
+      logger?.info({
+        service: 'redis',
+        reason: noRedisUrl ? 'missing_url' : 'localhost_on_vercel',
+        host: connectionInfo.host,
+        environment: 'Vercel serverless',
+      }, '⏭️ Redis skipped on Vercel (localhost or missing URL)');
+      return null;
+    }
+  }
+
   if (redisClient) {
     try {
       await withTimeout(
@@ -340,9 +406,18 @@ export async function initRedis(loggerInstance: Logger): Promise<AnyRedisClient 
 
   try {
     redisClient = await connectRedisWithRetry(redisUrl, connectionInfo);
+    lastRedisInitOutcome = 'ready';
+    lastRedisSkipReason = null;
+    lastRedisDiagnostics = null;
+    lastRedisErrorMessage = null; // Сброс при успехе
     return redisClient;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    lastRedisInitOutcome = 'failed';
+    lastRedisSkipReason = null;
+    const safeMessage = redactSecrets(message);
+    lastRedisErrorMessage = safeMessage; // Текст ошибки (без секретов)
+    lastRedisDiagnostics = diagnoseRedisError(message, safeMessage); // category + hint для /health
     logger?.warn({
       service: 'redis',
       host: connectionInfo.host,
@@ -391,6 +466,9 @@ export async function getRedisClientOptional(): Promise<AnyRedisClient | null> {
   if (forceRedisUnavailable) {
     return null;
   }
+  if (getRedisInitOutcome() === 'skipped') {
+    return null;
+  }
   if (redisCircuitBreaker.getState() === 'open') {
     return null;
   }
@@ -417,6 +495,14 @@ export function getRedisCircuitBreakerStats() {
 
 export function getRedisRetryStats() {
   return { ...redisRetryStats };
+}
+
+export function getRedisDiagnostics(): { category: RedisDiagnosticsCategory; hint: string } | null {
+  return lastRedisDiagnostics;
+}
+
+export function getRedisErrorMessage(): string | null {
+  return lastRedisErrorMessage;
 }
 
 export function setRedisUnavailableForTests(unavailable: boolean): void {

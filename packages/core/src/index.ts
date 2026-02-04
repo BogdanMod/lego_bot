@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, getTelegramBotToken, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
 import { getRequestId, validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
-import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats } from './db/redis';
+import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, updateBotSchema, createBot, deleteBot } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
@@ -74,6 +74,8 @@ export function createApp(): ReturnType<typeof express> {
 let dbInitialized = false;
 let dbInitializationPromise: Promise<void> | null = null;
 let redisAvailable = true;
+let redisSkipped = false; // true if intentionally skipped
+let redisSkipReason: 'missing_url' | 'localhost_on_vercel' | null = null;
 let webhookSecurityEnabled = true;
 let botEnabled = true;
 let encryptionAvailable = true;
@@ -366,12 +368,23 @@ async function initializeDatabases() {
         if (redisClient) {
           logger.info({ durationMs: Date.now() - redisStart }, '✅ Redis initialized');
           redisAvailable = true;
+          redisSkipped = false;
+          redisSkipReason = null;
         } else {
+          // Single source of truth: derive "skipped vs failed" from redis.ts outcome
           redisAvailable = false;
-          logger.warn('⚠️ Redis initialization failed, continuing without cache');
+          redisSkipped = getRedisInitOutcome() === 'skipped';
+          redisSkipReason = getRedisSkipReason();
+
+          const message = redisSkipped
+            ? `⏭️ Redis skipped (${redisSkipReason ?? 'unknown_reason'})`
+            : '⚠️ Redis initialization failed, continuing without cache';
+          logger.warn(message);
         }
       } catch (error) {
         redisAvailable = false;
+        redisSkipped = false; // Failed, not skipped
+        redisSkipReason = null;
         logger.warn({ error }, '⚠️ Redis initialization failed, continuing without cache:');
       }
 
@@ -699,6 +712,22 @@ export function setRedisAvailableForTests(available: boolean): void {
   redisAvailable = available;
 }
 
+export function setRedisSkippedForTests(
+  skipped: boolean,
+  reason: 'missing_url' | 'localhost_on_vercel' | null = null,
+): void {
+  if (process.env.NODE_ENV !== 'test') {
+    return;
+  }
+  redisSkipped = skipped;
+  redisSkipReason = skipped ? reason : null;
+
+  // Полезно для тестов /health: если мы явно "skipped", Redis точно недоступен.
+  if (skipped) {
+    redisAvailable = false;
+  }
+}
+
 const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!apiGeneralLimiter) {
@@ -916,6 +945,8 @@ app.get('/health', async (req: Request, res: Response) => {
     process.env.NODE_ENV !== 'production' ||
     (process.env.HEALTH_TOKEN &&
       req.headers['x-health-token'] === process.env.HEALTH_TOKEN);
+  const { getPostgresDiagnostics } = await import('./db/postgres');
+  const { getRedisDiagnostics, getRedisErrorMessage } = await import('./db/redis');
   const envCheck = validateRequiredEnvVars();
   const isSet = (key: string) => Boolean(process.env[key]?.trim());
   const botTokenPresent = isSet('TELEGRAM_BOT_TOKEN');
@@ -935,6 +966,17 @@ app.get('/health', async (req: Request, res: Response) => {
     redis: getRedisRetryStats(),
   };
   const errorMetrics = getErrorMetrics();
+  const postgresDiagnostics = getPostgresDiagnostics();
+  const redisDiagnostics = getRedisDiagnostics();
+  const redisErrorMessage = getRedisErrorMessage();
+  const redisErrorForMinimal = redisErrorMessage;
+
+  const redactSecrets = (input: string) =>
+    input
+      .replace(/(redis|rediss|postgres|postgresql):\/\/([^:@\s]+):([^@\s]+)@/gi, '$1://***:***@')
+      .replace(/(password=)[^&\s]+/gi, '$1***')
+      .replace(/(access_token=)[^&\s]+/gi, '$1***')
+      .replace(/(token=)[^&\s]+/gi, '$1***');
 
   let postgresState: 'connecting' | 'ready' | 'error' = 'connecting';
   if (!dbInitialized) {
@@ -954,9 +996,11 @@ app.get('/health', async (req: Request, res: Response) => {
     }
   }
 
-  let redisState: 'connecting' | 'ready' | 'degraded' | 'error' = 'connecting';
+  let redisState: 'connecting' | 'ready' | 'degraded' | 'error' | 'skipped' = 'connecting';
   if (!dbInitialized) {
     redisState = dbInitializationPromise ? 'connecting' : 'error';
+  } else if (redisSkipped) {
+    redisState = 'skipped'; // Intentionally disabled
   } else if (!redisAvailable) {
     redisState = 'degraded';
   } else {
@@ -980,8 +1024,8 @@ app.get('/health', async (req: Request, res: Response) => {
   if (!envCheck.allInfraPresent || postgresState !== 'ready' || postgresBreakerOpen) {
     status = 'error';
   } else if (
-    redisState !== 'ready' ||
-    redisBreakerOpen ||
+    (redisState !== 'ready' && redisState !== 'skipped') ||
+    (redisBreakerOpen && redisState !== 'skipped') ||
     !botEnabled ||
     !encryptionAvailable ||
     !webhookSecurityEnabled
@@ -1010,10 +1054,20 @@ app.get('/health', async (req: Request, res: Response) => {
     databases: {
       postgres: {
         status: postgresState,
+        ...(postgresState === 'error' && postgresDiagnostics
+          ? { diagnostics: postgresDiagnostics }
+          : {}),
         ...(minimalConnectionInfo ? { connectionInfo: minimalConnectionInfo } : {}),
       },
       redis: {
         status: redisState,
+        ...(redisState === 'skipped' ? { skipReason: redisSkipReason } : {}),
+        ...(redisState === 'error' && redisDiagnostics
+          ? { diagnostics: redisDiagnostics }
+          : {}),
+        ...(redisState === 'error' && redisErrorForMinimal
+          ? { redisError: redisErrorForMinimal }
+          : {}),
       },
     },
     environmentVariables: {
@@ -1097,9 +1151,14 @@ app.get('/health', async (req: Request, res: Response) => {
               }
             : null;
         })(),
+        ...(postgresDiagnostics ? { diagnostics: postgresDiagnostics } : {}),
       },
       redis: {
         status: redisState,
+        skipReason: redisState === 'skipped' ? redisSkipReason : null,
+        ...(redisDiagnostics ? { diagnostics: redisDiagnostics } : {}),
+        ...(redisErrorMessage ? { redisError: redisErrorMessage } : {}),
+        ...(redisErrorMessage ? { errorMessage: redisErrorMessage } : {}),
       },
     },
     circuitBreakers: {
@@ -1114,12 +1173,17 @@ app.get('/health', async (req: Request, res: Response) => {
       },
     },
     retryStats,
+    lastDbInitError: lastDatabaseInitialization?.error
+      ? redactSecrets(lastDatabaseInitialization.error)
+      : null,
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
     errorMetrics,
     rateLimiting: {
-      enabled: redisState === 'ready',
+      enabled: true,
       backend: redisState === 'ready' ? 'redis' : 'memory',
+      redisStatus: redisState,
+      redisSkipReason: redisState === 'skipped' ? redisSkipReason : null,
     },
   };
   logger.info(
