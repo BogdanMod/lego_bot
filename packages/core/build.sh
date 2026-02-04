@@ -1,0 +1,57 @@
+#!/bin/bash
+set -e
+
+echo "🔨 Building @dialogue-constructor/core with dependencies..."
+
+# Navigate to monorepo root
+cd "$(dirname "$0")/../.."
+
+# Vercel already installs dependencies.
+# Safety net: only run npm ci if we're on Vercel/CI AND node_modules is unexpectedly missing.
+# (Avoids wasted time + potential conflicts with pnpm/yarn on local machines.)
+if { [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; } && [ ! -d "node_modules" ]; then
+  echo "📦 Installing dependencies (unexpected missing node_modules on CI/Vercel)..."
+  npm ci
+fi
+
+# Build shared package using Turbo
+echo "🏗️  Building @dialogue-constructor/shared..."
+npx turbo run build --filter=@dialogue-constructor/shared
+
+# Ensure core's node_modules exists
+mkdir -p packages/core/node_modules/@dialogue-constructor
+
+# PATCH (CI/Vercel only):
+# We copy built artifacts into core/node_modules so the serverless runtime can resolve
+# @dialogue-constructor/shared/dist* files. Doing this locally can break workspace/pnpm symlinks.
+if [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; then
+  # Remove old shared package if exists
+  rm -rf packages/core/node_modules/@dialogue-constructor/shared
+
+  # Create directory for shared package
+  mkdir -p packages/core/node_modules/@dialogue-constructor/shared
+
+  # Copy built artifacts and package.json
+  # If shared starts shipping additional runtime assets (types, schemas, wasm, json, templates, etc.),
+  # extend the copy list below accordingly.
+  echo "📋 (CI/Vercel) Copying built shared package to core/node_modules..."
+  cp -r packages/shared/dist packages/core/node_modules/@dialogue-constructor/shared/
+  cp -r packages/shared/dist-cjs packages/core/node_modules/@dialogue-constructor/shared/
+  cp packages/shared/package.json packages/core/node_modules/@dialogue-constructor/shared/
+
+  # Fail-fast: ensure the expected entrypoint exists after copy
+  if [ ! -f "packages/core/node_modules/@dialogue-constructor/shared/dist-cjs/index.js" ]; then
+    echo "❌ Expected shared entrypoint missing: packages/core/node_modules/@dialogue-constructor/shared/dist-cjs/index.js"
+    echo "   Ensure shared build outputs dist-cjs and extend the copy list for any extra artifacts if needed."
+    exit 1
+  fi
+else
+  echo "ℹ️  Local run: skipping node_modules patch (to avoid breaking workspace/pnpm symlinks)."
+fi
+
+# Build core package
+echo "🏗️  Building @dialogue-constructor/core..."
+cd packages/core
+npx tsc
+
+echo "✅ Build complete!"

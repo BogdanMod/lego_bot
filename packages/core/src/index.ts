@@ -859,6 +859,15 @@ const corsOptions: CorsOptions = {
 
 app.use(cors(corsOptions));
 
+// Early OPTIONS handler - respond immediately without DB checks
+app.use((req: Request, res: Response, next: Function) => {
+  if (req.method === 'OPTIONS') {
+    logger.info({ path: req.path, origin: req.headers.origin }, '⚡ Early OPTIONS handler - responding 204');
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Ensure caches don't mix CORS responses across different origins
 app.use((req: Request, res: Response, next: Function) => {
   if (req.headers.origin) {
