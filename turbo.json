@@ -4,7 +4,7 @@
   "pipeline": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", "build/**"]
+      "outputs": ["dist/**", "dist-cjs/**", "build/**"]
     },
     "@dialogue-constructor/frontend#build": {
       "outputs": []
