@@ -122,6 +122,7 @@ const handler = async (req: any, res: any) => {
     
     // Получаем botInstance - он должен быть экспортирован из index.ts
     let botInstance = coreModule.botInstance || coreModule.default?.botInstance;
+    let botInitialized = coreModule.botInitialized || coreModule.default?.botInitialized;
     
     // Если botInstance не найден, возможно модуль еще не загрузился полностью
     if (!botInstance) {
@@ -129,6 +130,7 @@ const handler = async (req: any, res: any) => {
       // Даем время на инициализацию (если она асинхронная)
       await new Promise(resolve => setTimeout(resolve, 200));
       botInstance = coreModule.botInstance || coreModule.default?.botInstance;
+      botInitialized = coreModule.botInitialized || coreModule.default?.botInitialized;
     }
     
     if (!botInstance) {
@@ -138,7 +140,12 @@ const handler = async (req: any, res: any) => {
       return res.status(503).json({ ok: false, error: 'Bot not initialized' });
     }
 
+    if (!botInitialized) {
+      console.warn('⚠️ Bot instance exists but not fully initialized');
+    }
+
     console.log('✅ Bot instance found');
+    console.log('Bot initialized:', botInitialized);
 
     // Получаем raw body (Telegram отправляет JSON как raw body)
     // На Vercel с @vercel/node body может быть уже распарсен
@@ -166,6 +173,13 @@ const handler = async (req: any, res: any) => {
       updateId: update?.update_id,
       type: update?.message ? 'message' : update?.callback_query ? 'callback_query' : 'unknown',
     });
+    console.log(
+      'Update type:',
+      update?.message ? 'message' : update?.callback_query ? 'callback_query' : 'unknown'
+    );
+    if (update?.message?.text?.startsWith('/')) {
+      console.log('Command:', update?.message?.text);
+    }
 
     const poolStateBefore = getPostgresPoolState();
     console.log('🔍 PostgreSQL pool state (before):', poolStateBefore);

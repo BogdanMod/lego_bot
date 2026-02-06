@@ -22,6 +22,74 @@
 import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData } from '../types';
 import { BotSchema } from '@dialogue-constructor/shared/browser';
 
+interface ValidationErrorIssue {
+  path?: Array<string | number>;
+  message?: string;
+  code?: string;
+  received?: string;
+  expected?: string;
+}
+
+interface ValidationErrorResponse extends ApiError {
+  requestId?: string;
+  details?: ValidationErrorIssue[];
+  fields?: Record<string, string[]>;
+  messages?: string[];
+  missingFields?: string[];
+}
+
+function isJsonLike(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith('{') || t.startsWith('[');
+}
+
+function stripHtmlTags(input: string): string {
+  return input.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function extractHtmlErrorMessage(html: string): string | null {
+  const titleMatch = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
+  const h1Match = /<h1[^>]*>([^<]*)<\/h1>/i.exec(html);
+  const title = titleMatch?.[1]?.trim();
+  const h1 = h1Match?.[1]?.trim();
+  const text = stripHtmlTags(html);
+  const candidate = title || h1 || text;
+  if (!candidate) return null;
+  return candidate.length > 200 ? candidate.substring(0, 200) + '...' : candidate;
+}
+
+function formatValidationErrorForUser(data: ValidationErrorResponse): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  if (Array.isArray(data.missingFields) && data.missingFields.length > 0) {
+    return `Отсутствуют обязательные поля: ${data.missingFields.join(', ')}`;
+  }
+
+  if (data.fields && typeof data.fields === 'object') {
+    const parts = Object.entries(data.fields)
+      .filter(([, messages]) => Array.isArray(messages) && messages.length > 0)
+      .map(([field, messages]) => `${field}: ${messages.join(', ')}`);
+    if (parts.length > 0) {
+      return `Ошибка валидации: ${parts.join('; ')}`;
+    }
+  }
+
+  if (Array.isArray(data.messages) && data.messages.length > 0) {
+    return `Ошибка валидации: ${data.messages.join('; ')}`;
+  }
+
+  if (Array.isArray(data.details) && data.details.length > 0) {
+    const parts = data.details.map((issue) => {
+      const path = Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.map(String).join('.') : '_root';
+      const msg = issue.message || 'Ошибка валидации';
+      return `${path}: ${msg}`;
+    });
+    return `Ошибка валидации: ${parts.join('; ')}`;
+  }
+
+  return null;
+}
+
 function getApiUrl(): string {
   const hostname =
     typeof window !== 'undefined' ? window.location.hostname : '';
@@ -122,14 +190,27 @@ async function apiRequest<T>(
     });
 
     if (!response.ok) {
-      let errorData: ApiError;
+      let errorData: ApiError | ValidationErrorResponse;
       let responseText = '';
+      const contentType = response.headers.get('content-type') || '';
       try {
         responseText = await response.text();
-        errorData = JSON.parse(responseText);
+
+        if (
+          (contentType.includes('application/json') || contentType.includes('+json') || isJsonLike(responseText))
+          && responseText.trim().length > 0
+        ) {
+          errorData = JSON.parse(responseText);
+        } else {
+          const htmlMessage = extractHtmlErrorMessage(responseText);
+          errorData = {
+            error: htmlMessage || responseText || `HTTP ${response.status}: ${response.statusText}`,
+          };
+        }
       } catch {
+        const htmlMessage = extractHtmlErrorMessage(responseText);
         errorData = {
-          error: responseText || `HTTP ${response.status}: ${response.statusText}`,
+          error: htmlMessage || responseText || `HTTP ${response.status}: ${response.statusText}`,
         };
       }
 
@@ -156,7 +237,15 @@ async function apiRequest<T>(
         responseText: responseTextForLog,
       });
 
-      const message = errorData.error || errorData.message || `API request failed: ${response.status} ${response.statusText}`;
+      let message = errorData.error || errorData.message || `API request failed: ${response.status} ${response.statusText}`;
+      if (response.status === 400) {
+        const validationMessage = formatValidationErrorForUser(errorData as ValidationErrorResponse);
+        if (validationMessage) {
+          message = validationMessage;
+        } else if (typeof responseText === 'string' && responseText.trim().startsWith('<')) {
+          message = 'Ошибка формата данных';
+        }
+      }
       const requestError = new Error(message);
       (requestError as any).status = response.status;
       (requestError as any).data = errorData;
@@ -182,7 +271,18 @@ async function apiRequest<T>(
 
 export function formatApiError(error: unknown): string {
   const status = (error as any).status;
+  const data = (error as any).data as ValidationErrorResponse | ApiError | undefined;
 
+  if (status === 400) {
+    const validationMessage = data ? formatValidationErrorForUser(data as ValidationErrorResponse) : null;
+    if (validationMessage) {
+      return validationMessage;
+    }
+    if (typeof data?.error === 'string' && /invalid json/i.test(data.error)) {
+      return 'Ошибка формата данных';
+    }
+    return 'Ошибка валидации (400). Проверьте введенные данные.';
+  }
   if (status === 500) {
     return 'Ошибка сервера (500). Возможно, база данных недоступна или неверная конфигурация.';
   }
@@ -196,6 +296,14 @@ export function formatApiError(error: unknown): string {
     return 'Ресурс не найден (404).';
   }
 
+  if ((error as any)?.name === 'AbortError' || /timeout/i.test((error as any)?.message || '')) {
+    return 'Превышено время ожидания. Попробуйте позже.';
+  }
+
+  if (error instanceof SyntaxError) {
+    return 'Ошибка формата данных';
+  }
+
   if (error instanceof TypeError) {
     const msg = error.message || '';
     if (/failed to fetch|networkerror|load failed|fetch/i.test(msg)) {
@@ -205,6 +313,10 @@ export function formatApiError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    const msg = error.message || '';
+    if (/unexpected token|json/i.test(msg)) {
+      return 'Ошибка формата данных';
+    }
     return error.message;
   }
 
@@ -243,19 +355,41 @@ export const api = {
   createBot: async (name: string, schema?: BotSchema): Promise<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }> => {
     const userId = getUserId();
     const token = generatePlaceholderToken(userId);
-    const bot = await apiRequest<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }>(
-      '/api/bots',
-      {
-        method: 'POST',
-        body: JSON.stringify({ name, token }),
+    try {
+      const bot = await apiRequest<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }>(
+        '/api/bots',
+        {
+          method: 'POST',
+          body: JSON.stringify({ name, token }),
+        }
+      );
+
+      if (schema) {
+        await api.updateBotSchema(bot.id, schema);
       }
-    );
 
-    if (schema) {
-      await api.updateBotSchema(bot.id, schema);
+      return bot;
+    } catch (error) {
+      const status = (error as any)?.status;
+      const data = (error as any)?.data as ValidationErrorResponse | ApiError | undefined;
+
+      let message = 'Не удалось создать бота. Попробуйте позже.';
+      if (status === 400) {
+        const validationMessage = data ? formatValidationErrorForUser(data as ValidationErrorResponse) : null;
+        message = validationMessage || 'Невалидные данные. Проверьте имя и токен бота.';
+      } else if (status === 409) {
+        message = 'Токен бота уже существует.';
+      } else if (status === 429) {
+        message = 'Достигнут лимит ботов. Удалите один из ботов и попробуйте снова.';
+      } else if (status === 503) {
+        message = 'Сервис временно недоступен. Попробуйте позже.';
+      }
+
+      const wrapped = new Error(message);
+      (wrapped as any).status = status;
+      (wrapped as any).data = data;
+      throw wrapped;
     }
-
-    return bot;
   },
 
   getBotUsers: async (
