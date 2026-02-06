@@ -49,6 +49,7 @@ export default function Templates() {
   const [isCreating, setIsCreating] = useState(false);
   const [templates, setTemplates] = useState<BotTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const filteredTemplates = useMemo(() => {
     if (activeCategory === 'all') {
@@ -61,8 +62,18 @@ export default function Templates() {
     let isMounted = true;
 
     const loadTemplates = async () => {
+      if (isMounted) {
+        setLoadingTemplates(true);
+      }
       try {
-        const loadedTemplates = await getTemplates();
+        const { templates: loadedTemplates, errors } = await getTemplates();
+        for (const error of errors) {
+          if (error.type === 'parse') {
+            showAlert(`Ошибка в файле шаблона ${error.file}. Обратитесь к разработчикам.`);
+          } else if (error.type === 'validation') {
+            showAlert(`Шаблон ${error.file} содержит некорректные данные`);
+          }
+        }
         for (const template of loadedTemplates) {
           const validation = UpdateBotSchemaSchema.safeParse(template.schema);
           if (!validation.success) {
@@ -78,9 +89,17 @@ export default function Templates() {
           setTemplates(loadedTemplates);
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Не удалось загрузить шаблоны';
+        let message = 'Не удалось загрузить шаблоны. Проверьте подключение.';
+        if (error instanceof Error) {
+          if (!/failed to fetch|network|timeout/i.test(error.message) && error.message) {
+            message = error.message;
+          }
+        }
         showAlert(message);
+        const retry = await showConfirm('Повторить загрузку шаблонов?');
+        if (retry && isMounted) {
+          setReloadKey((prev) => prev + 1);
+        }
       } finally {
         if (isMounted) {
           setLoadingTemplates(false);
@@ -93,7 +112,7 @@ export default function Templates() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   const handleTemplateSelect = async (template: BotTemplate) => {
     const confirmed = await showConfirm(`Создать бота '${template.name}'?`);

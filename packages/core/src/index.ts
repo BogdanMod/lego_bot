@@ -58,6 +58,441 @@ let appInitialized = false;
 const PORT = process.env.PORT || 3000;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 let botInstance: Telegraf<Scenes.SceneContext> | null = null;
+let botInitialized = false;
+const registeredCommands: string[] = [];
+let lastProcessedUpdate: {
+  updateId: number | null;
+  updateType: string | null;
+  userId: number | null;
+  command: string | null;
+  processedAt: string | null;
+} | null = null;
+
+// Initialize Telegram bot
+if (!botToken) {
+  logger.warn('⚠️  TELEGRAM_BOT_TOKEN is not set');
+  logger.warn('⚠️  Бот не будет запущен. Установите TELEGRAM_BOT_TOKEN в .env файле');
+} else {
+  logger.info({ tokenPrefix: botToken.substring(0, 10) + '...' }, '🔑 Токен бота найден:');
+  // Создание бота с поддержкой сцен (FSM)
+  botInstance = new Telegraf<Scenes.SceneContext>(botToken);
+  logger.info('🤖 Bot instance created');
+  
+  // Настройка сессий (используем память для простоты, в продакшене лучше Redis)
+  botInstance.use(session());
+  
+  // Регистрация сцен
+  const stage = new Scenes.Stage<Scenes.SceneContext>([createBotScene as any]);
+  botInstance.use(stage.middleware());
+  logger.info('✅ Scenes registered');
+  
+  // Логирование всех входящих обновлений для отладки (ПОСЛЕ middleware, НО перед командами)
+  botInstance.use(async (ctx, next) => {
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const updateType = ctx.updateType;
+    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : undefined;
+    const isCommand = Boolean(messageText && messageText.startsWith('/'));
+    const commandText = isCommand ? messageText : undefined;
+    const updateId = ctx.update.update_id;
+    logger.info(
+      { userId, chatId, updateType, isCommand, commandText, updateId },
+      '📨 Bot middleware: Update received'
+    );
+    try {
+      return await next();
+    } catch (error) {
+      logger.error({ userId, chatId, updateType, updateId, error }, '❌ Bot middleware error');
+      throw error;
+    }
+  });
+  
+  // Регистрация команд
+  botInstance.command('start', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/start';
+    logger.info({ userId, command, username: ctx.from?.username }, '🎯 Команда /start получена');
+    try {
+      await handleStart(ctx as any);
+      logger.info({ userId, command }, '✅ Команда /start обработана успешно');
+    } catch (error) {
+      logger.error({ userId, command, error }, '❌ Error in /start command:');
+      try {
+        await ctx.reply('❌ Произошла ошибка при обработке команды.');
+      } catch (replyError) {
+        logger.error({ userId, command, error: replyError }, '❌ Failed to send error message:');
+      }
+    }
+  });
+  registeredCommands.push('/start');
+  logger.info({ command: '/start' }, '✅ Command registered');
+  
+  botInstance.command('create_bot', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/create_bot';
+    logger.info({ userId, command }, '🎯 Команда /create_bot получена');
+    try {
+      if (ctx.scene) {
+        await handleCreateBot(ctx as Scenes.SceneContext);
+      } else {
+        logger.warn({ userId, command }, 'Сцены не инициализированы');
+        ctx.reply('❌ Сцены не инициализированы.').catch((error) => {
+          logger.error({ userId, command, error }, 'Failed to send scene initialization error');
+        });
+      }
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /create_bot command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/create_bot');
+  logger.info({ command: '/create_bot' }, '✅ Command registered');
+  
+  botInstance.command('my_bots', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/my_bots';
+    logger.info({ userId, command }, '🎯 Команда /my_bots получена');
+    try {
+      await handleMyBots(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /my_bots command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/my_bots');
+  logger.info({ command: '/my_bots' }, '✅ Command registered');
+  
+  botInstance.command('help', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/help';
+    logger.info({ userId, command }, '🎯 Команда /help получена');
+    try {
+      await handleHelp(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /help command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/help');
+  logger.info({ command: '/help' }, '✅ Command registered');
+  
+  // Обработка callback_query (кнопки)
+  botInstance.action('back_to_menu', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = 'back_to_menu';
+    try {
+      await ctx.answerCbQuery();
+      await handleStart(ctx as any);
+      logger.info({ userId, command }, '✅ Возврат в главное меню');
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error handling back_to_menu:');
+      ctx.answerCbQuery('Ошибка при возврате в меню').catch((replyError) => {
+        logger.error(
+          { userId, command, error: replyError },
+          'Failed to answer callback query'
+        );
+      });
+    }
+  });
+  
+  botInstance.action('create_bot', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = 'create_bot';
+    try {
+      await ctx.answerCbQuery();
+      if (ctx.scene) {
+        await handleCreateBot(ctx as Scenes.SceneContext);
+      } else {
+        logger.warn({ userId, command }, 'Сцены не инициализированы');
+        await ctx.reply('❌ Сцены не инициализированы.');
+      }
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error handling create_bot action:');
+      ctx.answerCbQuery('Ошибка').catch((replyError) => {
+        logger.error(
+          { userId, command, error: replyError },
+          'Failed to answer callback query'
+        );
+      });
+    }
+  });
+  
+  botInstance.action('my_bots', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = 'my_bots';
+    try {
+      await ctx.answerCbQuery();
+      await handleMyBots(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error handling my_bots action:');
+      ctx.answerCbQuery('Ошибка').catch((replyError) => {
+        logger.error(
+          { userId, command, error: replyError },
+          'Failed to answer callback query'
+        );
+      });
+    }
+  });
+  
+  botInstance.action('help', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = 'help';
+    try {
+      await ctx.answerCbQuery();
+      await handleHelp(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error handling help action:');
+      ctx.answerCbQuery('Ошибка').catch((replyError) => {
+        logger.error(
+          { userId, command, error: replyError },
+          'Failed to answer callback query'
+        );
+      });
+    }
+  });
+
+  // Команда для настройки webhook основного бота
+  botInstance.command('setup_webhook', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/setup_webhook';
+    logger.info({ userId, command }, '🎯 Команда /setup_webhook получена');
+    try {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (!botToken) {
+        await ctx.reply('❌ TELEGRAM_BOT_TOKEN не установлен в переменных окружения.');
+        return;
+      }
+
+      // Проверка прав доступа
+      // Уточнение (компромиссный режим): если `ADMIN_USER_IDS` не задан/пустой,
+      // не блокируйте команду полностью. Либо разрешите выполнение с явным предупреждением,
+      // либо применяйте настройку только для текущего чата (chat_id = ctx.chat.id) и сообщайте об этом.
+      const adminUserIds = (process.env.ADMIN_USER_IDS || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+      const userId = ctx.from?.id;
+
+      const isAllowlistConfigured = adminUserIds.length > 0;
+
+      if (isAllowlistConfigured && (!userId || !adminUserIds.includes(userId))) {
+        await ctx.reply('🛑 Недостаточно прав');
+        return;
+      }
+
+      const apiUrl = process.env.API_URL || 'https://lego-bot-core.vercel.app';
+      const webhookUrl = `${apiUrl}/api/webhook`;
+      const secretToken = process.env.TELEGRAM_SECRET_TOKEN;
+      
+      logger.info({ userId, command, webhookUrl }, '🔗 Setting webhook to');
+      logger.info({ userId, command, secretTokenSet: Boolean(secretToken) }, '🔒 Secret token');
+
+      const { setWebhook } = await import('./services/telegram-webhook');
+      const result = await setWebhook(botToken, webhookUrl, secretToken, ['message', 'callback_query']);
+
+      if (result.ok) {
+        await ctx.reply(
+          `✅ <b>Webhook для основного бота настроен!</b>\n\n` +
+          `🔗 URL: <code>${webhookUrl}</code>\n` +
+          `🔒 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
+          `Теперь бот будет работать на Vercel.\n\n` +
+          (secretToken ? '' : '⚠️ Рекомендуется установить TELEGRAM_SECRET_TOKEN для безопасности.'),
+          { parse_mode: 'HTML' }
+        );
+        logger.info({ userId, command, webhookUrl }, '✅ Main bot webhook configured');
+      } else {
+        throw new Error(result.description || 'Unknown error');
+      }
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error setting main bot webhook:');
+      await ctx.reply(
+        `❌ Ошибка настройки webhook: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { parse_mode: 'HTML' }
+      );
+    }
+  });
+  registeredCommands.push('/setup_webhook');
+  logger.info({ command: '/setup_webhook' }, '✅ Command registered');
+
+  botInstance.command('setup_miniapp', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/setup_miniapp';
+    logger.info({ userId, command }, '🎯 Команда /setup_miniapp получена');
+    try {
+      await handleSetupMiniApp(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /setup_miniapp command:');
+      ctx.reply('❌ Произошла ошибка при настройке Mini App.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/setup_miniapp');
+  logger.info({ command: '/setup_miniapp' }, '✅ Command registered');
+
+  botInstance.command('check_webhook', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/check_webhook';
+    logger.info({ userId, command }, '🎯 Команда /check_webhook получена');
+    try {
+      await handleCheckWebhook(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /check_webhook command:');
+      ctx.reply('❌ Произошла ошибка при проверке webhook.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/check_webhook');
+  logger.info({ command: '/check_webhook' }, '✅ Command registered');
+
+  // Команда /setwebhook <bot_id>
+  botInstance.command('setwebhook', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/setwebhook';
+    logger.info({ userId, command }, '🎯 Команда /setwebhook получена');
+    try {
+      const message = ctx.message;
+      if (!('text' in message)) return;
+      
+      const parts = message.text.split(' ');
+      const botId = parts[1]; // Второй аргумент после команды
+      
+      await handleSetWebhook(ctx as any, botId);
+      logger.info({ userId, command, botId }, '✅ Webhook setup completed');
+    } catch (error) {
+      const message = ctx.message;
+      const botId = message && 'text' in message ? message.text.split(' ')[1] : undefined;
+      logger.error(
+        { userId, command, botId, error, metric: 'webhook_setup_error' },
+        'Error in /setwebhook command:'
+      );
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error(
+          { userId, command, botId, error: replyError },
+          'Failed to send error message'
+        );
+      });
+    }
+  });
+  registeredCommands.push('/setwebhook');
+  logger.info({ command: '/setwebhook' }, '✅ Command registered');
+
+  // Команда /deletewebhook <bot_id>
+  botInstance.command('deletewebhook', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/deletewebhook';
+    logger.info({ userId, command }, '🎯 Команда /deletewebhook получена');
+    try {
+      const message = ctx.message;
+      if (!('text' in message)) return;
+      
+      const parts = message.text.split(' ');
+      const botId = parts[1]; // Второй аргумент после команды
+      
+      await handleDeleteWebhook(ctx as any, botId);
+      logger.info({ userId, command, botId }, '✅ Webhook deleted');
+    } catch (error) {
+      const message = ctx.message;
+      const botId = message && 'text' in message ? message.text.split(' ')[1] : undefined;
+      logger.error({ userId, command, botId, error }, 'Error in /deletewebhook command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error(
+          { userId, command, botId, error: replyError },
+          'Failed to send error message'
+        );
+      });
+    }
+  });
+  registeredCommands.push('/deletewebhook');
+  logger.info({ command: '/deletewebhook' }, '✅ Command registered');
+
+  // Команда /editschema <bot_id> <json>
+  botInstance.command('editschema', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/editschema';
+    logger.info({ userId, command }, '🎯 Команда /editschema получена');
+    try {
+      const message = ctx.message;
+      if (!('text' in message)) return;
+      
+      const text = message.text;
+      // Разделяем команду и аргументы
+      // Формат: /editschema <bot_id> <json>
+      const parts = text.split(' ');
+      if (parts.length < 3) {
+        await handleEditSchema(ctx as any);
+        return;
+      }
+      
+      const botId = parts[1];
+      // JSON может содержать пробелы, берем все после bot_id
+      const jsonStart = text.indexOf(botId) + botId.length + 1;
+      const schemaJson = text.substring(jsonStart).trim();
+      
+      await handleEditSchema(ctx as any, botId, schemaJson);
+      logger.info({ userId, command, botId }, '✅ Schema edit handled');
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /editschema command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/editschema');
+  logger.info({ command: '/editschema' }, '✅ Command registered');
+  
+  // Обработка ошибок
+  botInstance.catch((err, ctx) => {
+    const userId = ctx.from?.id;
+    logger.error({ userId, error: err }, 'Error in bot:');
+    ctx.reply('❌ Произошла ошибка. Попробуйте позже.').catch((replyError) => {
+      logger.error({ userId, error: replyError }, 'Failed to send error message');
+    });
+  });
+  
+  botInitialized = true;
+  logger.info({ commands: registeredCommands }, '✅ Bot fully initialized with all commands');
+
+  // Запуск бота через long polling (только локально, не на Vercel)
+  if (process.env.VERCEL !== '1') {
+    botInstance.launch({
+      allowedUpdates: ['message', 'callback_query'],
+      dropPendingUpdates: false,
+    }).then(() => {
+      logger.info('✅ Telegram bot started successfully (long polling)');
+      logger.info('✅ Бот готов к работе');
+      botInstance?.telegram.getMe().then((botInfo) => {
+        logger.info(
+          { id: botInfo.id, username: botInfo.username, firstName: botInfo.first_name },
+          '🤖 Bot info:'
+        );
+        logger.info('💡 Отправьте боту /start для проверки');
+      }).catch((error) => {
+        logger.error({ error }, 'Failed to fetch bot info');
+      });
+    }).catch((error) => {
+      logger.error({ error }, '❌ Failed to launch bot:');
+      logger.error('Проверьте:');
+      logger.error('1. Правильность токена в .env файле');
+      logger.error('2. Подключение к интернету');
+      logger.error('3. Доступность Telegram API');
+    });
+  } else {
+    logger.info('🔗 Bot configured for webhook mode (Vercel serverless)');
+    logger.info('📡 Webhook endpoint: /api/webhook');
+    logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
+    logger.info('💡 Используйте: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://lego-bot-core.vercel.app/api/webhook');
+  }
+}
 
 export function createApp(): ReturnType<typeof express> {
   if (!app) {
@@ -917,6 +1352,10 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDataba
       logger.info({ metric: 'webhook_error', requestId }, 'Webhook error');
       return res.status(503).json({ error: 'Bot not initialized' });
     }
+    if (!botInitialized) {
+      logger.error({ requestId }, '❌ Bot not fully initialized');
+      return res.status(503).json({ error: 'Bot initializing' });
+    }
     
     const update = JSON.parse(req.body.toString());
     updateType = update.message ? 'message' : update.callback_query ? 'callback_query' : 'unknown';
@@ -927,8 +1366,24 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDataba
       updateId: update.update_id,
       type: updateType,
     }, '📨 Webhook received:');
+    logger.info(
+      {
+        requestId,
+        command: update.message?.text,
+        isCommand: update.message?.text?.startsWith('/'),
+      },
+      '🔍 Processing update'
+    );
     
     await botInstance.handleUpdate(update);
+    logger.info({ requestId, updateId: update.update_id }, '✅ Update handled successfully');
+    lastProcessedUpdate = {
+      updateId: typeof update.update_id === 'number' ? update.update_id : null,
+      updateType: updateType ?? null,
+      userId: userId ?? null,
+      command: update.message?.text ?? null,
+      processedAt: new Date().toISOString(),
+    };
     res.status(200).json({ ok: true });
   } catch (error) {
     logger.error({ requestId, error }, '❌ Webhook error:');
@@ -938,9 +1393,71 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDataba
   }
 });
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+  // Middleware
+  app.use(express.json());
+  // JSON parsing error handler (must be right after express.json())
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+    const isDev = process.env.NODE_ENV !== 'production';
+
+    // Handle invalid JSON in request body
+    if (err instanceof SyntaxError && (err as any)?.type === 'entity.parse.failed') {
+      const rawBody = (err as any)?.body;
+      const errorMessage = err?.message || 'Invalid JSON';
+      const positionMatch = typeof errorMessage === 'string' ? /position\s+(\d+)/i.exec(errorMessage) : null;
+      const position = positionMatch ? Number(positionMatch[1]) : undefined;
+      const bodyForLog = typeof rawBody === 'string' ? rawBody.substring(0, 500) : undefined;
+
+      logger.warn(
+        { requestId, error_type: 'json_parse', position, body: bodyForLog, method: req.method, path: req.path },
+        'Invalid JSON in request body'
+      );
+      logger.info({
+        metric: 'json_parse_error_total',
+        count: 1,
+        requestId,
+        method: req.method,
+        path: req.path,
+      });
+
+      return res.status(400).json({
+        error: 'Invalid JSON in request body',
+        requestId,
+        ...(isDev
+          ? {
+              details: {
+                message: errorMessage,
+                position,
+                body: bodyForLog,
+              },
+            }
+          : {}),
+      });
+    }
+
+    // Handle too large payloads
+    if (err?.type === 'entity.too.large' || err?.status === 413) {
+      logger.warn(
+        { requestId, error_type: 'payload_too_large', method: req.method, path: req.path },
+        'Payload too large'
+      );
+      logger.info({
+        metric: 'payload_too_large_total',
+        count: 1,
+        requestId,
+        method: req.method,
+        path: req.path,
+      });
+      return res.status(413).json({
+        error: 'Payload too large',
+        message: 'Payload size limit exceeded',
+        requestId,
+      });
+    }
+
+    return next(err);
+  });
+  app.use(express.urlencoded({ extended: true }));
 
 // Apply general rate limiting to all API routes
 app.use('/api', apiGeneralLimiterMiddleware as any);
@@ -1202,6 +1719,29 @@ app.get('/health', async (req: Request, res: Response) => {
   res.status(statusCode).json(health);
 });
 
+// Bot status diagnostic
+app.get('/api/bot-status', async (req: Request, res: Response) => {
+  const allowEnvDetails =
+    process.env.NODE_ENV !== 'production' ||
+    (process.env.HEALTH_TOKEN &&
+      req.headers['x-health-token'] === process.env.HEALTH_TOKEN);
+
+  if (!allowEnvDetails) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const botTokenPresent = Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim());
+  const botInstanceExists = Boolean(botInstance);
+
+  res.json({
+    botEnabled: botTokenPresent,
+    botInstanceExists,
+    botInitialized,
+    registeredCommands,
+    lastProcessedUpdate,
+  });
+});
+
 // Middleware для проверки user_id через Telegram WebApp initData
 async function requireUserId(req: Request, res: Response, next: Function) {
   const initData =
@@ -1233,7 +1773,62 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   try {
     const userId = (req as any).user.id;
-    const { token, name } = req.body || {};
+
+    // Дополнительная валидация тела запроса (на случай, если validateBody пропустил данные)
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      logger.warn(
+        { requestId, userId, error_type: 'invalid_body', bodyType: typeof req.body },
+        'Invalid request body for create bot'
+      );
+      return res.status(400).json({
+        error: 'Invalid request body',
+        message: 'Request body must be an object',
+        requestId,
+      });
+    }
+
+    const missingFields: string[] = [];
+    if (!(req.body as any).token) missingFields.push('token');
+    if (!(req.body as any).name) missingFields.push('name');
+    if (missingFields.length > 0) {
+      logger.warn(
+        { requestId, userId, error_type: 'missing_fields', missingFields },
+        'Missing required fields for create bot'
+      );
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: `Missing fields: ${missingFields.join(', ')}`,
+        missingFields,
+        requestId,
+      });
+    }
+
+    const parsed = CreateBotSchema.safeParse(req.body);
+    if (!parsed.success) {
+      logger.warn(
+        { requestId, userId, error_type: 'validation_error', errors: parsed.error.issues },
+        'Create bot request validation failed'
+      );
+      return res.status(400).json({
+        error: 'Validation error',
+        details: parsed.error.issues,
+        requestId,
+      });
+    }
+
+    const { token, name } = parsed.data as any;
+    const telegramTokenRegex = /^\d+:[A-Za-z0-9_-]{35}$/;
+    if (typeof token !== 'string' || !telegramTokenRegex.test(token)) {
+      logger.warn(
+        { requestId, userId, error_type: 'invalid_token_format' },
+        'Invalid Telegram bot token format'
+      );
+      return res.status(400).json({
+        error: 'Invalid token format',
+        message: 'Token must match Telegram Bot API format',
+        requestId,
+      });
+    }
 
     // Проверка количества ботов пользователя
     const userBots = await getBotsByUserId(userId);
@@ -1929,420 +2524,71 @@ app.delete('/api/bot/:id', ensureDatabasesInitialized as any, validateParams(z.o
       return res.status(500).json({ error: 'Failed to delete bot' });
     }
 
-    res.json({ success: true });
+  res.json({ success: true });
   } catch (error) {
     logger.error({ requestId, error }, 'Error deleting bot:');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Initialize Telegram bot
-if (!botToken) {
-  logger.warn('⚠️  TELEGRAM_BOT_TOKEN is not set');
-  logger.warn('⚠️  Бот не будет запущен. Установите TELEGRAM_BOT_TOKEN в .env файле');
-} else {
-  logger.info({ tokenPrefix: botToken.substring(0, 10) + '...' }, '🔑 Токен бота найден:');
-  // Создание бота с поддержкой сцен (FSM)
-  botInstance = new Telegraf<Scenes.SceneContext>(botToken);
-  
-  // Настройка сессий (используем память для простоты, в продакшене лучше Redis)
-  botInstance.use(session());
-  
-  // Регистрация сцен
-  const stage = new Scenes.Stage<Scenes.SceneContext>([createBotScene as any]);
-  botInstance.use(stage.middleware());
-  
-  // Логирование всех входящих обновлений для отладки (ПОСЛЕ middleware, НО перед командами)
-  botInstance.use(async (ctx, next) => {
-    const userId = ctx.from?.id;
-    const command = ctx.message && 'text' in ctx.message && ctx.message.text?.startsWith('/') ? ctx.message.text : undefined;
-    logger.info({
-      userId,
-      command,
-      updateId: ctx.update.update_id,
-      type: ctx.updateType,
-      from: userId,
-      username: ctx.from?.username,
-      text: ctx.message && 'text' in ctx.message ? ctx.message.text : undefined,
-      chatId: ctx.chat?.id,
-    }, '📨 Получено обновление:');
-    return next();
-  });
-  
-  // Регистрация команд
-  botInstance.command('start', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/start';
-    logger.info({ userId, command, username: ctx.from?.username }, '🎯 Команда /start получена');
-    try {
-      await handleStart(ctx as any);
-      logger.info({ userId, command }, '✅ Команда /start обработана успешно');
-    } catch (error) {
-      logger.error({ userId, command, error }, '❌ Error in /start command:');
-      try {
-        await ctx.reply('❌ Произошла ошибка при обработке команды.');
-      } catch (replyError) {
-        logger.error({ userId, command, error: replyError }, '❌ Failed to send error message:');
-      }
-    }
-  });
-  
-  botInstance.command('create_bot', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/create_bot';
-    logger.info({ userId, command }, '🎯 Команда /create_bot получена');
-    try {
-      if (ctx.scene) {
-        await handleCreateBot(ctx as Scenes.SceneContext);
-      } else {
-        logger.warn({ userId, command }, 'Сцены не инициализированы');
-        ctx.reply('❌ Сцены не инициализированы.').catch((error) => {
-          logger.error({ userId, command, error }, 'Failed to send scene initialization error');
-        });
-      }
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /create_bot command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-  
-  botInstance.command('my_bots', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/my_bots';
-    logger.info({ userId, command }, '🎯 Команда /my_bots получена');
-    try {
-      await handleMyBots(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /my_bots command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-  
-  botInstance.command('help', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/help';
-    logger.info({ userId, command }, '🎯 Команда /help получена');
-    try {
-      await handleHelp(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /help command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-  
-  // Обработка callback_query (кнопки)
-  botInstance.action('back_to_menu', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = 'back_to_menu';
-    try {
-      await ctx.answerCbQuery();
-      await handleStart(ctx as any);
-      logger.info({ userId, command }, '✅ Возврат в главное меню');
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error handling back_to_menu:');
-      ctx.answerCbQuery('Ошибка при возврате в меню').catch((replyError) => {
-        logger.error(
-          { userId, command, error: replyError },
-          'Failed to answer callback query'
-        );
-      });
-    }
-  });
-  
-  botInstance.action('create_bot', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = 'create_bot';
-    try {
-      await ctx.answerCbQuery();
-      if (ctx.scene) {
-        await handleCreateBot(ctx as Scenes.SceneContext);
-      } else {
-        logger.warn({ userId, command }, 'Сцены не инициализированы');
-        await ctx.reply('❌ Сцены не инициализированы.');
-      }
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error handling create_bot action:');
-      ctx.answerCbQuery('Ошибка').catch((replyError) => {
-        logger.error(
-          { userId, command, error: replyError },
-          'Failed to answer callback query'
-        );
-      });
-    }
-  });
-  
-  botInstance.action('my_bots', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = 'my_bots';
-    try {
-      await ctx.answerCbQuery();
-      await handleMyBots(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error handling my_bots action:');
-      ctx.answerCbQuery('Ошибка').catch((replyError) => {
-        logger.error(
-          { userId, command, error: replyError },
-          'Failed to answer callback query'
-        );
-      });
-    }
-  });
-  
-  botInstance.action('help', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = 'help';
-    try {
-      await ctx.answerCbQuery();
-      await handleHelp(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error handling help action:');
-      ctx.answerCbQuery('Ошибка').catch((replyError) => {
-        logger.error(
-          { userId, command, error: replyError },
-          'Failed to answer callback query'
-        );
-      });
-    }
-  });
+// Error tracking (within this app instance)
+const errorCountsByEndpoint: Record<string, number> = {};
+const errorCountsByType: Record<string, number> = {};
+const errorRateLimitByUser = new Map<number, { count: number; windowStart: number; blockedUntil: number | null }>();
+const ERROR_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const ERROR_RATE_LIMIT_MAX_ERRORS = 20;
+const ERROR_RATE_LIMIT_BLOCK_MS = 5 * 60 * 1000;
 
-  // Команда для настройки webhook основного бота
-  botInstance.command('setup_webhook', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/setup_webhook';
-    logger.info({ userId, command }, '🎯 Команда /setup_webhook получена');
-    try {
-      const botToken = process.env.TELEGRAM_BOT_TOKEN;
-      if (!botToken) {
-        await ctx.reply('❌ TELEGRAM_BOT_TOKEN не установлен в переменных окружения.');
-        return;
-      }
-
-      // Проверка прав доступа
-      // Уточнение (компромиссный режим): если `ADMIN_USER_IDS` не задан/пустой,
-      // не блокируйте команду полностью. Либо разрешите выполнение с явным предупреждением,
-      // либо применяйте настройку только для текущего чата (chat_id = ctx.chat.id) и сообщайте об этом.
-      const adminUserIds = (process.env.ADMIN_USER_IDS || '')
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id));
-      const userId = ctx.from?.id;
-
-      const isAllowlistConfigured = adminUserIds.length > 0;
-
-      if (isAllowlistConfigured && (!userId || !adminUserIds.includes(userId))) {
-        await ctx.reply('🛑 Недостаточно прав');
-        return;
-      }
-
-      const apiUrl = process.env.API_URL || 'https://lego-bot-core.vercel.app';
-      const webhookUrl = `${apiUrl}/api/webhook`;
-      const secretToken = process.env.TELEGRAM_SECRET_TOKEN;
-      
-      logger.info({ userId, command, webhookUrl }, '🔗 Setting webhook to');
-      logger.info({ userId, command, secretTokenSet: Boolean(secretToken) }, '🔒 Secret token');
-
-      const { setWebhook } = await import('./services/telegram-webhook');
-      const result = await setWebhook(botToken, webhookUrl, secretToken, ['message', 'callback_query']);
-
-      if (result.ok) {
-        await ctx.reply(
-          `✅ <b>Webhook для основного бота настроен!</b>\n\n` +
-          `🔗 URL: <code>${webhookUrl}</code>\n` +
-          `🔒 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
-          `Теперь бот будет работать на Vercel.\n\n` +
-          (secretToken ? '' : '⚠️ Рекомендуется установить TELEGRAM_SECRET_TOKEN для безопасности.'),
-          { parse_mode: 'HTML' }
-        );
-        logger.info({ userId, command, webhookUrl }, '✅ Main bot webhook configured');
-      } else {
-        throw new Error(result.description || 'Unknown error');
-      }
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error setting main bot webhook:');
-      await ctx.reply(
-        `❌ Ошибка настройки webhook: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        { parse_mode: 'HTML' }
-      );
-    }
-  });
-
-  botInstance.command('setup_miniapp', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/setup_miniapp';
-    logger.info({ userId, command }, '🎯 Команда /setup_miniapp получена');
-    try {
-      await handleSetupMiniApp(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /setup_miniapp command:');
-      ctx.reply('❌ Произошла ошибка при настройке Mini App.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-
-  botInstance.command('check_webhook', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/check_webhook';
-    logger.info({ userId, command }, '🎯 Команда /check_webhook получена');
-    try {
-      await handleCheckWebhook(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /check_webhook command:');
-      ctx.reply('❌ Произошла ошибка при проверке webhook.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-
-  // Команда /setwebhook <bot_id>
-  botInstance.command('setwebhook', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/setwebhook';
-    logger.info({ userId, command }, '🎯 Команда /setwebhook получена');
-    try {
-      const message = ctx.message;
-      if (!('text' in message)) return;
-      
-      const parts = message.text.split(' ');
-      const botId = parts[1]; // Второй аргумент после команды
-      
-      await handleSetWebhook(ctx as any, botId);
-      logger.info({ userId, command, botId }, '✅ Webhook setup completed');
-    } catch (error) {
-      const message = ctx.message;
-      const botId = message && 'text' in message ? message.text.split(' ')[1] : undefined;
-      logger.error(
-        { userId, command, botId, error, metric: 'webhook_setup_error' },
-        'Error in /setwebhook command:'
-      );
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error(
-          { userId, command, botId, error: replyError },
-          'Failed to send error message'
-        );
-      });
-    }
-  });
-
-  // Команда /deletewebhook <bot_id>
-  botInstance.command('deletewebhook', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/deletewebhook';
-    logger.info({ userId, command }, '🎯 Команда /deletewebhook получена');
-    try {
-      const message = ctx.message;
-      if (!('text' in message)) return;
-      
-      const parts = message.text.split(' ');
-      const botId = parts[1]; // Второй аргумент после команды
-      
-      await handleDeleteWebhook(ctx as any, botId);
-      logger.info({ userId, command, botId }, '✅ Webhook deleted');
-    } catch (error) {
-      const message = ctx.message;
-      const botId = message && 'text' in message ? message.text.split(' ')[1] : undefined;
-      logger.error({ userId, command, botId, error }, 'Error in /deletewebhook command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error(
-          { userId, command, botId, error: replyError },
-          'Failed to send error message'
-        );
-      });
-    }
-  });
-
-  // Команда /editschema <bot_id> <json>
-  botInstance.command('editschema', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/editschema';
-    logger.info({ userId, command }, '🎯 Команда /editschema получена');
-    try {
-      const message = ctx.message;
-      if (!('text' in message)) return;
-      
-      const text = message.text;
-      // Разделяем команду и аргументы
-      // Формат: /editschema <bot_id> <json>
-      const parts = text.split(' ');
-      if (parts.length < 3) {
-        await handleEditSchema(ctx as any);
-        return;
-      }
-      
-      const botId = parts[1];
-      // JSON может содержать пробелы, берем все после bot_id
-      const jsonStart = text.indexOf(botId) + botId.length + 1;
-      const schemaJson = text.substring(jsonStart).trim();
-      
-      await handleEditSchema(ctx as any, botId, schemaJson);
-      logger.info({ userId, command, botId }, '✅ Schema edit handled');
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /editschema command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
-  });
-  
-  // Обработка ошибок
-  botInstance.catch((err, ctx) => {
-    const userId = ctx.from?.id;
-    logger.error({ userId, error: err }, 'Error in bot:');
-    ctx.reply('❌ Произошла ошибка. Попробуйте позже.').catch((replyError) => {
-      logger.error({ userId, error: replyError }, 'Failed to send error message');
-    });
-  });
-  
-
-  // Запуск бота через long polling (только локально, не на Vercel)
-  if (process.env.VERCEL !== '1') {
-    botInstance.launch({
-      allowedUpdates: ['message', 'callback_query'],
-      dropPendingUpdates: false,
-    }).then(() => {
-      logger.info('✅ Telegram bot started successfully (long polling)');
-      logger.info('✅ Бот готов к работе');
-      botInstance?.telegram.getMe().then((botInfo) => {
-        logger.info(
-          { id: botInfo.id, username: botInfo.username, firstName: botInfo.first_name },
-          '🤖 Bot info:'
-        );
-        logger.info('💡 Отправьте боту /start для проверки');
-      }).catch((error) => {
-        logger.error({ error }, 'Failed to fetch bot info');
-      });
-    }).catch((error) => {
-      logger.error({ error }, '❌ Failed to launch bot:');
-      logger.error('Проверьте:');
-      logger.error('1. Правильность токена в .env файле');
-      logger.error('2. Подключение к интернету');
-      logger.error('3. Доступность Telegram API');
-    });
-  } else {
-    logger.info('🔗 Bot configured for webhook mode (Vercel serverless)');
-    logger.info('📡 Webhook endpoint: /api/webhook');
-    logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
-    logger.info('💡 Используйте: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://lego-bot-core.vercel.app/api/webhook');
+function classifyErrorType(err: any): string {
+  if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return 'json_parse';
   }
+  if (err?.type === 'entity.too.large' || err?.status === 413 || err?.statusCode === 413) {
+    return 'payload_too_large';
+  }
+  if (err?.name === 'ZodError' || Array.isArray(err?.issues) || Array.isArray(err?.errors)) {
+    return 'validation';
+  }
+  const name = err?.name || '';
+  const message = err?.message || '';
+  const code = err?.code || '';
+  if (/postgres|database|sql|pg/i.test(String(name) + String(message) + String(code))) {
+    return 'database';
+  }
+  return 'unknown';
 }
 
 app.use(errorMetricsMiddleware as any);
 app.use((err: any, req: Request, res: Response, next: Function) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const userId = (req as any).user?.id;
+  const errorType = classifyErrorType(err);
+  const endpointKey = `${req.method} ${req.path}`;
+  errorCountsByEndpoint[endpointKey] = (errorCountsByEndpoint[endpointKey] || 0) + 1;
+  errorCountsByType[errorType] = (errorCountsByType[errorType] || 0) + 1;
+
+  // Rate limiting for erroneous requests (per user)
+  const now = Date.now();
+  if (typeof userId === 'number') {
+    const existing = errorRateLimitByUser.get(userId);
+    if (!existing || now - existing.windowStart > ERROR_RATE_LIMIT_WINDOW_MS) {
+      errorRateLimitByUser.set(userId, { count: 1, windowStart: now, blockedUntil: null });
+    } else {
+      existing.count += 1;
+      if (!existing.blockedUntil && existing.count >= ERROR_RATE_LIMIT_MAX_ERRORS) {
+        existing.blockedUntil = now + ERROR_RATE_LIMIT_BLOCK_MS;
+      }
+    }
+  }
+  const rateState = typeof userId === 'number' ? errorRateLimitByUser.get(userId) : null;
+  const isBlocked = Boolean(rateState?.blockedUntil && rateState.blockedUntil > now);
   const errorContext = {
     requestId,
     method: req.method,
     path: req.path,
     userId,
+    error_type: errorType,
+    endpoint_error_count: errorCountsByEndpoint[endpointKey],
     error: {
       name: err?.name,
       message: err?.message,
@@ -2352,20 +2598,66 @@ app.use((err: any, req: Request, res: Response, next: Function) => {
   };
 
   logger.error(errorContext, 'Unhandled error');
+  logger.info({
+    metric: 'api_error_total',
+    error_type: errorType,
+    method: req.method,
+    path: req.path,
+    statusCode: err?.statusCode || err?.status || 500,
+    endpoint_error_count: errorCountsByEndpoint[endpointKey],
+    error_type_count: errorCountsByType[errorType],
+    requestId,
+    userId,
+  });
 
-  const statusCode = err?.statusCode || err?.status || 500;
+  if (isBlocked) {
+    logger.warn(
+      {
+        requestId,
+        userId,
+        error_type: 'error_rate_limited',
+        blockedUntil: rateState?.blockedUntil ? new Date(rateState.blockedUntil).toISOString() : null,
+      },
+      'User temporarily blocked due to excessive errors'
+    );
+    return res.status(429).json({
+      error: 'Too many errors',
+      message: 'Too many erroneous requests. Please try again later.',
+      requestId,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  let statusCode = err?.statusCode || err?.status || 500;
+  const isProduction = process.env.NODE_ENV === 'production';
   const message =
-    process.env.NODE_ENV === 'production'
+    isProduction
       ? 'An error occurred'
       : err instanceof Error
         ? err.message
         : String(err);
 
-  res.status(statusCode).json({
-    error: 'Internal server error',
-    message,
+  let errorMessage: string = 'Internal server error';
+  const responsePayload: any = {
     requestId,
     timestamp: new Date().toISOString(),
+  };
+
+  if (errorType === 'json_parse') {
+    statusCode = 400;
+    errorMessage = 'Invalid JSON format';
+  } else if (errorType === 'validation') {
+    statusCode = 400;
+    errorMessage = 'Validation error';
+    responsePayload.details = err?.issues || err?.errors;
+  } else if (errorType === 'database') {
+    errorMessage = 'Service temporarily unavailable';
+  }
+
+  res.status(statusCode).json({
+    error: errorMessage,
+    message,
+    ...responsePayload,
   });
 });
 }
@@ -2397,9 +2689,10 @@ export default appInstance;
 module.exports = appInstance; // Also export as CommonJS for compatibility
 
 // Export botInstance for webhook endpoint
-export { botInstance };
+export { botInstance, botInitialized };
 if (typeof module !== 'undefined') {
   (module.exports as any).botInstance = botInstance;
+  (module.exports as any).botInitialized = botInitialized;
 }
 
 // Graceful shutdown
