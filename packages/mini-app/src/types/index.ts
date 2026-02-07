@@ -84,3 +84,38 @@ export interface CreateBroadcastData {
 export type { BotSchema, BotButton, UrlButton, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, MediaContent };
 
 
+// Brick-based model types (новая модель для UI)
+export type BrickType = 'message' | 'menu' | 'input' | 'start';
+
+export type SubscriptionType = 'Free' | 'Premium';
+
+export interface MenuOption {
+  text: string;
+  targetId?: string; // ID блока для перехода
+}
+
+export interface Brick {
+  id: string;
+  type: BrickType;
+  content: string;
+  options?: MenuOption[]; // Только для type='menu'
+  nextId?: string; // Для автоматического перехода (message, input, start)
+}
+
+export interface BotProject {
+  id: string;
+  name: string;
+  bricks: Brick[];
+  lastModified: number;
+  status: 'draft' | 'live';
+  botToken?: string;
+  themeColor?: string;
+  serverId?: string;
+}
+
+export type Theme = 'light' | 'dark';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type BadgeVariant = 'success' | 'error' | 'warning' | 'info';
+
+export type Language = 'RU' | 'EN';
+export type MainTab = 'home' | 'leads' | 'store' | 'settings';

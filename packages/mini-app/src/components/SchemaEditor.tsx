@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { BotSchema } from '@dialogue-constructor/shared/browser';
 import StateEditor from './StateEditor';
-import Preview from './Preview';
+import { MiniSimulator } from './MiniSimulator';
+import { schemaToProject } from '../utils/brick-adapters';
 import './SchemaEditor.css';
 
 interface SchemaEditorProps {
@@ -81,6 +82,7 @@ export default function SchemaEditor({ schema, onChange, botId }: SchemaEditorPr
   };
 
   if (isPreviewMode) {
+    const project = schemaToProject(botId || 'preview', 'Preview', schema);
     return (
       <div className="schema-editor">
         <div className="editor-header">
@@ -88,7 +90,7 @@ export default function SchemaEditor({ schema, onChange, botId }: SchemaEditorPr
             ← Редактировать
           </button>
         </div>
-        <Preview schema={schema} />
+        <MiniSimulator project={project} />
       </div>
     );
   }
