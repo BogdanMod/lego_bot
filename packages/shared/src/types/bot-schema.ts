@@ -9,4 +9,4 @@ export type {
   RequestEmailButton,
   UrlButton,
   BotButton,
-} from './bot-schema-browser';
+} from './bot-schema-browser.js';

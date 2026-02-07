@@ -1,5 +1,5 @@
-﻿import pino, { Logger, LoggerOptions } from 'pino';
-import { getLoggerConfig } from './logger-config';
+﻿import { pino, type Logger, type LoggerOptions } from 'pino';
+import { getLoggerConfig } from './logger-config.js';
 
 const isVercel = process.env.VERCEL === '1';
 const logMethods = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'] as const;

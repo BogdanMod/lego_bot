@@ -1,4 +1,4 @@
-import type { BotSchema } from '../types/bot-schema';
+import type { BotSchema } from '../types/bot-schema.js';
 
 export const SCHEMA_CACHE_TTL_SECONDS = 5 * 60;
 const schemaKey = (botId: string) => `bot:${botId}:schema`;

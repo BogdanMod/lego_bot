@@ -1,4 +1,4 @@
-import type { BotSchema } from '../types/bot-schema';
+import type { BotSchema } from '../types/bot-schema.js';
 
 export type MockBot = {
   id: string;

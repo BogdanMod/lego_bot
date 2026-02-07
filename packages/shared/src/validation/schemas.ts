@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { sanitizeText } from '../utils/sanitize';
+import { sanitizeText } from '../utils/sanitize.js';
 
 export const CreateBotSchema = z.object({
   token: z.string().regex(/^\d+:[A-Za-z0-9_-]{35}$/),

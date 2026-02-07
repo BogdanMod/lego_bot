@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prebuild": "npm run validate-templates",
+    "prebuild": "npm run build:shared && npm run validate-templates",
+    "build:shared": "cd ../.. && turbo run build --filter=@dialogue-constructor/shared",
+    "clean": "node scripts/clean-dist.js",
     "dev": "vite",
     "build": "npx vite build",
     "preview": "vite preview",

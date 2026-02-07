@@ -12,6 +12,10 @@ export * from './validation/schemas';
 // Browser-safe utilities
 export { sanitizeHtml, sanitizeText, sanitizeBotSchema } from './utils/sanitize';
 
+// Explicit re-exports for better type visibility
+export type { BotSchema, BotButton, NavigationButton, RequestContactButton, RequestEmailButton, UrlButton, MediaContent, MediaGroupItem, WebhookConfig, IntegrationTemplate } from './types/bot-schema-browser';
+export { UpdateBotSchemaSchema, CreateBotSchema, BotIdSchema, UserIdSchema, PaginationSchema, CreateBroadcastSchema, BroadcastIdSchema, UpdateBroadcastStatusSchema, TelegramUpdateSchema } from './validation/schemas';
+
 // Shared interfaces
 export interface User {
   id: number;

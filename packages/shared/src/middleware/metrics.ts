@@ -1,6 +1,6 @@
 ﻿import type { NextFunction, Request, Response } from 'express';
 import type { Logger } from 'pino';
-import { getRequestId } from './request-id';
+import { getRequestId } from './request-id.js';
 
 export type MetricsMiddlewareOptions = {
   sampleRate?: number;
