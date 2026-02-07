@@ -3,7 +3,7 @@ import type { Express } from 'express';
 import type { Test } from 'supertest';
 import { expect } from 'vitest';
 import crypto from 'crypto';
-import { getTelegramBotToken } from '../env/getTelegramBotToken';
+import { getTelegramBotToken } from '../env/getTelegramBotToken.js';
 
 export function createTestApp(): Express {
   const app = express();

@@ -1,5 +1,5 @@
-import { sanitizeHtml } from '../utils/sanitize';
-import type { Logger } from '../logger';
+import { sanitizeHtml } from '../utils/sanitize.js';
+import type { Logger } from '../logger.js';
 
 const TELEGRAM_API_BASE_URL = 'https://api.telegram.org/bot';
 

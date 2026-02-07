@@ -1,23 +1,24 @@
 // Shared types and utilities
 // For browser bundles use "@dialogue-constructor/shared/browser"; for server use "@dialogue-constructor/shared" or "@dialogue-constructor/shared/server".
-import { createLogger } from './logger';
+import { createLogger } from './logger.js';
 
 export const logger = createLogger('shared');
 
-export * from './logger';
-export * from './middleware';
-export * from './constants/limits';
-export * from './types/bot-schema';
-export * from './services/telegram';
-export * from './utils/circuit-breaker';
-export * from './utils/graceful-degradation';
-export * from './utils/sanitize';
-export * from './utils/telegram-auth';
-export * from './validation/bot-schema-validation';
-export * from './validation/schemas';
-export * from './db/bot-users';
-export * from './db/bot-analytics';
-export * from './env/getTelegramBotToken';
+export * from './logger.js';
+export * from './middleware/index.js';
+export * from './constants/limits.js';
+export * from './types/bot-schema.js';
+export * from './services/telegram.js';
+export * from './utils/circuit-breaker.js';
+export * from './utils/graceful-degradation.js';
+export * from './utils/sanitize.js';
+export * from './utils/telegram-auth.js';
+export * from './validation/bot-schema-validation.js';
+export * from './validation/schemas.js';
+export * from './db/bot-users.js';
+export * from './db/bot-analytics.js';
+export { recordCacheHit, recordCacheMiss, getCacheMetrics } from './middleware/metrics.js';
+export * from './env/getTelegramBotToken.js';
 
 export interface User {
   id: number;

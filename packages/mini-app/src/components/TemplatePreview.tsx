@@ -1,3 +1,4 @@
+import { BotSchema } from '@dialogue-constructor/shared/browser';
 import { BotTemplate } from '../data/templates';
 
 type TemplatePreviewProps = {
@@ -7,9 +8,11 @@ type TemplatePreviewProps = {
 };
 
 export default function TemplatePreview({ template, onClose, onUse }: TemplatePreviewProps) {
+  type BotButton = NonNullable<BotSchema['states'][string]['buttons']>[number];
+
   const states = Object.entries(template.schema.states);
   const transitions = states.flatMap(([stateKey, state]) =>
-    (state.buttons ?? []).flatMap((button) => {
+    (state.buttons ?? []).flatMap((button: BotButton) => {
       if (button.type === 'url') {
         return [];
       }
@@ -63,7 +66,7 @@ export default function TemplatePreview({ template, onClose, onUse }: TemplatePr
                 <div className="template-preview-state-message">{state.message}</div>
                 {(state.buttons ?? []).length > 0 ? (
                   <div className="template-preview-state-buttons">
-                    {(state.buttons ?? []).map((button) => (
+                    {(state.buttons ?? []).map((button: BotButton) => (
                       <span key={`${stateKey}-${button.text}`} className="template-preview-button">
                         {button.text}
                       </span>

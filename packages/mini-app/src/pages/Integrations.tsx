@@ -82,7 +82,7 @@ export default function Integrations() {
 
   const webhookStates = useMemo(() => {
     if (!schema) return [];
-    return Object.entries(schema.states).filter(([, state]) => state.webhook?.enabled);
+    return Object.entries(schema.states).filter(([, state]: [string, BotSchema['states'][string]]) => state.webhook?.enabled);
   }, [schema]);
 
   if (loading) {
@@ -134,7 +134,7 @@ export default function Integrations() {
           <div className="empty-hint">Пока нет состояний с включённым webhook</div>
         ) : (
           <div className="integrations-state-list">
-            {webhookStates.map(([key, state]) => (
+            {webhookStates.map(([key, state]: [string, BotSchema['states'][string]]) => (
               <div key={key} className="integrations-state-item">
                 <div className="integrations-state-key">{key}</div>
                 <div className="integrations-state-url">{state.webhook?.url}</div>

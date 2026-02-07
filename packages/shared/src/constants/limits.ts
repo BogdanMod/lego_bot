@@ -4,7 +4,7 @@ import {
   WEBHOOK_LIMITS as BASE_WEBHOOK_LIMITS,
   WEBHOOK_INTEGRATION_LIMITS as BASE_WEBHOOK_INTEGRATION_LIMITS,
   MEDIA_LIMITS as BASE_MEDIA_LIMITS,
-} from './limits-browser';
+} from './limits-browser.js';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 

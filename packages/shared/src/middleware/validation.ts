@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { ZodSchema } from 'zod';
-import { getRequestId } from './request-id';
+import { getRequestId } from './request-id.js';
 
 type RequestSource = 'body' | 'query' | 'params';
 

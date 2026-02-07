@@ -9,6 +9,8 @@ interface PreviewProps {
 export default function Preview({ schema }: PreviewProps) {
   const [currentState, setCurrentState] = useState<string>(schema.initialState);
 
+  type BotButton = NonNullable<BotSchema['states'][string]['buttons']>[number];
+
   useEffect(() => {
     setCurrentState(schema.initialState);
   }, [schema.initialState]);
@@ -41,7 +43,7 @@ export default function Preview({ schema }: PreviewProps) {
 
         {state?.buttons && state.buttons.length > 0 && (
           <div className="chat-buttons">
-            {state.buttons.map((button, index) => (
+            {state.buttons.map((button: BotButton, index: number) => (
               <button
                 key={index}
                 className="preview-button"

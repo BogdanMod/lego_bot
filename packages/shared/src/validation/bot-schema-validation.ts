@@ -1,5 +1,5 @@
-import { BOT_LIMITS, MEDIA_LIMITS, WEBHOOK_INTEGRATION_LIMITS } from '../constants/limits';
-import { isIP } from '../utils/ip-validation';
+import { BOT_LIMITS, MEDIA_LIMITS, WEBHOOK_INTEGRATION_LIMITS } from '../constants/limits.js';
+import { isIP } from '../utils/ip-validation.js';
 import type {
   WebhookConfig,
   IntegrationTemplate,
@@ -11,7 +11,7 @@ import type {
   RequestEmailButton,
   UrlButton,
   BotButton,
-} from '../types/bot-schema-browser';
+} from '../types/bot-schema-browser.js';
 
 const parseAllowlist = (value?: string) => {
   if (!value) {

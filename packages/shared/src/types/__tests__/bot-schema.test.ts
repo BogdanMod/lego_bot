@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BOT_LIMITS } from '../../constants/limits';
-import { validateBotSchema } from '../../validation/bot-schema-validation';
+import { BOT_LIMITS } from '../../constants/limits.js';
+import { validateBotSchema } from '../../validation/bot-schema-validation.js';
 
 describe('validateBotSchema', () => {
   it('accepts a minimal valid schema', () => {

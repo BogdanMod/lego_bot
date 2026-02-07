@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
-import { UpdateBotSchemaSchema } from '@dialogue-constructor/shared/browser';
+import { UpdateBotSchemaSchema } from '@dialogue-constructor/shared/server';
 
 const templatesDir = path.resolve(process.cwd(), 'src/templates');
 const decoder = new TextDecoder('utf-8', { fatal: true });

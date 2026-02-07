@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import type { Logger } from '../logger';
-import { RATE_LIMITS } from '../constants/limits';
+import type { Logger } from '../logger.js';
+import { RATE_LIMITS } from '../constants/limits.js';
 
 type RateLimitRedisClient = {
   sendCommand: (args: string[]) => Promise<any>;

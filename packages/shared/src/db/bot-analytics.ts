@@ -1,4 +1,4 @@
-import { DbClient } from './bot-users';
+import type { DbClient } from './bot-users.js';
 import type {
   AnalyticsEvent,
   AnalyticsStats,
@@ -7,7 +7,7 @@ import type {
   TimeSeriesData,
   AnalyticsEventsParams,
   AnalyticsEventData,
-} from '../types/analytics';
+} from '../types/analytics.js';
 
 export type {
   AnalyticsEvent,
@@ -17,7 +17,7 @@ export type {
   TimeSeriesData,
   AnalyticsEventsParams,
   AnalyticsEventData,
-} from '../types/analytics';
+} from '../types/analytics.js';
 
 type AnalyticsCursor = { created_at: string; id: string };
 
