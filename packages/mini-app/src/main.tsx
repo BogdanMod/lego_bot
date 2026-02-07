@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import App from './App';
 import './index.css';
 
@@ -102,14 +103,18 @@ async function initApp() {
         <ErrorBoundary>
           {manifestUrl ? (
             <TonConnectUIProvider manifestUrl={manifestUrl}>
+              <ThemeProvider>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+              </ThemeProvider>
+            </TonConnectUIProvider>
+          ) : (
+            <ThemeProvider>
               <BrowserRouter>
                 <App />
               </BrowserRouter>
-            </TonConnectUIProvider>
-          ) : (
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
+            </ThemeProvider>
           )}
         </ErrorBoundary>
       </React.StrictMode>,

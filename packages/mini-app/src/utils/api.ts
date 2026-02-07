@@ -19,10 +19,12 @@
  *     -H "Content-Type: application/json" \
  *     -d '{"version":1,"initialState":"start","states":{"start":{"message":"Test"}}}'
  */
-import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData } from '../types';
+import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData, BotProject } from '../types';
 import { BotSchema } from '@dialogue-constructor/shared/browser';
+import { schemaToProject, projectToSchema } from './brick-adapters';
+import { delay } from './debounce';
 
-interface ValidationErrorIssue {
+export interface ValidationErrorIssue {
   path?: Array<string | number>;
   message?: string;
   code?: string;
@@ -30,12 +32,33 @@ interface ValidationErrorIssue {
   expected?: string;
 }
 
-interface ValidationErrorResponse extends ApiError {
+export interface ValidationErrorResponse extends ApiError {
   requestId?: string;
   details?: ValidationErrorIssue[];
   fields?: Record<string, string[]>;
   messages?: string[];
   missingFields?: string[];
+}
+
+export class ApiNetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiNetworkError';
+  }
+}
+
+export class ApiValidationError extends Error {
+  constructor(message: string, public details?: ValidationErrorResponse) {
+    super(message);
+    this.name = 'ApiValidationError';
+  }
+}
+
+export class ApiConflictError extends Error {
+  constructor(message: string, public serverVersion: number) {
+    super(message);
+    this.name = 'ApiConflictError';
+  }
 }
 
 function isJsonLike(text: string): boolean {
@@ -133,6 +156,27 @@ function getInitData(): string | null {
 // Проверка, что приложение запущено в Telegram
 export function isTelegramWebApp(): boolean {
   return typeof window !== 'undefined' && !!window.Telegram?.WebApp;
+}
+
+async function apiRequestWithRetry<T>(
+  endpoint: string,
+  options?: RequestInit,
+  maxRetries = 3
+): Promise<T> {
+  let lastError: Error;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await apiRequest<T>(endpoint, options);
+    } catch (error) {
+      lastError = error as Error;
+      if (error instanceof ApiNetworkError && attempt < maxRetries - 1) {
+        await delay(Math.pow(2, attempt) * 1000); // Exponential backoff
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError!;
 }
 
 async function apiRequest<T>(
@@ -246,6 +290,14 @@ async function apiRequest<T>(
           message = 'Ошибка формата данных';
         }
       }
+
+      if (response.status === 400) {
+        const requestError = new ApiValidationError(message, errorData as ValidationErrorResponse);
+        (requestError as any).status = response.status;
+        (requestError as any).data = errorData;
+        throw requestError;
+      }
+
       const requestError = new Error(message);
       (requestError as any).status = response.status;
       (requestError as any).data = errorData;
@@ -265,11 +317,36 @@ async function apiRequest<T>(
       endpoint,
       url,
     });
+
+    if (error instanceof ApiNetworkError) {
+      throw error;
+    }
+
+    if (error instanceof TypeError) {
+      const msg = error.message || '';
+      if (/failed to fetch|networkerror|load failed|fetch/i.test(msg)) {
+        throw new ApiNetworkError('Проблема с сетью. Проверьте подключение / попробуйте позже.');
+      }
+      throw new ApiNetworkError('Проблема сети. Проверьте подключение / попробуйте позже.');
+    }
+
     throw error;
   }
 }
 
 export function formatApiError(error: unknown): string {
+  if (error instanceof ApiConflictError) {
+    return error.message || 'Конфликт версий. Обновите страницу.';
+  }
+
+  if (error instanceof ApiNetworkError) {
+    return error.message || 'Проблема с сетью. Проверьте подключение.';
+  }
+
+  if (error instanceof ApiValidationError) {
+    return error.message || 'Ошибка валидации данных';
+  }
+
   const status = (error as any).status;
   const data = (error as any).data as ValidationErrorResponse | ApiError | undefined;
 
@@ -294,6 +371,9 @@ export function formatApiError(error: unknown): string {
   }
   if (status === 404) {
     return 'Ресурс не найден (404).';
+  }
+  if (status === 409) {
+    return 'Конфликт версий (409). Обновите страницу для получения последней версии.';
   }
 
   if ((error as any)?.name === 'AbortError' || /timeout/i.test((error as any)?.message || '')) {
@@ -340,21 +420,51 @@ export const api = {
   },
 
   // Получить схему бота
-  getBotSchema: (botId: string): Promise<{ schema: BotSchema; schema_version: number }> => {
+  getBotSchema: (botId: string): Promise<{ schema: BotSchema; schema_version: number; name?: string }> => {
     return apiRequest(`/api/bot/${botId}/schema`);
   },
 
   // Обновить схему бота
-  updateBotSchema: (botId: string, schema: BotSchema): Promise<{ success: boolean; message: string; schema_version: number }> => {
-    return apiRequest(`/api/bot/${botId}/schema`, {
-      method: 'POST',
-      body: JSON.stringify(schema),
-    });
+  updateBotSchema: async (botId: string, schema: BotSchema, options?: { force?: boolean }): Promise<{ success: boolean; message: string; schema_version: number }> => {
+    const endpoint = options?.force ? `/api/bot/${botId}/schema?force=true` : `/api/bot/${botId}/schema`;
+    try {
+      return await apiRequestWithRetry(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(schema),
+      });
+    } catch (error) {
+      const status = (error as any)?.status;
+
+      if (status === 409) {
+        // Conflict: server has newer version
+        const serverData = (error as any)?.data;
+        throw new ApiConflictError(
+          'Схема была изменена на сервере. Обновите страницу для получения последней версии.',
+          serverData?.schema_version ?? 0
+        );
+      }
+
+      throw error;
+    }
   },
 
-  createBot: async (name: string, schema?: BotSchema): Promise<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }> => {
+  getBotProject: async (botId: string, botName: string): Promise<BotProject> => {
+    const { schema } = await api.getBotSchema(botId);
+    return schemaToProject(botId, botName, schema);
+  },
+
+  updateBotProject: async (project: BotProject): Promise<{ success: boolean; message: string; schema_version: number }> => {
+    const schema = projectToSchema(project);
+    return api.updateBotSchema(project.id, schema);
+  },
+
+  createBot: async (
+    name: string,
+    schema?: BotSchema,
+    tokenOverride?: string
+  ): Promise<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }> => {
     const userId = getUserId();
-    const token = generatePlaceholderToken(userId);
+    const token = tokenOverride || generatePlaceholderToken(userId);
     try {
       const bot = await apiRequest<{ id: string; name: string; webhook_set: boolean; schema_version: number; created_at: string }>(
         '/api/bots',

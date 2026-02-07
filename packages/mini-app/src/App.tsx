@@ -7,8 +7,11 @@ import Clients from './pages/Clients';
 import Integrations from './pages/Integrations';
 import Analytics from './pages/Analytics';
 import Broadcasts from './pages/Broadcasts';
+import PublishPage from './pages/PublishPage';
 import TelegramOnly from './components/TelegramOnly';
 import { isTelegramWebApp } from './utils/api';
+import { useTheme } from '@/hooks/useTheme';
+import { ProjectsProvider } from './contexts/ProjectsContext';
 import './App.css';
 
 declare global {
@@ -50,6 +53,8 @@ declare global {
 const WebApp = window.Telegram?.WebApp;
 
 function App() {
+  const { theme } = useTheme();
+
   useEffect(() => {
     try {
       console.log('🔧 App useEffect - initializing Telegram WebApp...');
@@ -64,10 +69,7 @@ function App() {
         console.log('✅ WebApp.expand() called');
         
         // Настройка темы
-        if (WebApp.colorScheme === 'dark') {
-          document.documentElement.setAttribute('data-theme', 'dark');
-          console.log('✅ Dark theme applied');
-        }
+
         
         console.log('📱 Telegram WebApp initialized:', {
           version: WebApp.version,
@@ -86,6 +88,7 @@ function App() {
   // Проверяем, что приложение запущено в Telegram
   const isInTelegram = isTelegramWebApp();
   console.log('🔍 Is in Telegram:', isInTelegram);
+  console.log('🎨 Theme:', theme);
   
   if (!isInTelegram) {
     console.log('📱 Not in Telegram, showing TelegramOnly component');
@@ -97,7 +100,30 @@ function App() {
     <div className="app">
       <Routes>
         <Route path="/" element={<BotList />} />
-        <Route path="/bot/:id" element={<BotEditor />} />
+        <Route
+          path="/bot/:id"
+          element={
+            <ProjectsProvider>
+              <BotEditor />
+            </ProjectsProvider>
+          }
+        />
+        <Route
+          path="/bot/:id/editor"
+          element={
+            <ProjectsProvider>
+              <BotEditor />
+            </ProjectsProvider>
+          }
+        />
+        <Route
+          path="/bot/:id/publish"
+          element={
+            <ProjectsProvider>
+              <PublishPage />
+            </ProjectsProvider>
+          }
+        />
         <Route path="/bot/:id/clients" element={<Clients />} />
         <Route path="/bot/:id/integrations" element={<Integrations />} />
         <Route path="/bot/:id/analytics" element={<Analytics />} />

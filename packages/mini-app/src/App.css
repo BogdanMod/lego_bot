@@ -10,6 +10,7 @@
   padding: 16px;
   max-width: 100%;
   overflow-x: hidden;
+  background-color: var(--bg-primary);
 }
 
 .page-header {
@@ -29,7 +30,8 @@
 }
 
 .card {
-  background: var(--tg-theme-secondary-bg-color);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 12px;
@@ -59,7 +61,7 @@
 }
 
 .btn-primary {
-  background: var(--tg-theme-button-color);
+  background-color: var(--accent-color);
   color: var(--tg-theme-button-text-color);
 }
 
@@ -82,25 +84,25 @@
   width: 100%;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid var(--tg-theme-hint-color);
-  background: var(--tg-theme-bg-color);
-  color: var(--tg-theme-text-color);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-size: 16px;
   margin-bottom: 12px;
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--tg-theme-button-color);
+  border-color: var(--accent-color);
 }
 
 .textarea {
   width: 100%;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid var(--tg-theme-hint-color);
-  background: var(--tg-theme-bg-color);
-  color: var(--tg-theme-text-color);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-size: 16px;
   font-family: inherit;
   resize: vertical;
@@ -110,8 +112,12 @@
 
 .textarea:focus {
   outline: none;
-  border-color: var(--tg-theme-button-color);
+  border-color: var(--accent-color);
 }
+
+.transition-smooth { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.hover-lift:hover { transform: translateY(-2px); }
+.active-scale:active { transform: scale(0.98); }
 
 .empty-state {
   text-align: center;
