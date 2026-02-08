@@ -64,14 +64,52 @@ export function createApp(): ReturnType<typeof express> {
   return app;
 }
 
+function validateRouterEnv(): void {
+  const isVercel = process.env.VERCEL === '1';
+  const required = ['DATABASE_URL', 'ENCRYPTION_KEY'];
+  const missing = required.filter((key) => !process.env[key]?.trim());
+
+  logger.info('📋 Router Environment Variables Status:');
+  logger.info(`  DATABASE_URL: ${process.env.DATABASE_URL ? '✅ SET' : '❌ MISSING'}`);
+  logger.info(`  ENCRYPTION_KEY: ${process.env.ENCRYPTION_KEY ? '✅ SET' : '❌ MISSING'}`);
+  logger.info(`  REDIS_URL: ${process.env.REDIS_URL ? '✅ SET' : '⚠️ MISSING (optional)'}`);
+
+  if (missing.length > 0) {
+    const errorMsg = isVercel
+      ? `Missing required environment variables for Router on Vercel: ${missing.join(', ')}. ` +
+        `Configure in Vercel Dashboard → Settings → Environment Variables. ` +
+        `See root .env.example for setup instructions. ` +
+        `Docs: https://vercel.com/docs/projects/environment-variables`
+      : `Missing required environment variables: ${missing.join(', ')}. Check your .env file.`;
+
+    logger.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+
+  if (isVercel) {
+    logger.info('🔧 Vercel deployment detected - validation passed');
+  }
+}
+
 // Инициализация PostgreSQL
 async function startServer() {
   logger.info({ port: PORT }, 'Запуск сервера роутера');
+  let postgresReady = false;
+  try {
+    validateRouterEnv();
+  } catch (error) {
+    logger.error({ error }, 'Failed to validate router environment variables:');
+    process.exit(1);
+  }
   try {
     await initPostgres(logger);
+    postgresReady = true;
     logger.info('✅ PostgreSQL pool initialized');
   } catch (error) {
     logger.error({ error }, '❌ Failed to initialize PostgreSQL:');
+    if ((error as any)?.message?.includes('Missing required')) {
+      process.exit(1);
+    }
     if (process.env.VERCEL !== '1') {
       process.exit(1);
     }
@@ -102,6 +140,12 @@ async function startServer() {
     logger.info(`🚀 Сервер роутера запущен на порту ${PORT}`);
     logger.info(`🔗 Webhook endpoint: http://localhost:${PORT}/webhook/:botId`);
   });
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.info('✅ Router Service Ready');
+  logger.info(`  Port: ${PORT}`);
+  logger.info(`  Database: ${postgresReady ? 'Connected' : 'Unavailable'}`);
+  logger.info(`  Redis: ${rateLimiterRedisClient ? 'Connected' : 'Unavailable'}`);
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
 async function prewarmConnections() {

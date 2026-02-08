@@ -235,7 +235,7 @@ curl -o contacts.csv "http://localhost:3000/api/bot/<BOT_ID>/users/export?user_i
 - Решение: Проверьте, что core запущен на порту 3000
 - Решение: Проверьте консоль mini-app на API URL (должен быть `http://localhost:3000`)
 - Решение: Проверьте логи core на CORS сообщения
-- Решение: Проверьте `VITE_API_URL_LOCAL=http://localhost:3000` в `file:packages/mini-app/.env.example`
+- Решение: Проверьте `VITE_API_URL_LOCAL=http://localhost:3000` в корневом `file:.env.example` (секция Mini App)
 
 Проблема: Mini-app не может получить список ботов
 - Решение: Проверьте health core: `curl http://localhost:3000/health`
@@ -558,14 +558,59 @@ sequenceDiagram
   - Redis база данных (рекомендуется Upstash для serverless)
   - Два Vercel проекта: один для Core API, один для Mini App
 
+### Подготовка Environment Variables
+
+- Скопируйте `.env.example` в `.env` локально (для справки): `cp .env.example .env`
+  - Вариант (Windows PowerShell): `copy .env.example .env` или `Copy-Item .env.example .env`
+- Сгенерируйте ключи:
+  - `TELEGRAM_SECRET_TOKEN`:
+    ```bash
+    openssl rand -hex 32
+    ```
+  - `ENCRYPTION_KEY`:
+    ```bash
+    openssl rand -base64 32
+    ```
+- Получите `TELEGRAM_BOT_TOKEN` у @BotFather
+- Создайте `DATABASE_URL` (Neon/Supabase) и при необходимости `REDIS_URL` (Upstash)
+- Примечание: не коммитьте `.env` в git
+
+### Environment Variables Reference
+
+| Variable | Required | Used By | Example | Notes |
+|----------|----------|---------|---------|-------|
+| `DATABASE_URL` | ✓ | Core, Router | `postgresql://user:pass@ep-xxx.neon.tech/db` | Neon/Supabase с pooling |
+| `ENCRYPTION_KEY` | ✓ | Core, Router | `E4fAhUyp2RRUl9XjpjXwQw69OMtapnAxbh8KAZP7STM=` | Base64, 32+ символов |
+| `TELEGRAM_BOT_TOKEN` | ✓ | Core | `123456789:ABCdefGHIjklMNOpqrsTUVwxyz` | От @BotFather |
+| `TELEGRAM_SECRET_TOKEN` | ~ | Core | `a1b2c3d4e5f6...` (64 символа hex) | Для webhook security |
+| `REDIS_URL` | | Core, Router | `rediss://default:pass@xxx.upstash.io:6379` | Upstash Redis (optional) |
+| `MINI_APP_URL` | | Core | `https://lego-bot-miniapp.vercel.app` | URL Mini App deployment |
+| `ADMIN_USER_IDS` | | Core | `123456789,987654321` | Telegram user IDs (comma-separated) |
+| `VITE_API_URL` | ✓ | Mini App | `https://lego-bot-core.vercel.app` | Core API URL для production |
+
+Примечания:
+- ✓ = Required (обязательно для работы)
+- ~ = Recommended (настоятельно рекомендуется для production)
+- (пусто) = Optional (опционально, есть fallback или graceful degradation)
+
 **Шаги deployment Core API:**
 1. Создать новый проект на Vercel
 2. Подключить GitHub репозиторий
 3. Настроить Root Directory: `packages/core`
 4. Настроить Build Command: `cd ../.. && npm install && npm run build`
 5. Настроить Output Directory: `dist`
-6. Добавить Environment Variables (все из `.env`)
+6. Добавить Environment Variables (см. таблицу выше)
+   - Required: `DATABASE_URL`, `ENCRYPTION_KEY`, `TELEGRAM_BOT_TOKEN`
+   - Recommended: `TELEGRAM_SECRET_TOKEN`
+   - Optional: `REDIS_URL`, `MINI_APP_URL`, `ADMIN_USER_IDS`
 7. Deploy
+7.5. Проверить deployment через `/health` endpoint:
+    ```bash
+    curl https://lego-bot-core.vercel.app/health
+    # Ожидаемый ответ: {"status":"ok","timestamp":"...","services":{"postgres":"connected","redis":"connected"}}
+    ```
+    - Если статус "degraded" (Redis недоступен) - это нормально, Core работает
+    - Если ошибка 503 или timeout - проверить `DATABASE_URL` и логи Vercel
 8. Скопировать URL deployment (например, `https://lego-bot-core.vercel.app`)
 9. Отправить команду `/setup_webhook` боту для настройки webhook
 
@@ -575,13 +620,87 @@ sequenceDiagram
 3. Настроить Root Directory: `packages/mini-app`
 4. Настроить Build Command: `npm install && npm run build`
 5. Настроить Output Directory: `dist`
-6. Добавить Environment Variable: `VITE_API_URL=https://lego-bot-core.vercel.app`
+6. Добавить Environment Variable: `VITE_API_URL` (обязательно)
+   - Значение должно совпадать с URL Core API deployment из предыдущего раздела
+   - Пример: `VITE_API_URL=https://lego-bot-core.vercel.app`
 7. Deploy
 8. Скопировать URL deployment (например, `https://lego-bot-miniapp.vercel.app`)
+8.5. Проверить доступность Mini App:
+     ```bash
+     curl -I https://lego-bot-miniapp.vercel.app
+     # Ожидаемый ответ: HTTP/2 200
+     ```
 9. Обновить `MINI_APP_URL` в Core API Environment Variables
 10. Отправить команду `/setup_miniapp` боту для настройки Menu Button
 
 **Проверка deployment:**
+
+- **Core API health check**:
+  ```bash
+  curl https://lego-bot-core.vercel.app/health
+  ```
+  Ожидайте JSON-ответ со `status: "ok"` и информацией по сервисам (например, Postgres/Redis).
+- **Mini App availability**:
+  ```bash
+  curl https://lego-bot-miniapp.vercel.app
+  ```
+  Ожидайте, что вернется HTML (страница Mini App).
+- **Webhook status**:
+  - Отправить `/check_webhook` боту в Telegram
+  - Пример вывода:
+    ```
+    📡 Статус Webhook
+
+    ✅ Webhook настроен
+
+    🔗 URL: https://lego-bot-core.vercel.app/api/webhook
+    📊 Ожидающих обновлений: 0
+    ```
+
+### Troubleshooting после deployment
+
+- Если Core API возвращает 503: проверить `DATABASE_URL`, подождать cold start (2-5 сек)
+- Если Mini App не загружается: проверить `VITE_API_URL`, CORS настройки
+- Если webhook не работает: проверить `TELEGRAM_SECRET_TOKEN`, выполнить `/setup_webhook` повторно
+
+```mermaid
+sequenceDiagram
+    participant Dev as Разработчик
+    participant Vercel as Vercel Dashboard
+    participant Core as Core API
+    participant MiniApp as Mini App
+    participant TG as Telegram Bot API
+    
+    Note over Dev,TG: Подготовка
+    Dev->>Dev: Генерация ключей (openssl)
+    Dev->>Dev: Создание БД (Neon/Supabase)
+    Dev->>TG: Создание бота (@BotFather)
+    TG-->>Dev: TELEGRAM_BOT_TOKEN
+    
+    Note over Dev,Core: Deployment Core API
+    Dev->>Vercel: Создание проекта (packages/core)
+    Dev->>Vercel: Настройка env vars (таблица)
+    Vercel->>Core: Deploy
+    Core-->>Vercel: ✅ Deployment URL
+    Dev->>Core: curl /health
+    Core-->>Dev: {"status":"ok"}
+    
+    Note over Dev,MiniApp: Deployment Mini App
+    Dev->>Vercel: Создание проекта (packages/mini-app)
+    Dev->>Vercel: VITE_API_URL=Core URL
+    Vercel->>MiniApp: Deploy
+    MiniApp-->>Vercel: ✅ Deployment URL
+    Dev->>MiniApp: curl -I /
+    MiniApp-->>Dev: HTTP/2 200
+    
+    Note over Dev,TG: Настройка Telegram
+    Dev->>Vercel: Обновить MINI_APP_URL в Core
+    Dev->>TG: /setup_webhook (в боте)
+    TG-->>Dev: ✅ Webhook настроен
+    Dev->>TG: /setup_miniapp (в боте)
+    TG-->>Dev: ✅ Menu Button настроен
+```
+
 ```bash
 # Проверить Core API health
 curl https://lego-bot-core.vercel.app/health
@@ -595,6 +714,13 @@ curl https://lego-bot-miniapp.vercel.app
 
 **Важные замечания:**
 - После каждого deployment Vercel, webhook может потребовать повторной настройки (если URL изменился)
+- Никогда не коммитьте `.env` файлы в git
+- Используйте разные `ENCRYPTION_KEY` для dev/staging/production
+- Регулярно ротируйте `TELEGRAM_SECRET_TOKEN`
+- Настройте Vercel Monitoring для отслеживания cold starts
+- Проверяйте логи на ошибки подключения к БД
+- Webhook URL формируется автоматически: `{VERCEL_URL}/api/webhook`
+- При изменении Vercel URL (redeploy) нужно повторить `/setup_webhook`
 - Проверьте актуальные лимиты max duration/bandwidth в вашем плане Vercel; при необходимости увеличьте maxDuration и/или перейдите на платный план (лимиты и формулировки могут меняться).
 - PostgreSQL и Redis должны быть доступны из Vercel (проверить firewall правила)
 
