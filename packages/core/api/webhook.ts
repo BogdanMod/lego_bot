@@ -104,48 +104,6 @@ const handler = async (req: any, res: any) => {
   try {
     console.log('📨 Webhook request received');
     console.log('Request method:', req.method);
-    
-    // Импортируем модуль - это инициализирует бота, если еще не инициализирован
-    // @ts-ignore - dist файлы могут не иметь типов
-    let coreModule;
-    try {
-      // Путь зависит от того, где находится файл после компиляции
-      // Если файл в dist/api/webhook.js, то путь к dist/index.js будет ../index
-      // Если файл в api/webhook.js (Vercel компилирует автоматически), то путь будет ../dist/index
-      coreModule = require('../src/index') || require('../dist/index');
-      console.log('✅ Core module loaded');
-    } catch (importError: any) {
-      console.error('❌ Failed to import core module:', importError);
-      console.error('Import error stack:', importError?.stack);
-      return res.status(503).json({ ok: false, error: 'Module import failed' });
-    }
-    
-    // Получаем botInstance - он должен быть экспортирован из index.ts
-    let botInstance = coreModule.botInstance || coreModule.default?.botInstance;
-    let botInitialized = coreModule.botInitialized || coreModule.default?.botInitialized;
-    
-    // Если botInstance не найден, возможно модуль еще не загрузился полностью
-    if (!botInstance) {
-      console.warn('⚠️ Bot instance not found, waiting for initialization...');
-      // Даем время на инициализацию (если она асинхронная)
-      await new Promise(resolve => setTimeout(resolve, 200));
-      botInstance = coreModule.botInstance || coreModule.default?.botInstance;
-      botInitialized = coreModule.botInitialized || coreModule.default?.botInitialized;
-    }
-    
-    if (!botInstance) {
-      console.error('❌ Bot instance not available in webhook handler');
-      console.error('Available exports:', Object.keys(coreModule));
-      console.error('Module default:', typeof coreModule.default);
-      return res.status(503).json({ ok: false, error: 'Bot not initialized' });
-    }
-
-    if (!botInitialized) {
-      console.warn('⚠️ Bot instance exists but not fully initialized');
-    }
-
-    console.log('✅ Bot instance found');
-    console.log('Bot initialized:', botInitialized);
 
     // Получаем raw body (Telegram отправляет JSON как raw body)
     // На Vercel с @vercel/node body может быть уже распарсен
@@ -154,9 +112,17 @@ const handler = async (req: any, res: any) => {
     // Проверяем, есть ли raw body в req
     if (req.body) {
       if (typeof req.body === 'string') {
-        update = JSON.parse(req.body);
+        try {
+          update = JSON.parse(req.body);
+        } catch {
+          return res.status(400).json({ ok: false, error: 'Invalid JSON' });
+        }
       } else if (Buffer.isBuffer(req.body)) {
-        update = JSON.parse(req.body.toString());
+        try {
+          update = JSON.parse(req.body.toString());
+        } catch {
+          return res.status(400).json({ ok: false, error: 'Invalid JSON' });
+        }
       } else if (typeof req.body === 'object') {
         // Уже распарсен Vercel
         update = req.body;
@@ -180,6 +146,59 @@ const handler = async (req: any, res: any) => {
     if (update?.message?.text?.startsWith('/')) {
       console.log('Command:', update?.message?.text);
     }
+
+    // Импортируем модуль - это инициализирует бота, если еще не инициализирован
+    // @ts-ignore - dist файлы могут не иметь типов
+    let coreModule: any;
+    try {
+      // В test/Vite окружениях TS исходники доступны, поэтому используем dynamic import.
+      // В runtime (Vercel) файл будет скомпилирован в JS и import тоже будет работать.
+      coreModule = await import('../src/index');
+      console.log('✅ Core module loaded (dynamic import)');
+    } catch (importError: any) {
+      try {
+        coreModule = require('../dist/index');
+        console.log('✅ Core module loaded (dist)');
+      } catch {
+        try {
+          coreModule = require('../src/index');
+          console.log('✅ Core module loaded (src require)');
+        } catch {
+          console.error('❌ Failed to import core module:', importError);
+          console.error('Import error stack:', importError?.stack);
+          return res.status(503).json({ ok: false, error: 'Module import failed' });
+        }
+      }
+    }
+
+    // Получаем botInstance - он должен быть экспортирован из index.ts
+    // В тестах удобнее подменять botInstance на default-export (Express app object),
+    // поэтому проверяем default сначала.
+    let botInstance = coreModule.default?.botInstance || coreModule.botInstance;
+    let botInitialized = coreModule.default?.botInitialized || coreModule.botInitialized;
+
+    // Если botInstance не найден, возможно модуль еще не загрузился полностью
+    if (!botInstance) {
+      console.warn('⚠️ Bot instance not found, waiting for initialization...');
+      // Даем время на инициализацию (если она асинхронная)
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      botInstance = coreModule.default?.botInstance || coreModule.botInstance;
+      botInitialized = coreModule.default?.botInitialized || coreModule.botInitialized;
+    }
+
+    if (!botInstance) {
+      console.error('❌ Bot instance not available in webhook handler');
+      console.error('Available exports:', Object.keys(coreModule));
+      console.error('Module default:', typeof coreModule.default);
+      return res.status(503).json({ ok: false, error: 'Bot not initialized' });
+    }
+
+    if (!botInitialized) {
+      console.warn('⚠️ Bot instance exists but not fully initialized');
+    }
+
+    console.log('✅ Bot instance found');
+    console.log('Bot initialized:', botInitialized);
 
     const poolStateBefore = getPostgresPoolState();
     console.log('🔍 PostgreSQL pool state (before):', poolStateBefore);

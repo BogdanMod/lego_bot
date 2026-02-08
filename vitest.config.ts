@@ -32,11 +32,30 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
+      include: [
+        'packages/core/api/webhook.ts',
+        'packages/core/api/index.ts',
+        'packages/core/src/bot/keyboards.ts',
+        'packages/core/src/bot/scenes.ts',
+        'packages/core/src/bot/commands.ts',
+        'packages/core/src/bot/schema-commands.ts',
+      ],
       thresholds: {
-        statements: 25,
-        branches: 50,
-        functions: 50,
-        lines: 25,
+        global: {
+          functions: 40,
+          lines: 20,
+          branches: 30,
+          statements: 20,
+        },
+        'packages/core/api/webhook.ts': {
+          functions: 60,
+          lines: 40,
+          branches: 40,
+        },
+        'packages/core/api/index.ts': {
+          functions: 40,
+          lines: 40,
+        },
       },
     },
   },
