@@ -661,14 +661,20 @@ type EnvGroupStatus = {
 type EnvValidationResult = {
   infraRequired: EnvGroupStatus;
   featureRequired: EnvGroupStatus;
+  vercelRecommended: EnvGroupStatus;
   optional: EnvGroupStatus;
   allInfraPresent: boolean;
+  isVercel: boolean;
 };
 
 function validateRequiredEnvVars(): EnvValidationResult {
   const isSet = (key: string) => String(process.env[key] ?? '').trim().length > 0;
-  const infraRequired = ['DATABASE_URL'];
+  const isVercel = process.env.VERCEL === '1';
+  const infraRequired = isVercel
+    ? ['DATABASE_URL', 'ENCRYPTION_KEY', 'TELEGRAM_BOT_TOKEN']
+    : ['DATABASE_URL'];
   const featureRequired = ['TELEGRAM_BOT_TOKEN', 'ENCRYPTION_KEY'];
+  const vercelRecommended = ['TELEGRAM_SECRET_TOKEN'];
   const optional = ['REDIS_URL'];
 
   const buildGroup = (keys: string[]): EnvGroupStatus => ({
@@ -678,13 +684,16 @@ function validateRequiredEnvVars(): EnvValidationResult {
 
   const infraStatus = buildGroup(infraRequired);
   const featureStatus = buildGroup(featureRequired);
+  const vercelRecommendedStatus = buildGroup(vercelRecommended);
   const optionalStatus = buildGroup(optional);
 
   return {
     infraRequired: infraStatus,
     featureRequired: featureStatus,
+    vercelRecommended: vercelRecommendedStatus,
     optional: optionalStatus,
     allInfraPresent: infraStatus.missing.length === 0,
+    isVercel,
   };
 }
 
@@ -744,12 +753,30 @@ async function initializeDatabases() {
     logger.warn(`⚠️ Optional missing: ${optionalMissing.join(', ')}`);
   }
   if (!secretTokenPresent) {
-    logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
+    if (isVercel) {
+      logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN. Generate with: openssl rand -hex 32');
+    } else {
+      logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
+    }
   }
 
   botEnabled = botTokenPresent;
   encryptionAvailable = encryptionKeyPresent;
   webhookSecurityEnabled = secretTokenPresent;
+
+  logger.info('📋 Environment Variables Status:');
+  logger.info(`  DATABASE_URL: ${process.env.DATABASE_URL ? '✅ SET' : '❌ MISSING'}`);
+  logger.info(`  ENCRYPTION_KEY: ${process.env.ENCRYPTION_KEY ? '✅ SET' : '❌ MISSING'}`);
+  logger.info(`  TELEGRAM_BOT_TOKEN: ${process.env.TELEGRAM_BOT_TOKEN ? '✅ SET' : '❌ MISSING'}`);
+  logger.info(
+    `  TELEGRAM_SECRET_TOKEN: ${
+      process.env.TELEGRAM_SECRET_TOKEN ? '✅ SET' : '⚠️ MISSING (recommended)'
+    }`
+  );
+  logger.info(`  REDIS_URL: ${process.env.REDIS_URL ? '✅ SET' : '⚠️ MISSING (optional)'}`);
+  if (isVercel) {
+    logger.info('🔧 Vercel deployment detected - strict validation enabled');
+  }
 
   if (!botEnabled) {
     logger.error('❌ TELEGRAM_BOT_TOKEN is missing; bot features are disabled');
@@ -759,6 +786,23 @@ async function initializeDatabases() {
   }
 
   if (!envCheck.allInfraPresent) {
+    if (
+      isVercel &&
+      (envCheck.infraRequired.missing.includes('ENCRYPTION_KEY') ||
+        envCheck.infraRequired.missing.includes('TELEGRAM_BOT_TOKEN'))
+    ) {
+      const error = new Error(
+        `Missing critical environment variables for Vercel deployment: ${envCheck.infraRequired.missing.join(', ')}. ` +
+          'Configure them in Vercel Dashboard → [Project Name] → Settings → Environment Variables → Add. ' +
+          'Required: DATABASE_URL, ENCRYPTION_KEY, TELEGRAM_BOT_TOKEN. ' +
+          'Recommended: TELEGRAM_SECRET_TOKEN. ' +
+          'See .env.example for generation instructions. ' +
+          'https://vercel.com/docs/projects/environment-variables'
+      );
+      (error as any).missingVars = envCheck.infraRequired.missing;
+      throw error;
+    }
+
     const error = new Error(
       `Missing required environment variables: ${envCheck.infraRequired.missing.join(', ')}. ` +
         `Present: ${envCheck.infraRequired.present.join(', ') || 'none'}. ` +
@@ -882,6 +926,30 @@ async function initializeDatabases() {
       };
       dbInitializationStage = 'done';
       logger.info({ totalDurationMs }, '✅ All databases initialized successfully');
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.info('✅ Core Service Ready');
+      logger.info(
+        `  Database: ${
+          envCheck.infraRequired.present.includes('DATABASE_URL') ? 'Connected' : 'N/A'
+        }`
+      );
+      logger.info(
+        `  Redis: ${redisAvailable ? 'Connected' : redisSkipped ? 'Skipped' : 'Unavailable'}`
+      );
+      logger.info(
+        `  Bot: ${botEnabled ? 'Enabled' : 'Disabled (missing TELEGRAM_BOT_TOKEN)'}`
+      );
+      logger.info(
+        `  Encryption: ${
+          encryptionAvailable ? 'Enabled' : 'Disabled (missing ENCRYPTION_KEY)'
+        }`
+      );
+      logger.info(
+        `  Webhook Security: ${
+          webhookSecurityEnabled ? 'Enabled' : 'Disabled (missing TELEGRAM_SECRET_TOKEN)'
+        }`
+      );
+      logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } catch (error) {
       const totalDurationMs = Date.now() - initializationStartedAt;
       const message = error instanceof Error ? error.message : String(error);
@@ -895,6 +963,16 @@ async function initializeDatabases() {
       logger.error({ error }, '❌ Failed to initialize databases:');
       logger.error({ errorType: error?.constructor?.name }, 'Error type:');
       logger.error({ message }, 'Error message:');
+      if ((error as any).missingVars) {
+        logger.error(
+          {
+            missingVars: (error as any).missingVars,
+            vercelDashboard: 'https://vercel.com/dashboard',
+            action: 'Add missing variables in Project Settings → Environment Variables',
+          },
+          'Environment configuration required'
+        );
+      }
       logger.error(
         { stack: error instanceof Error ? error.stack : 'No stack' },
         'Error stack:'
