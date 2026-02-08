@@ -44,17 +44,17 @@ export function getPostgresPoolConfig(): PostgresPoolConfig {
     const vercelMaxRaw = Number(process.env.PG_POOL_MAX_VERCEL ?? 1);
     const vercelMax =
       Number.isFinite(vercelMaxRaw) && vercelMaxRaw > 0 ? vercelMaxRaw : 1;
-    return { max: vercelMax, idleTimeoutMillis: 15000, connectionTimeoutMillis: 5000 };
+    return { max: vercelMax, idleTimeoutMillis: 15000, connectionTimeoutMillis: 3000 };
   }
   return { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
 }
 
 export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = isVercel
   ? {
-      maxRetries: 3,
-      initialDelayMs: 500,
-      maxDelayMs: 1000,
-      jitterMs: 1000,
+      maxRetries: 2,
+      initialDelayMs: 3000,
+      maxDelayMs: 3000,
+      jitterMs: 500,
     }
   : {
       maxRetries: 5,
