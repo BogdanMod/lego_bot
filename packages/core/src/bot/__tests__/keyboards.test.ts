@@ -113,10 +113,11 @@ describe('keyboards', () => {
       expect(texts.some((t) => t.includes('Помощь'))).toBe(true);
     });
 
-    it('should work with empty menu', () => {
+    it('should insert Mini App into main menu (3 rows total)', () => {
+      // mainMenu always has 2 rows → insert miniApp row → 3 total rows
       const result = keyboards.getMainMenuWithMiniAppKeyboard('https://example.com/app');
-      expect(result.inline_keyboard).toHaveLength(1);
-      expect((result.inline_keyboard[0][0] as any).web_app).toEqual({ url: 'https://example.com/app' });
+      expect(result.inline_keyboard).toHaveLength(3);
+      expect((result.inline_keyboard[1][0] as any).web_app).toEqual({ url: 'https://example.com/app' });
     });
   });
 });

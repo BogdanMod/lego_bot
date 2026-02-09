@@ -77,6 +77,12 @@ export const createBotScene = new Scenes.WizardScene<BotWizardContext>(
 
     const token = message.text.trim();
 
+    // Проверка на пустой токен
+    if (!token.length) {
+      await ctx.reply('❌ Токен не может быть пустым.');
+      return;
+    }
+
     // Валидация токена
     if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
       await ctx.reply(
@@ -86,21 +92,25 @@ export const createBotScene = new Scenes.WizardScene<BotWizardContext>(
       return;
     }
 
+    // Проверка наличия ENCRYPTION_KEY (обязательно)
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      await ctx.reply('❌ Ошибка конфигурации: ENCRYPTION_KEY не установлен.');
+      return ctx.scene.leave();
+    }
+
     // Проверка, не существует ли уже такой токен
     // Шифруем токен для проверки в БД (токены хранятся в зашифрованном виде)
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    if (encryptionKey) {
-      try {
-        const encryptedTokenForCheck = encryptToken(token, encryptionKey);
-        const exists = await botExistsByToken(encryptedTokenForCheck);
-        if (exists) {
-          await ctx.reply('❌ Бот с таким токеном уже зарегистрирован в системе.');
-          return ctx.scene.leave();
-        }
-      } catch (error) {
-        console.error('Error checking token existence:', error);
-        // Продолжаем, если не удалось проверить (может быть первый бот без ключа)
+    try {
+      const encryptedTokenForCheck = encryptToken(token, encryptionKey);
+      const exists = await botExistsByToken(encryptedTokenForCheck);
+      if (exists) {
+        await ctx.reply('❌ Бот с таким токеном уже зарегистрирован в системе.');
+        return ctx.scene.leave();
       }
+    } catch (error) {
+      console.error('Error checking token existence:', error);
+      // Продолжаем, если не удалось проверить
     }
 
     // Сохраняем токен в сессии
