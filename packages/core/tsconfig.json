@@ -4,9 +4,9 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "types": ["node"],
-    "module": "ESNext",
-    "target": "ES2022",
-    "moduleResolution": "bundler"
+    "module": "commonjs",
+    "target": "ES2020",
+    "moduleResolution": "node"
   },
   "include": ["src/**/*"],
   "exclude": ["api/**/*"],
