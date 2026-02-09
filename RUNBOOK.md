@@ -604,13 +604,30 @@ sequenceDiagram
    - Recommended: `TELEGRAM_SECRET_TOKEN`
    - Optional: `REDIS_URL`, `MINI_APP_URL`, `ADMIN_USER_IDS`
 7. Deploy
-7.5. Проверить deployment через `/health` endpoint:
+7.5. **Обязательно проверить deployment через `/health` endpoint**:
     ```bash
+    # Сразу после deploy (может быть cold start)
     curl https://lego-bot-core.vercel.app/health
-    # Ожидаемый ответ: {"status":"ok","timestamp":"...","services":{"postgres":"connected","redis":"connected"}}
+    
+    # Если получили 503 или timeout — подождать 3-5 секунд и повторить:
+    sleep 5 && curl https://lego-bot-core.vercel.app/health
+    
+    # Ожидаемый успешный ответ:
+    # {"status":"ok","timestamp":"...","services":{"postgres":"connected","redis":"connected"}}
     ```
-    - Если статус "degraded" (Redis недоступен) - это нормально, Core работает
-    - Если ошибка 503 или timeout - проверить `DATABASE_URL` и логи Vercel
+    
+    **Интерпретация результатов**:
+    - ✅ `status: "ok"` — все сервисы работают, можно продолжать
+    - ⚠️ `status: "degraded"` (Redis недоступен) — нормально, Core работает без Redis
+    - ❌ 503 Service Unavailable — cold start в процессе, повторить через 5 секунд
+    - ❌ Timeout или connection refused — проверить `DATABASE_URL` в Vercel Dashboard → Settings → Environment Variables
+    - ❌ `{"error": "PostgreSQL connection failed"}` — проверить DATABASE_URL формат, firewall правила БД (разрешить Vercel IP ranges)
+    
+    **Проверка логов при ошибках**:
+    ```bash
+    # В Vercel Dashboard → Deployments → [Latest] → Functions → Logs
+    # Искать строки с "PostgreSQL connection" или "DATABASE_URL"
+    ```
 8. Скопировать URL deployment (например, `https://lego-bot-core.vercel.app`)
 9. Отправить команду `/setup_webhook` боту для настройки webhook
 
@@ -659,6 +676,11 @@ sequenceDiagram
 
 ### Troubleshooting после deployment
 
+- **Первый запрос после deploy возвращает 503 или медленный**: это нормально для cold start (3-7 сек инициализация DB pool на Hobby плане). Решение:
+  - **Обязательно** выполнить `curl https://your-core.vercel.app/health` дважды с паузой 5 секунд сразу после deploy
+  - Это инициализирует DB pool и bot instance перед реальными webhook запросами
+  - После этого последующие запросы будут быстрыми (<500ms) пока instance остается warm
+  - На Hobby плане instance может "заснуть" после 15 минут неактивности, тогда потребуется повторная инициализация
 - Если Core API возвращает 503: проверить `DATABASE_URL`, подождать cold start (2-5 сек)
 - Если Mini App не загружается: проверить `VITE_API_URL`, CORS настройки
 - Если webhook не работает: проверить `TELEGRAM_SECRET_TOKEN`, выполнить `/setup_webhook` повторно

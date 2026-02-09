@@ -56,8 +56,14 @@ if (!isTestEnv) {
 let app: ReturnType<typeof express> | null = null;
 let appInitialized = false;
 const PORT = process.env.PORT || 3000;
-const botToken = process.env.TELEGRAM_BOT_TOKEN;
 let botInstance: Telegraf<Scenes.SceneContext> | null = null;
+
+// Global cache for Vercel serverless (процесс переиспользуется между запросами)
+declare global {
+  var __CACHED_BOT_INSTANCE__: Telegraf<Scenes.SceneContext> | undefined;
+  var __BOT_INITIALIZED__: boolean | undefined;
+}
+
 let botInitialized = false;
 const registeredCommands: string[] = [];
 let lastProcessedUpdate: {
@@ -68,52 +74,85 @@ let lastProcessedUpdate: {
   processedAt: string | null;
 } | null = null;
 
-// Initialize Telegram bot
-if (!botToken) {
-  logger.warn('⚠️  TELEGRAM_BOT_TOKEN is not set');
-  logger.warn('⚠️  Бот не будет запущен. Установите TELEGRAM_BOT_TOKEN в .env файле');
-} else {
+async function initBot(): Promise<void> {
+  // Проверка глобального кеша (Vercel warm start)
+  if (global.__CACHED_BOT_INSTANCE__) {
+    logger.info('♻️ Reusing cached bot instance (Vercel warm start)');
+    botInstance = global.__CACHED_BOT_INSTANCE__;
+    botInitialized = global.__BOT_INITIALIZED__ || false;
+    return;
+  }
+
+  // Проверка токена
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) {
+    logger.warn('⚠️ TELEGRAM_BOT_TOKEN is not set, bot disabled');
+    return;
+  }
+
+  logger.info('🤖 Initializing bot instance...');
+  
+  // Инициализация DB ПЕРЕД ботом
+  await initializeDatabases();
+  
   logger.info({ tokenPrefix: botToken.substring(0, 10) + '...' }, '🔑 Токен бота найден:');
-  // Создание бота с поддержкой сцен (FSM)
-  botInstance = new Telegraf<Scenes.SceneContext>(botToken);
-  logger.info('🤖 Bot instance created');
-  
-  // Настройка сессий (используем память для простоты, в продакшене лучше Redis)
-  botInstance.use(session());
-  
-  // Регистрация сцен
-  const stage = new Scenes.Stage<Scenes.SceneContext>([createBotScene as any]);
-  botInstance.use(stage.middleware());
-  logger.info('✅ Scenes registered');
-  
-  // Логирование всех входящих обновлений для отладки (ПОСЛЕ middleware, НО перед командами)
-  botInstance.use(async (ctx, next) => {
-    const userId = ctx.from?.id;
-    const chatId = ctx.chat?.id;
-    const updateType = ctx.updateType;
-    const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : undefined;
-    const isCommand = Boolean(messageText && messageText.startsWith('/'));
-    const commandText = isCommand ? messageText : undefined;
-    const updateId = ctx.update.update_id;
-    logger.info(
-      { userId, chatId, updateType, isCommand, commandText, updateId },
-      '📨 Bot middleware: Update received'
-    );
-    try {
-      return await next();
-    } catch (error) {
-      logger.error({ userId, chatId, updateType, updateId, error }, '❌ Bot middleware error');
-      throw error;
-    }
-  });
-  
-  // Регистрация команд
-  botInstance.command('start', async (ctx) => {
-    const userId = ctx.from?.id;
-    const command = '/start';
-    logger.info({ userId, command, username: ctx.from?.username }, '🎯 Команда /start получена');
-    try {
-      await handleStart(ctx as any);
+    // Создание бота с поддержкой сцен (FSM)
+    botInstance = new Telegraf<Scenes.SceneContext>(botToken);
+    global.__CACHED_BOT_INSTANCE__ = botInstance;
+    logger.info('🤖 Bot instance created');
+    
+    // Настройка сессий (используем память для простоты, в продакшене лучше Redis)
+    botInstance.use(session());
+    
+    // Регистрация сцен
+    const stage = new Scenes.Stage<Scenes.SceneContext>([createBotScene as any]);
+    botInstance.use(stage.middleware());
+    logger.info('✅ Scenes registered');
+    
+    // Логирование всех входящих обновлений для отладки (ПОСЛЕ middleware, НО перед командами)
+    botInstance.use(async (ctx, next) => {
+      const userId = ctx.from?.id;
+      const chatId = ctx.chat?.id;
+      const updateType = ctx.updateType;
+      const messageText = ctx.message && 'text' in ctx.message ? ctx.message.text : undefined;
+      const isCommand = Boolean(messageText && messageText.startsWith('/'));
+      const commandText = isCommand ? messageText : undefined;
+      const updateId = ctx.update.update_id;
+      logger.info(
+        { userId, chatId, updateType, isCommand, commandText, updateId },
+        '📨 Bot middleware: Update received'
+      );
+      try {
+        const result = await next();
+        
+        // Сохраняем информацию о последнем обработанном update
+        lastProcessedUpdate = {
+          updateId,
+          updateType,
+          userId: userId || null,
+          command: commandText || null,
+          processedAt: new Date().toISOString(),
+        };
+        
+        logger.info(
+          { userId, chatId, updateType, updateId },
+          '✅ Bot middleware: Update processed successfully'
+        );
+        
+        return result;
+      } catch (error) {
+        logger.error({ userId, chatId, updateType, updateId, error }, '❌ Bot middleware error');
+        throw error;
+      }
+    });
+    
+    // Регистрация команд
+    botInstance.command('start', async (ctx) => {
+      const userId = ctx.from?.id;
+      const command = '/start';
+      logger.info({ userId, command, username: ctx.from?.username }, '🎯 Команда /start получена');
+      try {
+        await handleStart(ctx as any);
       logger.info({ userId, command }, '✅ Команда /start обработана успешно');
     } catch (error) {
       logger.error({ userId, command, error }, '❌ Error in /start command:');
@@ -459,8 +498,10 @@ if (!botToken) {
     });
   });
   
-  botInitialized = true;
   logger.info({ commands: registeredCommands }, '✅ Bot fully initialized with all commands');
+  botInitialized = true;
+  global.__BOT_INITIALIZED__ = true;
+  logger.info('✅ Bot initialized successfully');
 
   // Запуск бота через long polling (только локально, не на Vercel)
   if (process.env.VERCEL !== '1') {
@@ -491,6 +532,29 @@ if (!botToken) {
     logger.info('📡 Webhook endpoint: /api/webhook');
     logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
     logger.info('💡 Используйте: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://lego-bot-core.vercel.app/api/webhook');
+  }
+}
+
+declare global {
+  var __BOT_INIT_PROMISE__: Promise<void> | undefined;
+}
+
+async function ensureBotInitialized(): Promise<void> {
+  if (botInitialized && botInstance) {
+    return;
+  }
+  
+  if (global.__BOT_INIT_PROMISE__) {
+    logger.info('⏳ Bot initialization in progress, waiting...');
+    return global.__BOT_INIT_PROMISE__;
+  }
+  
+  global.__BOT_INIT_PROMISE__ = initBot();
+  
+  try {
+    await global.__BOT_INIT_PROMISE__;
+  } finally {
+    global.__BOT_INIT_PROMISE__ = undefined;
   }
 }
 
@@ -1798,26 +1862,31 @@ app.get('/health', async (req: Request, res: Response) => {
 });
 
 // Bot status diagnostic
-app.get('/api/bot-status', async (req: Request, res: Response) => {
-  const allowEnvDetails =
-    process.env.NODE_ENV !== 'production' ||
-    (process.env.HEALTH_TOKEN &&
-      req.headers['x-health-token'] === process.env.HEALTH_TOKEN);
-
-  if (!allowEnvDetails) {
-    return res.status(401).json({ error: 'Unauthorized' });
+app.get('/api/bot-status', async (req, res) => {
+  try {
+    const status = {
+      botInstance: botInstance ? 'exists' : null,
+      botInitialized,
+      global: {
+        __CACHED_BOT_INSTANCE__: global.__CACHED_BOT_INSTANCE__ ? 'exists' : null,
+        __BOT_INITIALIZED__: global.__BOT_INITIALIZED__ || false,
+        __BOT_INIT_PROMISE__: global.__BOT_INIT_PROMISE__ ? 'pending' : 'none',
+      },
+      dbInitialized,
+      dbInitializationInProgress: Boolean(dbInitializationPromise) && !dbInitialized,
+      registeredCommands,
+      lastProcessedUpdate,
+    };
+    
+    const botReady = Boolean(botInstance) && botInitialized && dbInitialized;
+    const statusCode = botReady ? 200 : 503;
+    res.status(statusCode).json({ ok: botReady, status });
+  } catch (error: any) {
+    res.status(500).json({ 
+      ok: false, 
+      error: error?.message || 'Unknown error' 
+    });
   }
-
-  const botTokenPresent = Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim());
-  const botInstanceExists = Boolean(botInstance);
-
-  res.json({
-    botEnabled: botTokenPresent,
-    botInstanceExists,
-    botInitialized,
-    registeredCommands,
-    lastProcessedUpdate,
-  });
 });
 
 // Middleware для проверки user_id через Telegram WebApp initData
@@ -2746,7 +2815,8 @@ async function startServer() {
     return;
   }
 
-  await initializeDatabases();
+  // Вызываем ensureBotInitialized вместо отдельных init
+  await ensureBotInitialized();
   await initializeRateLimiters();
 
   const appInstance = createApp();
@@ -2767,10 +2837,12 @@ export default appInstance;
 module.exports = appInstance; // Also export as CommonJS for compatibility
 
 // Export botInstance for webhook endpoint
-export { botInstance, botInitialized };
+export { botInstance, botInitialized, ensureBotInitialized, initBot };
 if (typeof module !== 'undefined') {
   (module.exports as any).botInstance = botInstance;
   (module.exports as any).botInitialized = botInitialized;
+  (module.exports as any).ensureBotInitialized = ensureBotInitialized;
+  (module.exports as any).initBot = initBot;
 }
 
 // Graceful shutdown

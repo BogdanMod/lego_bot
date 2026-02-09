@@ -71,6 +71,13 @@ const handler = async (req: any, res: any) => {
   // Логируем сразу в начале - это поможет понять, вызывается ли функция
   console.log('🚀 Webhook handler called');
   console.log('Method:', req.method);
+
+  console.log('🔍 Environment variables:', {
+    DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    VERCEL: process.env.VERCEL || 'not set',
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY ? 'SET' : 'NOT SET',
+    TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN ? 'SET' : 'NOT SET',
+  });
   
   // Только POST запросы
   if (req.method !== 'POST') {
@@ -147,61 +154,111 @@ const handler = async (req: any, res: any) => {
       console.log('Command:', update?.message?.text);
     }
 
-    // Импортируем модуль - это инициализирует бота, если еще не инициализирован
-    // @ts-ignore - dist файлы могут не иметь типов
+    // Импортируем модуль
     let coreModule: any;
     try {
-      // В test/Vite окружениях TS исходники доступны, поэтому используем dynamic import.
-      // В runtime (Vercel) файл будет скомпилирован в JS и import тоже будет работать.
-      coreModule = await import('../src/index');
-      console.log('✅ Core module loaded (dynamic import)');
-    } catch (importError: any) {
       try {
         coreModule = require('../dist/index');
         console.log('✅ Core module loaded (dist)');
       } catch {
-        try {
-          coreModule = require('../src/index');
-          console.log('✅ Core module loaded (src require)');
-        } catch {
-          console.error('❌ Failed to import core module:', importError);
-          console.error('Import error stack:', importError?.stack);
-          return res.status(503).json({ ok: false, error: 'Module import failed' });
-        }
+        coreModule = await import('../src/index');
+        console.log('✅ Core module loaded (src)');
       }
+    } catch (importError: any) {
+      console.error('❌ Failed to import core module:', importError);
+      console.error('Import error stack:', importError?.stack);
+      return res.status(503).json({ 
+        ok: false, 
+        error: 'Module import failed',
+        details: importError?.message 
+      });
     }
 
-    // Получаем botInstance - он должен быть экспортирован из index.ts
-    // В тестах удобнее подменять botInstance на default-export (Express app object),
-    // поэтому проверяем default сначала.
-    let botInstance = coreModule.default?.botInstance || coreModule.botInstance;
-    let botInitialized = coreModule.default?.botInitialized || coreModule.botInitialized;
+    // Вызываем lazy initialization
+    try {
+      console.log('🔄 Ensuring bot initialized...');
+      const initStart = Date.now();
+      
+      if (typeof coreModule.ensureBotInitialized !== 'function') {
+        throw new Error('ensureBotInitialized not found');
+      }
 
-    // Если botInstance не найден, возможно модуль еще не загрузился полностью
-    if (!botInstance) {
-      console.warn('⚠️ Bot instance not found, waiting for initialization...');
-      // Даем время на инициализацию (если она асинхронная)
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      botInstance = coreModule.default?.botInstance || coreModule.botInstance;
-      botInitialized = coreModule.default?.botInitialized || coreModule.botInitialized;
+      await withTimeout(
+        coreModule.ensureBotInitialized(),
+        25000,
+        'Bot initialization timed out'
+      );
+      
+      console.log(`✅ Bot initialization completed in ${Date.now() - initStart}ms`);
+    } catch (initError: any) {
+      console.error('❌ Bot initialization failed:', initError);
+      return res.status(503).json({
+        ok: false,
+        error: 'Bot initialization failed',
+        details: initError?.message
+      });
     }
 
+    // Получаем botInstance из модуля или глобального кеша
+    let botInstance = global.__CACHED_BOT_INSTANCE__ || coreModule.botInstance;
+    let botInitialized = global.__BOT_INITIALIZED__ || coreModule.botInitialized;
+
     if (!botInstance) {
-      console.error('❌ Bot instance not available in webhook handler');
-      console.error('Available exports:', Object.keys(coreModule));
-      console.error('Module default:', typeof coreModule.default);
+      console.error('❌ Bot instance not available after initialization');
       return res.status(503).json({ ok: false, error: 'Bot not initialized' });
     }
 
-    if (!botInitialized) {
-      console.warn('⚠️ Bot instance exists but not fully initialized');
-    }
+    console.log('✅ Bot instance ready');
 
-    console.log('✅ Bot instance found');
-    console.log('Bot initialized:', botInitialized);
-
+    // Проверяем состояние базы данных
     const poolStateBefore = getPostgresPoolState();
     console.log('🔍 PostgreSQL pool state (before):', poolStateBefore);
+
+    if (poolStateBefore.exists === false || poolStateBefore.ended) {
+      console.error('❌ Database pool not available or ended');
+      return res.status(503).json({ 
+        ok: false, 
+        error: 'Database not available',
+        poolState: poolStateBefore
+      });
+    }
+
+    let postgresModule: any;
+    try {
+      try {
+        postgresModule = require('../dist/db/postgres');
+      } catch {
+        postgresModule = require('../db/postgres');
+      }
+    } catch {
+      postgresModule = null;
+      console.warn('⚠️ Could not load postgres module for diagnostics');
+    }
+
+    if (postgresModule) {
+      try {
+        const poolConfig = postgresModule.getPostgresPoolConfig();
+        console.log('🔍 PostgreSQL pool config:', poolConfig);
+      } catch {
+        console.warn('⚠️ Could not load postgres module for diagnostics');
+      }
+
+      try {
+        const retryBudgetMs = postgresModule.getPostgresConnectRetryBudgetMs();
+        console.log('🔍 PostgreSQL retry budget (ms):', retryBudgetMs);
+      } catch {
+        console.warn('⚠️ Could not load postgres module for diagnostics');
+      }
+
+      try {
+        const diagnostics = postgresModule.getPostgresDiagnostics();
+        if (diagnostics) {
+          console.log('🔍 Last PostgreSQL diagnostics:', diagnostics);
+        }
+      } catch {
+        console.warn('⚠️ Could not load postgres module for diagnostics');
+      }
+    }
 
     const updateId = update?.update_id;
 
@@ -247,7 +304,16 @@ const handler = async (req: any, res: any) => {
       return res.status(200).json({ ok: true });
     } catch (handleError: any) {
       console.error('❌ Error handling update:', handleError);
-      console.error('Handle error stack:', handleError?.stack);
+      console.error('Error type:', handleError?.constructor?.name);
+      console.error('Error message:', handleError?.message);
+      console.error('Error stack:', handleError?.stack);
+      
+      // Проверяем, связана ли ошибка с DB
+      const isDbError = handleError?.message?.includes('database') || 
+                        handleError?.message?.includes('postgres') ||
+                        handleError?.message?.includes('connection');
+      
+      console.error('Is DB error:', isDbError);
 
       if (typeof updateId === 'number') {
         inFlightUpdateIds.delete(updateId);
@@ -256,7 +322,29 @@ const handler = async (req: any, res: any) => {
       const poolStateAfter = getPostgresPoolState();
       console.log('🔍 PostgreSQL pool state (after):', poolStateAfter);
 
-      return res.status(503).json({ ok: false, error: handleError?.message || String(handleError) });
+      let diagnostics: any = null;
+      try {
+        if (postgresModule && typeof postgresModule.getPostgresDiagnostics === 'function') {
+          diagnostics = postgresModule.getPostgresDiagnostics();
+        }
+      } catch {
+        diagnostics = null;
+      }
+
+      if (diagnostics) {
+        console.error('🔍 DB diagnostics:', diagnostics);
+      }
+
+      return res.status(503).json({ 
+        ok: false, 
+        error: handleError?.message || String(handleError),
+        errorType: handleError?.constructor?.name || 'Unknown',
+        isDbError: isDbError,
+        dbDiagnostics: diagnostics ? {
+          category: diagnostics.category,
+          hint: diagnostics.hint
+        } : undefined
+      });
     }
     
   } catch (error: any) {
@@ -274,11 +362,32 @@ const handler = async (req: any, res: any) => {
       },
       bodyLength: req.body ? req.body.length : 0,
     });
+
+    let diagnostics: any = null;
+    try {
+      let postgresModule: any;
+      try {
+        postgresModule = require('../dist/db/postgres');
+      } catch {
+        postgresModule = require('../db/postgres');
+      }
+
+      if (postgresModule && typeof postgresModule.getPostgresDiagnostics === 'function') {
+        diagnostics = postgresModule.getPostgresDiagnostics();
+      }
+    } catch {
+      diagnostics = null;
+      console.warn('⚠️ Could not load postgres module for diagnostics');
+    }
     
     return res.status(503).json({ 
       ok: false, 
       error: error?.message || 'Internal server error',
       timestamp: new Date().toISOString(),
+      dbDiagnostics: diagnostics ? {
+        category: diagnostics.category,
+        hint: diagnostics.hint
+      } : undefined
     });
   }
 };
