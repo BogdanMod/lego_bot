@@ -37,5 +37,10 @@
     "@vercel/node": "^5.5.23",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0"
+  },
+  "overrides": {
+    "isomorphic-dompurify": false,
+    "jsdom": false,
+    "html-encoding-sniffer": "4.0.0"
   }
 }
