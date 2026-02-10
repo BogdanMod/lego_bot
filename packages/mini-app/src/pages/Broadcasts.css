@@ -1,0 +1,143 @@
+.broadcasts-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.broadcasts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.broadcast-form {
+  background: var(--tg-theme-bg-color);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--tg-theme-secondary-bg-color);
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-row-inline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.broadcasts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.broadcast-card {
+  background: var(--tg-theme-bg-color);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--tg-theme-hint-color);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.broadcast-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.broadcast-name {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.broadcast-meta {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  margin-top: 4px;
+}
+
+.broadcast-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  font-size: 13px;
+}
+
+.broadcast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.broadcast-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.broadcast-status.draft { background: #e0e0e0; color: #666; }
+.broadcast-status.scheduled { background: #fff3cd; color: #856404; }
+.broadcast-status.processing { background: #cfe2ff; color: #084298; }
+.broadcast-status.completed { background: #d1e7dd; color: #0f5132; }
+.broadcast-status.cancelled { background: #f8d7da; color: #842029; }
+.broadcast-status.failed { background: #f8d7da; color: #842029; }
+
+.broadcast-progress {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.broadcast-progress-bar {
+  height: 100%;
+  background: #4e8cff;
+  transition: width 0.3s ease;
+}
+
+.broadcast-details {
+  background: var(--tg-theme-bg-color);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--tg-theme-secondary-bg-color);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.broadcast-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.broadcast-details-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  font-size: 13px;
+}

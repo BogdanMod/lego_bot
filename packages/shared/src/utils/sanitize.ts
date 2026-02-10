@@ -1,0 +1,34 @@
+import type { BotSchema } from '../types/bot-schema-browser.js';
+
+export function sanitizeHtml(input: string): string {
+  return sanitizeText(input.replace(/<[^>]*>/g, ''));
+}
+
+export function sanitizeText(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function sanitizeBotSchema(schema: BotSchema): BotSchema {
+  const sanitizedStates: BotSchema['states'] = {};
+
+  for (const [stateKey, state] of Object.entries(schema.states)) {
+    sanitizedStates[stateKey] = {
+      ...state,
+      message: sanitizeText(state.message),
+      buttons: state.buttons?.map((button) => ({
+        ...button,
+        text: sanitizeText(button.text),
+      })),
+    };
+  }
+
+  return {
+    ...schema,
+    states: sanitizedStates,
+  };
+}

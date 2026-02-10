@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Редактор схем ботов</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Редактор схем ботов</h1>
+            <div id="auth-section">
+                <div class="user-input">
+                    <label for="user-id-input">Ваш Telegram User ID:</label>
+                    <input type="number" id="user-id-input" placeholder="Введите ваш Telegram User ID" />
+                    <button id="login-btn" class="btn-primary">Войти</button>
+                </div>
+                <div id="user-info" style="display: none;">
+                    <span>User ID: <strong id="user-id-display"></strong></span>
+                    <button id="logout-btn" class="btn-secondary">Выйти</button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div id="login-prompt" class="card">
+                <h2>Вход</h2>
+                <p>Введите ваш Telegram User ID для работы с редактором схем.</p>
+                <p><small>Вы можете узнать свой User ID, отправив сообщение боту <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a></small></p>
+            </div>
+
+            <div id="editor-section" style="display: none;">
+                <div class="card">
+                    <h2>Выберите бота</h2>
+                    <select id="bot-select" class="select">
+                        <option value="">-- Выберите бота --</option>
+                    </select>
+                    <button id="load-schema-btn" class="btn-primary" disabled>Загрузить схему</button>
+                </div>
+
+                <div class="card">
+                    <h2>Редактор схемы</h2>
+                    <div class="editor-container">
+                        <textarea id="schema-editor" class="editor" placeholder='{"version":1,"states":{},"initialState":"start"}'></textarea>
+                        <div id="error-message" class="error-message" style="display: none;"></div>
+                    </div>
+                    <div class="editor-actions">
+                        <button id="validate-btn" class="btn-secondary">Проверить JSON</button>
+                        <button id="format-btn" class="btn-secondary">Форматировать</button>
+                        <button id="save-btn" class="btn-primary" disabled>Сохранить схему</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Предпросмотр схемы</h2>
+                    <div id="schema-preview" class="preview">
+                        <p class="placeholder">Выберите бота и загрузите схему для предпросмотра</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

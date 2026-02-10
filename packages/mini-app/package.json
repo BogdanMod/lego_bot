@@ -1,0 +1,41 @@
+{
+  "name": "@dialogue-constructor/mini-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "npm run build:shared && npm run validate-templates",
+    "build:shared": "cd ../.. && turbo run build --filter=@dialogue-constructor/shared",
+    "clean": "node scripts/clean-dist.js",
+    "dev": "vite",
+    "build": "npx vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "validate-templates": "node scripts/validate-templates.js"
+  },
+  "dependencies": {
+    "@dialogue-constructor/shared": "*",
+    "@tonconnect/ui-react": "^2.1.0",
+    "lucide-react": "^0.563.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.21.0",
+    "recharts": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.24",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8"
+  }
+}

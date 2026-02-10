@@ -1,0 +1,58 @@
+.integration-template-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.integration-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.integration-template-card {
+  border: 1px solid var(--tg-theme-hint-color);
+  border-radius: 10px;
+  padding: 10px;
+  text-align: left;
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-text-color);
+  cursor: pointer;
+}
+
+.integration-template-card.active {
+  border-color: var(--tg-theme-button-color);
+}
+
+.integration-template-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.integration-template-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.integration-template-desc {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+
+.integration-template-details {
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--tg-theme-secondary-bg-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.integration-template-title {
+  font-weight: 600;
+}
+
+.integration-template-instructions {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}

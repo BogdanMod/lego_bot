@@ -1,0 +1,25 @@
+{
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 28,
+      "includeFiles": "node_modules/{axios/dist/node,@dialogue-constructor/shared}/**,dist/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/webhook",
+      "destination": "/api/webhook"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/process-broadcasts",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+

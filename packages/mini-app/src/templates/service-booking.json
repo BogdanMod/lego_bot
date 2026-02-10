@@ -1,0 +1,162 @@
+{
+  "id": "service-booking",
+  "name": "Запись на услуги",
+  "description": "Запись клиентов на услуги с выбором времени и подтверждением. Автоматически собирает контакты клиентов.",
+  "category": "business",
+  "icon": "📅",
+  "preview": {
+    "screenshot": "/template-screenshots/service-booking.png",
+    "features": [
+      "Выбор услуги",
+      "Выбор времени",
+      "Сбор контакта",
+      "Подтверждение записи"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Здравствуйте! Выберите услугу:",
+        "buttons": [
+          {
+            "text": "Консультация",
+            "nextState": "service_consult"
+          },
+          {
+            "text": "Массаж",
+            "nextState": "service_massage"
+          },
+          {
+            "text": "Маникюр",
+            "nextState": "service_manicure"
+          }
+        ]
+      },
+      "service_consult": {
+        "message": "Консультация специалиста, длительность 30 минут.",
+        "buttons": [
+          {
+            "text": "Выбрать время",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "Назад",
+            "nextState": "start"
+          }
+        ]
+      },
+      "service_massage": {
+        "message": "Массаж, длительность 60 минут.",
+        "buttons": [
+          {
+            "text": "Выбрать время",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "Назад",
+            "nextState": "start"
+          }
+        ]
+      },
+      "service_manicure": {
+        "message": "Маникюр, длительность 45 минут.",
+        "buttons": [
+          {
+            "text": "Выбрать время",
+            "nextState": "collect_contact"
+          },
+          {
+            "text": "Назад",
+            "nextState": "start"
+          }
+        ]
+      },
+      "collect_contact": {
+        "message": "Для записи нам нужен ваш номер телефона",
+        "buttons": [
+          {
+            "type": "request_contact",
+            "text": "📱 Поделиться номером",
+            "nextState": "confirm_booking"
+          }
+        ]
+      },
+      "choose_time": {
+        "message": "Выберите удобное время:",
+        "buttons": [
+          {
+            "text": "Утро 10:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "День 14:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "Вечер 18:00",
+            "nextState": "confirm_booking"
+          },
+          {
+            "text": "Назад",
+            "nextState": "start"
+          }
+        ]
+      },
+      "contact_request": {
+        "message": "Оставьте контакт для подтверждения записи.",
+        "buttons": [
+          {
+            "text": "Передать контакт",
+            "nextState": "confirm"
+          },
+          {
+            "text": "Назад",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "confirm_booking": {
+        "message": "Проверьте данные и подтвердите запись.",
+        "webhook": {
+          "url": "",
+          "enabled": false
+        },
+        "buttons": [
+          {
+            "text": "Подтвердить запись",
+            "nextState": "done"
+          },
+          {
+            "text": "Изменить время",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "confirm": {
+        "message": "Проверьте данные и подтвердите запись.",
+        "buttons": [
+          {
+            "text": "Подтвердить запись",
+            "nextState": "done"
+          },
+          {
+            "text": "Изменить время",
+            "nextState": "choose_time"
+          }
+        ]
+      },
+      "done": {
+        "message": "Спасибо! Мы свяжемся с вами для подтверждения.",
+        "buttons": [
+          {
+            "text": "Записаться снова",
+            "nextState": "start"
+          }
+        ]
+      }
+    }
+  }
+}
+

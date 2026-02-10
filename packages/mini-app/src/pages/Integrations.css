@@ -1,0 +1,85 @@
+.integrations-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.integrations-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.integrations-stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.integrations-stat-label {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+
+.integrations-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.integrations-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.integrations-state-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.integrations-state-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 8px;
+}
+
+.integrations-state-key {
+  font-weight: 600;
+}
+
+.integrations-state-url {
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  word-break: break-all;
+}
+
+.integrations-logs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.integrations-logs-header,
+.integrations-logs-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.6fr 0.8fr 1.2fr 1.4fr;
+  gap: 8px;
+  font-size: 12px;
+  align-items: center;
+}
+
+.integrations-logs-header {
+  font-weight: 600;
+  color: var(--tg-theme-hint-color);
+}
+
+.integrations-logs-row {
+  padding: 10px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 8px;
+}
