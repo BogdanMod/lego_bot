@@ -1,4 +1,36 @@
-# Owner Cabinet Runbook
+# Owner Cabinet Runbook (v2)
+
+## v2 Architecture Overview
+
+### Event-Driven Pipeline
+- Router ingest: Creates `bot_events` → XADD to Redis Stream `events`
+- Worker: Reads from Stream (consumer group), processes events, updates entities
+- DLQ: Failed events go to `events:dead` stream after 3 retries
+
+### Realtime SSE
+- Endpoint: `GET /api/owner/bots/:botId/stream`
+- Worker publishes to Redis PubSub `bot:{botId}:events`
+- Owner-web subscribes via EventSource, invalidates TanStack Query cache
+
+### RBAC 2.0
+- Permissions stored in `bot_admins.permissions_json`
+- Default permissions per role (owner/admin/staff/viewer)
+- Middleware: `requirePermission('orders.write')` etc.
+
+### Tenant Isolation
+- All endpoints require `botId` (except `/auth/*` and `/bots`)
+- `requireBotContext` middleware validates access and sets `botContext`
+- Strict `bot_id` filtering in all queries
+
+### Observability
+- `request_id` in all requests/responses
+- Structured logs: `{requestId, botId, userId, route, method, statusCode, latency}`
+- Sentry integration (core + owner-web) with safe beforeSend hooks
+
+### Billing-Ready
+- Table: `bot_usage_daily` (date, events_count, messages_count, etc.)
+- Worker incrementally updates counters
+- Endpoint: `GET /api/owner/bots/:botId/usage` (read-only)
 
 ## Debugging
 
@@ -100,6 +132,15 @@ WHERE bot_id = '<botId>'
 GROUP BY status;
 ```
 
+### Check Usage Counters (v2)
+```sql
+SELECT date, events_count, messages_count, customers_count, leads_count, orders_count, appointments_count
+FROM bot_usage_daily
+WHERE bot_id = '<botId>'
+ORDER BY date DESC
+LIMIT 30;
+```
+
 ### Check Recent Activity
 ```sql
 SELECT * FROM owner_audit_log
@@ -135,9 +176,28 @@ LIMIT 10;
 redis-cli GET "owner:botlink:jti:<jti>"
 ```
 
-### Check Session (if using Redis sessions)
+### Check Event Stream
 ```bash
-redis-cli GET "owner:session:<sessionId>"
+# Check stream length
+redis-cli XLEN events
+
+# Read from stream
+redis-cli XREAD COUNT 10 STREAMS events 0
+
+# Check consumer group
+redis-cli XINFO GROUPS events
+```
+
+### Check PubSub
+```bash
+# Subscribe to bot events
+redis-cli SUBSCRIBE "bot:<botId>:events"
+```
+
+### Check DLQ
+```bash
+redis-cli XLEN "events:dead"
+redis-cli XREAD COUNT 10 STREAMS "events:dead" 0
 ```
 
 ### Check Connection
@@ -153,17 +213,26 @@ redis-cli PING
 - Owner-Web: Check Next.js build/runtime logs
 - Look for `request_id` in error messages
 
-### Structured Logs
+### Structured Logs (v2)
 All logs include:
 - `request_id`
 - `userId` (for owner requests)
 - `botId` (for bot-scoped requests)
 - `route` (API path)
+- `method` (HTTP method)
+- `statusCode` (response status)
+- `latency` (ms)
 
 Search pattern:
 ```
-request_id:abc123 userId:123456789 botId:xyz
+request_id:abc123 userId:123456789 botId:xyz route:/api/owner/bots/xyz/events latency:45
 ```
+
+### Worker Logs
+Worker logs include:
+- `botId`, `eventId`, `eventType`, `entityType`
+- Processing errors with retry count
+- DLQ sends with error details
 
 ## Recovery
 

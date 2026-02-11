@@ -36,7 +36,10 @@ async function processEvent(eventData: Record<string, string>, eventId: string) 
   }
 
   const client = await getPostgresClient();
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
   try {
+    await client.query('BEGIN');
+    
     // Обновляем entities на основе события
     if (entityType && entityId) {
       if (entityType === 'customer') {
@@ -70,6 +73,30 @@ async function processEvent(eventData: Record<string, string>, eventId: string) 
       [botId, eventData.event_id]
     );
 
+    // v2: Billing-ready - инкрементально обновляем usage counters
+    await client.query(
+      `INSERT INTO bot_usage_daily (bot_id, date, events_count, messages_count, customers_count, leads_count, orders_count, appointments_count, updated_at)
+       VALUES ($1, $2::date, 1, 
+         CASE WHEN $3 = 'message_received' THEN 1 ELSE 0 END,
+         CASE WHEN $4 = 'customer' THEN 1 ELSE 0 END,
+         CASE WHEN $3 = 'lead_created' THEN 1 ELSE 0 END,
+         CASE WHEN $3 = 'order_created' THEN 1 ELSE 0 END,
+         CASE WHEN $3 = 'appointment_created' THEN 1 ELSE 0 END,
+         now())
+       ON CONFLICT (bot_id, date)
+       DO UPDATE SET
+         events_count = bot_usage_daily.events_count + 1,
+         messages_count = bot_usage_daily.messages_count + CASE WHEN $3 = 'message_received' THEN 1 ELSE 0 END,
+         customers_count = bot_usage_daily.customers_count + CASE WHEN $4 = 'customer' THEN 1 ELSE 0 END,
+         leads_count = bot_usage_daily.leads_count + CASE WHEN $3 = 'lead_created' THEN 1 ELSE 0 END,
+         orders_count = bot_usage_daily.orders_count + CASE WHEN $3 = 'order_created' THEN 1 ELSE 0 END,
+         appointments_count = bot_usage_daily.appointments_count + CASE WHEN $3 = 'appointment_created' THEN 1 ELSE 0 END,
+         updated_at = now()`,
+      [botId, today, eventType, entityType]
+    );
+
+    await client.query('COMMIT');
+
     // v2: Публикуем событие в Redis PubSub для SSE
     try {
       const redis = await getRedisClient();
@@ -87,6 +114,9 @@ async function processEvent(eventData: Record<string, string>, eventId: string) 
     }
 
     logger.info('Event processed', { botId, eventId, eventType, entityType });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   } finally {
     client.release();
   }

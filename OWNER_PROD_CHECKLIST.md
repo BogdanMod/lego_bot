@@ -1,4 +1,4 @@
-# Owner Cabinet Production Checklist
+# Owner Cabinet Production Checklist (v2)
 
 ## Environment Variables
 
@@ -12,16 +12,24 @@
 - `OWNER_WEB_BASE_URL` - Full URL of owner-web (e.g., https://lego-bot-ownerweb.vercel.app)
 - `ENCRYPTION_KEY` - For bot token encryption
 - `ADMIN_USER_IDS` - Comma-separated Telegram user IDs for admin access
+- `SENTRY_DSN` - Sentry DSN for error tracking (optional)
 
 ### Owner-Web (Vercel)
 - `CORE_API_ORIGIN` - Full URL of core API (e.g., https://lego-bot-core.vercel.app)
 - `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` - Bot username for Login Widget (optional, botlink preferred)
 - `NEXT_PUBLIC_OWNER_WEB_URL` - Full URL of owner-web (for links)
+- `NEXT_PUBLIC_SENTRY_DSN` - Sentry DSN for error tracking (optional)
 
-## Deployment Order
+### Worker (Vercel/Server)
+- `DATABASE_URL` - Neon Postgres connection string
+- `REDIS_URL` - Upstash Redis connection string
+- `LOG_LEVEL` - Log level (default: info)
 
-1. **Core** - Deploy first, ensure DB migrations run
-2. **Owner-Web** - Deploy after core, verify CORE_API_ORIGIN is correct
+## Deployment Order (v2)
+
+1. **Core** - Deploy first, ensure DB migrations run (including `020_create_bot_usage_daily`)
+2. **Worker** - Deploy worker service (reads from Redis Stream `events`)
+3. **Owner-Web** - Deploy after core, verify CORE_API_ORIGIN is correct
 
 ## Domain Setup
 
@@ -55,22 +63,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_admins_bot_user ON bot_admins(bot_id, 
 ```
 
 ### Verify Tables
-- `bot_admins` - Multi-tenant access control
+- `bot_admins` - Multi-tenant access control (with `permissions_json`)
 - `bot_settings` - Per-bot configuration
-- `bot_events` - Event store
+- `bot_events` - Event store (with `processed_at`)
 - `customers`, `leads`, `orders`, `appointments` - Normalized entities
 - `owner_audit_log` - Audit trail
+- `bot_usage_daily` - Billing-ready usage counters (v2)
 
-## Security Checklist
+## Security Checklist (v2)
 
 - [ ] Cookies: httpOnly, secure (prod), sameSite=Lax
 - [ ] CSRF: All mutations require x-csrf-token header
 - [ ] Rate limits: /api/owner/auth/* endpoints
-- [ ] RBAC: All endpoints check bot_admins access
+- [ ] RBAC 2.0: All endpoints check bot_admins access + permissions
+- [ ] Tenant isolation: All endpoints require botId (except /auth/* and /bots)
 - [ ] Botlink: 2min TTL, Redis NX EX for deduplication
 - [ ] Security headers: X-Content-Type-Options, Referrer-Policy, Permissions-Policy
 - [ ] Request ID: All responses include request_id
 - [ ] Logging: No sensitive data (tokens, passwords) in logs
+- [ ] Sentry: beforeSend hooks filter sensitive data
 
 ## Testing
 
