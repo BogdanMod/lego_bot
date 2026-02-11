@@ -53,19 +53,22 @@ function copyResponseHeaders(upstream: Response, upstreamUrl: string): Headers {
     headers.append(key, value);
   });
   
-  // Forward ALL Set-Cookie headers
-  const getSetCookie = (upstream.headers as any).getSetCookie as (() => string[]) | undefined;
-  if (typeof getSetCookie === 'function') {
-    const all = getSetCookie();
-    for (const cookie of all) {
-      headers.append('set-cookie', cookie);
+  // Forward ALL Set-Cookie headers (safe, never throws)
+  const getSetCookie = (upstream.headers as any).getSetCookie;
+  const setCookies: string[] =
+    typeof getSetCookie === 'function' ? getSetCookie.call(upstream.headers) : [];
+  
+  // If no cookies from getSetCookie, try single header
+  if (setCookies.length === 0) {
+    const single = upstream.headers.get('set-cookie');
+    if (single) {
+      setCookies.push(single);
     }
-  } else {
-    // Fallback for environments without getSetCookie
-    const setCookieHeader = upstream.headers.get('set-cookie');
-    if (setCookieHeader) {
-      headers.append('set-cookie', setCookieHeader);
-    }
+  }
+  
+  // Append each cookie
+  for (const cookie of setCookies) {
+    headers.append('set-cookie', cookie);
   }
   
   // Add debug header
@@ -75,55 +78,71 @@ function copyResponseHeaders(upstream: Response, upstreamUrl: string): Headers {
 }
 
 async function proxy(req: NextRequest, pathParts: string[]) {
-  let targetUrl: string;
   try {
-    targetUrl = buildTargetUrl(req, pathParts);
+    // Explicit CORE_API_ORIGIN validation at the very top
+    if (!process.env.CORE_API_ORIGIN) {
+      return NextResponse.json(
+        { ok: false, code: 'proxy_misconfigured', message: 'CORE_API_ORIGIN is not set' },
+        { status: 500 }
+      );
+    }
+
+    let targetUrl: string;
+    try {
+      targetUrl = buildTargetUrl(req, pathParts);
+    } catch (error: any) {
+      return NextResponse.json(
+        { ok: false, code: 'proxy_misconfigured', message: error?.message || 'Proxy misconfigured' },
+        { status: 500 }
+      );
+    }
+
+    const hasBody = !['GET', 'HEAD'].includes(req.method.toUpperCase());
+    
+    let upstream: Response;
+    try {
+      upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers: forwardRequestHeaders(req),
+        body: hasBody ? req.body : undefined,
+        redirect: 'manual',
+        // @ts-expect-error Next runtime supports duplex in node; harmless in edge runtime.
+        duplex: hasBody ? 'half' : undefined,
+      });
+    } catch (error: any) {
+      return NextResponse.json(
+        { ok: false, code: 'proxy_fetch_failed', message: String(error) },
+        { status: 502 }
+      );
+    }
+
+    // Get upstream body as stream/text
+    const upstreamBody = upstream.body;
+    if (!upstreamBody) {
+      return NextResponse.json(
+        { ok: false, code: 'proxy_empty_response', message: 'Upstream returned empty body' },
+        { status: 502 }
+      );
+    }
+
+    // Forward content-type if present
+    const contentType = upstream.headers.get('content-type');
+    const responseHeaders = copyResponseHeaders(upstream, targetUrl);
+    if (contentType) {
+      responseHeaders.set('content-type', contentType);
+    }
+
+    return new NextResponse(upstreamBody, {
+      status: upstream.status,
+      headers: responseHeaders,
+    });
   } catch (error: any) {
+    // Top-level catch for ANY error in proxy()
     return NextResponse.json(
-      { ok: false, code: 'misconfigured', message: error?.message || 'Proxy misconfigured' },
+      { ok: false, code: 'proxy_internal_error', message: String(error) },
       { status: 500 }
     );
   }
-
-  const hasBody = !['GET', 'HEAD'].includes(req.method.toUpperCase());
-  
-  let upstream: Response;
-  try {
-    upstream = await fetch(targetUrl, {
-      method: req.method,
-      headers: forwardRequestHeaders(req),
-      body: hasBody ? req.body : undefined,
-      redirect: 'manual',
-      // @ts-expect-error Next runtime supports duplex in node; harmless in edge runtime.
-      duplex: hasBody ? 'half' : undefined,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { ok: false, code: 'proxy_fetch_failed', message: String(error) },
-      { status: 502 }
-    );
-  }
-
-  // Get upstream body as stream/text
-  const upstreamBody = upstream.body;
-  if (!upstreamBody) {
-    return NextResponse.json(
-      { ok: false, code: 'proxy_empty_response', message: 'Upstream returned empty body' },
-      { status: 502 }
-    );
-  }
-
-  // Forward content-type if present
-  const contentType = upstream.headers.get('content-type');
-  const responseHeaders = copyResponseHeaders(upstream, targetUrl);
-  if (contentType) {
-    responseHeaders.set('content-type', contentType);
-  }
-
-  return new NextResponse(upstreamBody, {
-    status: upstream.status,
-    headers: responseHeaders,
-  });
 }
 
 export async function GET(
