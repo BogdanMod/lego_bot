@@ -16,6 +16,12 @@ type PromoFormState = {
   expiresAt: string;
 };
 
+type GrantFormState = {
+  telegramUserId: string;
+  durationDays: string;
+  plan: string;
+};
+
 export default function AdminPanel() {
   const navigate = useNavigate();
   const isAdmin = useMemo(() => isAdminUser(), []);
@@ -30,7 +36,13 @@ export default function AdminPanel() {
     maxRedemptions: '1',
     expiresAt: '',
   });
+  const [grantForm, setGrantForm] = useState<GrantFormState>({
+    telegramUserId: '',
+    durationDays: '30',
+    plan: 'premium',
+  });
   const [maintenanceMessage, setMaintenanceMessage] = useState('');
+  const [grantSuccess, setGrantSuccess] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
   const loadAll = async () => {
@@ -96,6 +108,36 @@ export default function AdminPanel() {
       });
       setMaintenance(updated);
       setMaintenanceMessage(updated.message || '');
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleGrantSubscription = async () => {
+    setActionBusy(true);
+    setError(null);
+    setGrantSuccess(null);
+    try {
+      const telegramUserId = Number(grantForm.telegramUserId);
+      const durationDays = Number(grantForm.durationDays);
+      if (!Number.isFinite(telegramUserId) || telegramUserId <= 0) {
+        throw new Error('Введите корректный Telegram User ID');
+      }
+      if (!Number.isFinite(durationDays) || durationDays < 1) {
+        throw new Error('Введите корректный срок подписки (дни)');
+      }
+      const result = await api.grantAdminSubscription({
+        telegramUserId,
+        durationDays,
+        plan: grantForm.plan.trim() || 'premium',
+      });
+      const ends = result.endsAt ? new Date(result.endsAt).toLocaleDateString() : 'без срока';
+      setGrantSuccess(`Подписка для ${result.telegramUserId} продлена до ${ends}.`);
+      setGrantForm((prev) => ({ ...prev, telegramUserId: '' }));
+      const refreshedStats = await api.getAdminStats();
+      setStats(refreshedStats);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -180,6 +222,69 @@ export default function AdminPanel() {
         <Card>
           <div className="text-xs text-slate-500 dark:text-slate-400">Подписки активны</div>
           <div className="mt-2 text-2xl font-semibold">{stats?.activeSubscriptions ?? (loading ? '...' : '0')}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Платящих подписок</div>
+          <div className="mt-2 text-2xl font-semibold">{stats?.paidSubscriptions ?? (loading ? '...' : '0')}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Retention D1</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `${stats?.retentionDay1 ?? 0}%`}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Retention D7</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `${stats?.retentionDay7 ?? 0}%`}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Retention D30</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `${stats?.retentionDay30 ?? 0}%`}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Conversion to paid</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `${stats?.conversionToPaid ?? 0}%`}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">ARPU (30d, USD)</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `$${stats?.arpuUsd30d ?? 0}`}</div>
+        </Card>
+        <Card>
+          <div className="text-xs text-slate-500 dark:text-slate-400">Revenue (30d, USD)</div>
+          <div className="mt-2 text-2xl font-semibold">{loading ? '...' : `$${stats?.estimatedRevenueUsd30d ?? 0}`}</div>
+        </Card>
+      </div>
+
+      <div className="mt-8 space-y-4">
+        <div className="text-lg font-semibold">Ручная выдача подписки</div>
+        <Card>
+          <div className="space-y-3">
+            <Input
+              label="Telegram User ID"
+              type="number"
+              value={grantForm.telegramUserId}
+              onChange={(event) => setGrantForm((prev) => ({ ...prev, telegramUserId: event.target.value }))}
+              placeholder="123456789"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Срок, дней"
+                type="number"
+                min={1}
+                value={grantForm.durationDays}
+                onChange={(event) => setGrantForm((prev) => ({ ...prev, durationDays: event.target.value }))}
+              />
+              <Input
+                label="План"
+                value={grantForm.plan}
+                onChange={(event) => setGrantForm((prev) => ({ ...prev, plan: event.target.value }))}
+              />
+            </div>
+            {grantSuccess ? (
+              <div className="text-sm text-emerald-600 dark:text-emerald-400">{grantSuccess}</div>
+            ) : null}
+            <Button onClick={() => void handleGrantSubscription()} disabled={actionBusy}>
+              Выдать подписку
+            </Button>
+          </div>
         </Card>
       </div>
 

@@ -1,21 +1,51 @@
-import { Bell, ChevronRight, LogOut, Moon, Shield, ShieldCheck, Sun, User, Wallet } from 'lucide-react';
+import { useState } from 'react';
+import { Bell, ChevronRight, LogOut, Moon, Shield, ShieldCheck, Sun, Ticket, User, Wallet } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
+import { Input } from '../ui/Input';
 import { useProjects } from '../../contexts/ProjectsContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useLanguage } from '../../hooks/useLanguage';
 import { useNavigate } from 'react-router-dom';
 import { isAdminUser } from '../../constants/admin';
+import { api, formatApiError } from '../../utils/api';
 
 const WebApp = window.Telegram?.WebApp;
 
 export function SettingsTab() {
   const navigate = useNavigate();
-  const { subscription } = useProjects();
+  const { subscription, setSubscription } = useProjects();
   const { theme, toggleTheme } = useTheme();
   const { t } = useLanguage();
   const isAdmin = isAdminUser();
+  const [promoCode, setPromoCode] = useState('');
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoResult, setPromoResult] = useState<string | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+
+  const handleRedeemPromo = async () => {
+    if (!promoCode.trim()) {
+      setPromoError('Введите промокод');
+      return;
+    }
+    setPromoBusy(true);
+    setPromoResult(null);
+    setPromoError(null);
+    try {
+      const result = await api.redeemPromoCode({ code: promoCode.trim() });
+      if (result.plan.toLowerCase() === 'premium') {
+        setSubscription('Premium');
+      }
+      const ends = result.endsAt ? new Date(result.endsAt).toLocaleDateString() : 'без срока';
+      setPromoResult(`Промокод активирован. Подписка до ${ends}.`);
+      setPromoCode('');
+    } catch (error) {
+      setPromoError(formatApiError(error));
+    } finally {
+      setPromoBusy(false);
+    }
+  };
 
   return (
     <div className="px-4 pt-6">
@@ -85,6 +115,28 @@ export function SettingsTab() {
               <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{t.settings.billing}</span>
             </div>
             <ChevronRight size={18} className="text-slate-400 dark:text-slate-500" />
+          </div>
+        </Card>
+
+        <Card>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Ticket size={18} className="text-slate-500 dark:text-slate-400" />
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Активировать промокод</span>
+            </div>
+            <Input
+              value={promoCode}
+              onChange={(event) => setPromoCode(event.target.value)}
+              placeholder="Введите код"
+              disabled={promoBusy}
+              error={promoError || undefined}
+            />
+            {promoResult ? (
+              <div className="text-sm text-emerald-600 dark:text-emerald-400">{promoResult}</div>
+            ) : null}
+            <Button onClick={() => void handleRedeemPromo()} disabled={promoBusy}>
+              {promoBusy ? 'Активируем...' : 'Активировать'}
+            </Button>
           </div>
         </Card>
 

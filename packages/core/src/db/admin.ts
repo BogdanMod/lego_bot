@@ -6,6 +6,13 @@ export type AdminStats = {
   joinedLast7d: number;
   joinedLast30d: number;
   activeSubscriptions: number;
+  retentionDay1: number;
+  retentionDay7: number;
+  retentionDay30: number;
+  conversionToPaid: number;
+  arpuUsd30d: number;
+  estimatedRevenueUsd30d: number;
+  paidSubscriptions: number;
 };
 
 export type PromoCode = {
@@ -43,14 +50,34 @@ export type PromoRedeemResult = {
   plan: string;
 };
 
+export type AdminGrantSubscriptionData = {
+  telegramUserId: number;
+  durationDays: number;
+  plan?: string | null;
+  adminUserId?: number | null;
+};
+
+export type AdminGrantSubscriptionResult = {
+  telegramUserId: string;
+  startsAt: string;
+  endsAt: string | null;
+  plan: string;
+  source: string;
+  grantedBy: string | null;
+};
+
 export async function getAdminStats(): Promise<AdminStats> {
   const client = await getPostgresClient();
+  const monthlyPriceUsd = Number(process.env.PREMIUM_MONTHLY_PRICE_USD ?? 10);
   try {
     const usersResult = await client.query<{
       total_users: string;
       active_users_last_7d: string;
       joined_last_7d: string;
       joined_last_30d: string;
+      retention_day_1_pct: string;
+      retention_day_7_pct: string;
+      retention_day_30_pct: string;
     }>(
       `
       WITH distinct_users AS (
@@ -65,18 +92,88 @@ export async function getAdminStats(): Promise<AdminStats> {
         COUNT(*)::text AS total_users,
         COUNT(*) FILTER (WHERE last_interaction_at >= now() - interval '7 days')::text AS active_users_last_7d,
         COUNT(*) FILTER (WHERE first_interaction_at >= now() - interval '7 days')::text AS joined_last_7d,
-        COUNT(*) FILTER (WHERE first_interaction_at >= now() - interval '30 days')::text AS joined_last_30d
+        COUNT(*) FILTER (WHERE first_interaction_at >= now() - interval '30 days')::text AS joined_last_30d,
+        COALESCE(
+          ROUND(
+            (
+              COUNT(*) FILTER (
+                WHERE first_interaction_at <= now() - interval '1 day'
+                  AND last_interaction_at >= first_interaction_at + interval '1 day'
+              )::numeric
+              / NULLIF(COUNT(*) FILTER (WHERE first_interaction_at <= now() - interval '1 day'), 0)
+            ) * 100,
+            2
+          ),
+          0
+        )::text AS retention_day_1_pct,
+        COALESCE(
+          ROUND(
+            (
+              COUNT(*) FILTER (
+                WHERE first_interaction_at <= now() - interval '7 days'
+                  AND last_interaction_at >= first_interaction_at + interval '7 days'
+              )::numeric
+              / NULLIF(COUNT(*) FILTER (WHERE first_interaction_at <= now() - interval '7 days'), 0)
+            ) * 100,
+            2
+          ),
+          0
+        )::text AS retention_day_7_pct,
+        COALESCE(
+          ROUND(
+            (
+              COUNT(*) FILTER (
+                WHERE first_interaction_at <= now() - interval '30 days'
+                  AND last_interaction_at >= first_interaction_at + interval '30 days'
+              )::numeric
+              / NULLIF(COUNT(*) FILTER (WHERE first_interaction_at <= now() - interval '30 days'), 0)
+            ) * 100,
+            2
+          ),
+          0
+        )::text AS retention_day_30_pct
       FROM distinct_users
       `
     );
 
-    const subsResult = await client.query<{ active_subscriptions: string }>(
+    const subsResult = await client.query<{
+      active_subscriptions: string;
+      paid_subscriptions: string;
+      conversion_to_paid_pct: string;
+      estimated_revenue_usd_30d: string;
+      arpu_usd_30d: string;
+    }>(
       `
-      SELECT COUNT(*)::text AS active_subscriptions
-      FROM user_subscriptions
-      WHERE status = 'active'
-        AND (ends_at IS NULL OR ends_at >= now())
-      `
+      WITH users AS (
+        SELECT COUNT(DISTINCT telegram_user_id)::numeric AS total_users
+        FROM bot_users
+      ),
+      active_subs AS (
+        SELECT
+          COUNT(*)::numeric AS active_subscriptions,
+          COUNT(*) FILTER (
+            WHERE source IS NULL
+              OR (source <> 'promo' AND source <> 'manual_admin')
+          )::numeric AS paid_subscriptions
+        FROM user_subscriptions
+        WHERE status = 'active'
+          AND (ends_at IS NULL OR ends_at >= now())
+      )
+      SELECT
+        active_subscriptions::text AS active_subscriptions,
+        paid_subscriptions::text AS paid_subscriptions,
+        COALESCE(
+          ROUND((paid_subscriptions / NULLIF(users.total_users, 0)) * 100, 2),
+          0
+        )::text AS conversion_to_paid_pct,
+        ROUND((paid_subscriptions * $1)::numeric, 2)::text AS estimated_revenue_usd_30d,
+        COALESCE(
+          ROUND(((paid_subscriptions * $1) / NULLIF(users.total_users, 0))::numeric, 4),
+          0
+        )::text AS arpu_usd_30d
+      FROM active_subs, users
+      `,
+      [monthlyPriceUsd]
     );
 
     const usersRow = usersResult.rows[0] ?? {
@@ -84,8 +181,17 @@ export async function getAdminStats(): Promise<AdminStats> {
       active_users_last_7d: '0',
       joined_last_7d: '0',
       joined_last_30d: '0',
+      retention_day_1_pct: '0',
+      retention_day_7_pct: '0',
+      retention_day_30_pct: '0',
     };
-    const subsRow = subsResult.rows[0] ?? { active_subscriptions: '0' };
+    const subsRow = subsResult.rows[0] ?? {
+      active_subscriptions: '0',
+      paid_subscriptions: '0',
+      conversion_to_paid_pct: '0',
+      estimated_revenue_usd_30d: '0',
+      arpu_usd_30d: '0',
+    };
 
     return {
       totalUsers: Number(usersRow.total_users || 0),
@@ -93,6 +199,13 @@ export async function getAdminStats(): Promise<AdminStats> {
       joinedLast7d: Number(usersRow.joined_last_7d || 0),
       joinedLast30d: Number(usersRow.joined_last_30d || 0),
       activeSubscriptions: Number(subsRow.active_subscriptions || 0),
+      retentionDay1: Number(usersRow.retention_day_1_pct || 0),
+      retentionDay7: Number(usersRow.retention_day_7_pct || 0),
+      retentionDay30: Number(usersRow.retention_day_30_pct || 0),
+      conversionToPaid: Number(subsRow.conversion_to_paid_pct || 0),
+      arpuUsd30d: Number(subsRow.arpu_usd_30d || 0),
+      estimatedRevenueUsd30d: Number(subsRow.estimated_revenue_usd_30d || 0),
+      paidSubscriptions: Number(subsRow.paid_subscriptions || 0),
     };
   } finally {
     client.release();
@@ -374,6 +487,69 @@ export async function redeemPromoCode(
       startsAt: now.toISOString(),
       endsAt: endsAt.toISOString(),
       plan: 'premium',
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function grantSubscriptionByAdmin(
+  data: AdminGrantSubscriptionData
+): Promise<AdminGrantSubscriptionResult> {
+  const client = await getPostgresClient();
+  const now = new Date();
+  const durationDays = Math.max(1, Math.trunc(data.durationDays));
+  const plan = data.plan?.trim() || 'premium';
+
+  try {
+    await client.query('BEGIN');
+
+    const existingSub = await client.query<{ ends_at: string | null }>(
+      `
+      SELECT ends_at
+      FROM user_subscriptions
+      WHERE telegram_user_id = $1
+      FOR UPDATE
+      `,
+      [data.telegramUserId]
+    );
+
+    const existingEndsAt = existingSub.rows[0]?.ends_at
+      ? new Date(existingSub.rows[0].ends_at)
+      : null;
+    const baseDate =
+      existingEndsAt && existingEndsAt.getTime() > now.getTime()
+        ? existingEndsAt
+        : now;
+    const endsAt = new Date(baseDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+    await client.query(
+      `
+      INSERT INTO user_subscriptions (telegram_user_id, status, plan, starts_at, ends_at, source, promo_code_id, updated_at)
+      VALUES ($1, 'active', $2, now(), $3, 'manual_admin', NULL, now())
+      ON CONFLICT (telegram_user_id) DO UPDATE
+        SET status = 'active',
+            plan = EXCLUDED.plan,
+            ends_at = EXCLUDED.ends_at,
+            source = 'manual_admin',
+            promo_code_id = NULL,
+            updated_at = now()
+      `,
+      [data.telegramUserId, plan, endsAt.toISOString()]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      telegramUserId: String(data.telegramUserId),
+      startsAt: now.toISOString(),
+      endsAt: endsAt.toISOString(),
+      plan,
+      source: 'manual_admin',
+      grantedBy: data.adminUserId ? String(data.adminUserId) : null,
     };
   } catch (error) {
     await client.query('ROLLBACK');

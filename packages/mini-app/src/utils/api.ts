@@ -19,7 +19,7 @@
  *     -H "Content-Type: application/json" \
  *     -d '{"version":1,"initialState":"start","states":{"start":{"message":"Test"}}}'
  */
-import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData, BotProject, AdminStats, PromoCode, MaintenanceState } from '../types';
+import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData, BotProject, AdminStats, PromoCode, MaintenanceState, PromoRedeemResult, AdminSubscriptionGrantResult } from '../types';
 import { BotSchema } from '@dialogue-constructor/shared/browser';
 import { schemaToProject, projectToSchema } from './brick-adapters';
 import { delay } from './debounce';
@@ -862,6 +862,24 @@ export const api = {
 
   updateMaintenanceStatus: (payload: { enabled: boolean; message?: string | null }): Promise<MaintenanceState> => {
     return apiRequest<MaintenanceState>('/api/admin/maintenance', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  redeemPromoCode: (payload: { code: string }): Promise<PromoRedeemResult> => {
+    return apiRequest<PromoRedeemResult>('/api/promo-codes/redeem', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  grantAdminSubscription: (payload: {
+    telegramUserId: number;
+    durationDays: number;
+    plan?: string;
+  }): Promise<AdminSubscriptionGrantResult> => {
+    return apiRequest<AdminSubscriptionGrantResult>('/api/admin/subscriptions/grant', {
       method: 'POST',
       body: JSON.stringify(payload),
     });

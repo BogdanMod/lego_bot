@@ -18,7 +18,7 @@ import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStat
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
 import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
-import { createPromoCode, getAdminStats, getMaintenanceState, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
+import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
 import { createBotScene } from './bot/scenes';
 import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
@@ -2005,6 +2005,12 @@ const AdminMaintenanceSchema = z.object({
   message: z.string().trim().max(500).nullable().optional(),
 });
 
+const AdminGrantSubscriptionSchema = z.object({
+  telegramUserId: z.number().int().positive(),
+  durationDays: z.number().int().min(1).max(3650),
+  plan: z.string().trim().min(1).max(50).optional(),
+});
+
 const PromoRedeemSchema = z.object({
   code: z.string().trim().min(1).max(64),
 });
@@ -2070,6 +2076,17 @@ app.post('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUse
   maintenanceCache = updated;
   maintenanceCacheLoadedAt = Date.now();
   res.json(updated);
+});
+
+app.post('/api/admin/subscriptions/grant', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, validateBody(AdminGrantSubscriptionSchema) as any, async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof AdminGrantSubscriptionSchema>;
+  const granted = await grantSubscriptionByAdmin({
+    telegramUserId: body.telegramUserId,
+    durationDays: body.durationDays,
+    plan: body.plan ?? 'premium',
+    adminUserId: (req as any)?.user?.id ?? null,
+  });
+  res.status(201).json(granted);
 });
 
 app.post('/api/promo-codes/redeem', ensureDatabasesInitialized as any, requireUserId as any, validateBody(PromoRedeemSchema) as any, async (req: Request, res: Response) => {

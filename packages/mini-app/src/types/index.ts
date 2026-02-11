@@ -126,6 +126,13 @@ export interface AdminStats {
   joinedLast7d: number;
   joinedLast30d: number;
   activeSubscriptions: number;
+  paidSubscriptions: number;
+  retentionDay1: number;
+  retentionDay7: number;
+  retentionDay30: number;
+  conversionToPaid: number;
+  arpuUsd30d: number;
+  estimatedRevenueUsd30d: number;
 }
 
 export interface PromoCode {
@@ -145,4 +152,21 @@ export interface MaintenanceState {
   message: string | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
+}
+
+export interface PromoRedeemResult {
+  telegramUserId: string;
+  promoCode: string;
+  startsAt: string;
+  endsAt: string | null;
+  plan: string;
+}
+
+export interface AdminSubscriptionGrantResult {
+  telegramUserId: string;
+  startsAt: string;
+  endsAt: string | null;
+  plan: string;
+  source: string;
+  grantedBy: string | null;
 }
