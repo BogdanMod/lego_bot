@@ -2148,21 +2148,44 @@ function requireOwnerAuth(req: Request, res: Response, next: Function) {
   return next();
 }
 
-async function requireOwnerBotAccess(req: Request, res: Response, next: Function) {
+// v2: Tenant isolation middleware - проверяет botId и кладет контекст
+async function requireBotContext(req: Request, res: Response, next: Function) {
   const ownerClaims = (req as any).owner as { sub: number } | undefined;
-  const botId = req.params.botId;
+  const botId = req.params.botId || req.query.botId as string | undefined;
+  
   if (!ownerClaims?.sub) {
     return ownerError(res, 401, 'unauthorized', 'Требуется авторизация');
   }
+  
   if (!botId) {
-    return ownerError(res, 400, 'invalid_request', 'botId is required');
+    return ownerError(res, 400, 'invalid_request', 'botId обязателен');
   }
+  
   const role = await getBotRoleForUser(botId, ownerClaims.sub);
   if (!role) {
     return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
   }
+  
+  // v2: Кладем контекст бота в request
+  (req as any).botContext = {
+    botId,
+    role,
+    permissions: role === 'owner' || role === 'admin' 
+      ? { canMutateTeam: true, canMutateSettings: true, canViewAudit: true, canExport: true }
+      : role === 'staff'
+      ? { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: true }
+      : { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: false },
+  };
+  
+  // Обратная совместимость
   (req as any).ownerRole = role;
+  
   return next();
+}
+
+// Legacy: для обратной совместимости
+async function requireOwnerBotAccess(req: Request, res: Response, next: Function) {
+  return requireBotContext(req, res, next);
 }
 
 function requireOwnerCsrf(req: Request, res: Response, next: Function) {
