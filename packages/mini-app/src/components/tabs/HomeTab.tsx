@@ -221,13 +221,18 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
   return (
     <div className="px-4 pt-6">
       <Modal isOpen={isCreateWizardOpen} onClose={() => setIsCreateWizardOpen(false)}>
-        <Card className="p-5 rounded-3xl">
-          <div className="text-xl font-semibold text-slate-900 dark:text-white">Создать нового бота</div>
-          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Пошагово настроим основу. Никаких знаний программирования не нужно.
+        <Card className="rounded-3xl p-0 overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="text-xl font-semibold text-slate-900 dark:text-white">Создать нового бота</div>
+            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Пошагово настроим основу. Никаких знаний программирования не нужно.
+            </div>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div
+            className="p-4 space-y-3 overflow-y-auto overscroll-contain"
+            style={{ maxHeight: '55dvh', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+          >
             <Input
               label="Название бота"
               placeholder="Например: Бот студии Smile"
@@ -280,7 +285,7 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
             </div>
           </div>
 
-          <div className="mt-5 flex items-center justify-end gap-2">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
             <Button variant="secondary" onClick={() => setIsCreateWizardOpen(false)}>
               Отмена
             </Button>

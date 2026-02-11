@@ -27,18 +27,21 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in"
         style={{ animationDuration: '300ms' }}
         onClick={onClose}
       />
       <div
-        className={['relative w-full max-w-md animate-in zoom-in', className || ''].filter(Boolean).join(' ')}
+        className={['relative z-10 w-full max-w-md animate-in zoom-in', className || ''].filter(Boolean).join(' ')}
         style={{ animationDuration: '300ms' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
+        <div
+          className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain"
+          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+        >
           {children}
         </div>
       </div>
