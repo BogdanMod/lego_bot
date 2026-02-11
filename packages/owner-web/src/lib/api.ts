@@ -88,6 +88,16 @@ export function ownerLogout() {
   return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/logout'), { method: 'POST' });
 }
 
+// v2: RBAC 2.0 - получить bot context с permissions
+export async function ownerBotMe(botId: string) {
+  return request<{
+    role: string;
+    permissions: Record<string, boolean>;
+    settingsSummary: { businessName?: string; timezone?: string } | null;
+    bot: { id: string; name: string };
+  }>(normalizeOwnerPath(`/api/owner/bots/${botId}/me`));
+}
+
 async function ensureCsrfToken(): Promise<string | null> {
   if (csrfTokenCache) return csrfTokenCache;
   try {

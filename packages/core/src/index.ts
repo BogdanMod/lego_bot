@@ -2697,20 +2697,19 @@ app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwne
 app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
   const botId = req.params.botId;
   const owner = (req as any).owner as any;
-  const role = (req as any).ownerRole as OwnerRole;
+  const botContext = (req as any).botContext;
+  if (!botContext) {
+    return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
+  }
+  const { role, permissions } = botContext;
   const settings = await getBotSettings(botId);
   const bot = await getBotByIdAnyUser(botId);
   if (!bot) {
     return ownerError(res, 404, 'not_found', 'Бот не найден');
   }
-  const permissions = role === 'owner' || role === 'admin' 
-    ? { canMutateTeam: true, canMutateSettings: true, canViewAudit: true, canExport: true }
-    : role === 'staff'
-    ? { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: true }
-    : { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: false };
   res.json({
     role,
-    permissions,
+    permissions, // v2: RBAC 2.0 permissions
     settingsSummary: settings ? {
       businessName: (settings as any).businessName,
       timezone: (settings as any).timezone,
