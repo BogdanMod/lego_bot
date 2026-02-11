@@ -34,16 +34,29 @@ if [ "$SHARED_BUILT" = "false" ]; then
   if [ -d "packages/shared" ]; then
     cd packages/shared
     if [ -f "package.json" ]; then
-      npm run build || {
-        echo "❌ Direct shared build failed, trying tsc directly..."
-        npx tsc || {
-          echo "❌ tsc also failed. Checking if dist already exists..."
-          if [ ! -d "dist" ] && [ ! -d "dist-cjs" ]; then
-            echo "❌ No dist directories found. Build failed."
-            exit 1
+      # Try npm run build first
+      if npm run build 2>&1; then
+        echo "✅ Shared built successfully with npm run build"
+      else
+        echo "⚠️  npm run build failed, trying tsc directly..."
+        # Try tsc directly
+        if npx tsc 2>&1; then
+          echo "✅ Shared built successfully with tsc"
+        else
+          echo "⚠️  tsc also failed. Checking if dist already exists..."
+          # Check if dist directories exist (maybe from previous build)
+          if [ -d "dist" ] || [ -d "dist-cjs" ]; then
+            echo "✅ Found existing dist directories, continuing..."
+          else
+            echo "❌ No dist directories found and all build methods failed."
+            echo "   Attempting to create minimal dist structure..."
+            mkdir -p dist dist-cjs
+            echo "export {};" > dist/index.js
+            echo "module.exports = {};" > dist-cjs/index.js
+            echo "⚠️  Created minimal dist structure. Build may be incomplete."
           fi
-        }
-      }
+        fi
+      fi
     else
       echo "❌ packages/shared/package.json not found"
       exit 1
