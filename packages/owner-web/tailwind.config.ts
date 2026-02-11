@@ -13,6 +13,7 @@ const config: Config = {
         border: 'hsl(var(--border) / <alpha-value>)',
         primary: 'hsl(var(--primary) / <alpha-value>)',
         foreground: 'hsl(var(--fg) / <alpha-value>)',
+        background: 'hsl(var(--bg) / <alpha-value>)',
         'muted-foreground': 'hsl(215 18% 55% / <alpha-value>)',
       },
       borderRadius: {
