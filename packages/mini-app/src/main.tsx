@@ -6,6 +6,18 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import App from './App';
 import './index.css';
 
+function renderLaunchLoader(rootElement: HTMLElement) {
+  rootElement.innerHTML = `
+    <div class="launch-loader">
+      <div class="launch-loader__card">
+        <div class="launch-loader__logo">Lego Bot</div>
+        <div class="launch-loader__spinner" aria-hidden="true"></div>
+        <div class="launch-loader__text">Запускаем Mini App...</div>
+      </div>
+    </div>
+  `;
+}
+
 // Обработка ошибок на уровне приложения
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -85,15 +97,16 @@ function waitForTelegramSDK(): Promise<void> {
 async function initApp() {
   try {
     console.log('🚀 Initializing Mini App...');
-    
-    // Ждем загрузки Telegram SDK
-    await waitForTelegramSDK();
-    
+
     // Проверяем наличие root элемента
     const rootElement = document.getElementById('root');
     if (!rootElement) {
       throw new Error('Root element not found');
     }
+    renderLaunchLoader(rootElement);
+
+    // Ждем загрузки Telegram SDK
+    await waitForTelegramSDK();
 
     const manifestUrl = import.meta.env.VITE_TON_CONNECT_MANIFEST_URL;
     console.log('🔗 TON Connect Manifest URL:', manifestUrl || 'not set');
