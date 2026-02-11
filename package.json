@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
-    "prepare": "husky install"
+    "prepare": "command -v husky >/dev/null 2>&1 && husky install || true"
   },
   "devDependencies": {
     "@types/supertest": "^2.0.16",
