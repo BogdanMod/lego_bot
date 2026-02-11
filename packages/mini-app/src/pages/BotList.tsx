@@ -10,21 +10,19 @@ import { StoreTab } from '../components/tabs/StoreTab';
 import { ProjectsProvider } from '../contexts/ProjectsContext';
 import { useLanguage } from '../hooks/useLanguage';
 import type { BotProject, MainTab } from '../types';
-import TemplateGallery from './TemplateGallery';
 
 export default function BotList() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<MainTab>('home');
   const [isLimitOpen, setIsLimitOpen] = useState(false);
-  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
 
   const handleProjectClick = (project: BotProject) => {
     navigate(`/bot/${project.id}`);
   };
 
   const handleTemplatesClick = () => {
-    setShowTemplateGallery(true);
+    navigate('/templates');
   };
 
   const renderTab = () => {
@@ -51,30 +49,17 @@ export default function BotList() {
   return (
     <ProjectsProvider>
       <div className="min-h-screen">
-        {showTemplateGallery && (
-          <TemplateGallery
-            onBack={() => setShowTemplateGallery(false)}
-            onLimitReached={() => setIsLimitOpen(true)}
-            onTemplateSelected={(project) => {
-              setShowTemplateGallery(false);
-              navigate(`/bot/${project.id}`);
-            }}
-          />
-        )}
+        <>
+          <GlobalHeader />
 
-        {!showTemplateGallery && (
-          <>
-            <GlobalHeader />
-
-            <div className="mx-auto max-w-md pb-28">
-              <div key={activeTab} className="animate-in fade-in">
-                {renderTab()}
-              </div>
+          <div className="mx-auto max-w-md pb-28">
+            <div key={activeTab} className="animate-in fade-in">
+              {renderTab()}
             </div>
+          </div>
 
-            <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-          </>
-        )}
+          <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        </>
 
         <LimitAlert
           isOpen={isLimitOpen}
