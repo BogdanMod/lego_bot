@@ -372,7 +372,7 @@ export default function BotEditor() {
         {/* Editor Panel */}
         <div
           className={`flex-1 overflow-y-auto p-6 space-y-2 pb-56 transition-all ${
-            showLivePreview ? 'lg:w-2/3' : 'w-full'
+            showLivePreview ? 'hidden lg:block lg:w-2/3' : 'w-full'
           }`}
         >
           {/* Toolbar */}
@@ -439,8 +439,8 @@ export default function BotEditor() {
 
         {/* Preview Panel (будет реализован в следующей фазе) */}
         {showLivePreview && (
-          <div className="lg:w-1/3 p-6 bg-slate-900/10 backdrop-blur-sm border-l border-white/5 overflow-hidden flex flex-col">
-            <div className="flex-1 min-h-[500px]">
+          <div className="flex-1 lg:w-1/3 p-4 lg:p-6 bg-slate-900/10 backdrop-blur-sm border-l border-white/5 overflow-hidden flex flex-col min-h-0">
+            <div className="flex-1 min-h-0">
               <MiniSimulator project={project} />
             </div>
           </div>
