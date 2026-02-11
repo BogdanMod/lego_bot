@@ -297,7 +297,7 @@ export default function BotEditor() {
     >
       {/* Header */}
       <header
-        className={`px-6 py-6 flex items-center gap-4 border-b transition-colors ${
+        className={`px-4 sm:px-6 py-4 sm:py-6 flex items-center gap-3 sm:gap-4 border-b transition-colors ${
           theme === 'dark' ? 'bg-slate-950 border-slate-900' : 'bg-white border-slate-100 shadow-sm'
         }`}
       >
@@ -311,7 +311,7 @@ export default function BotEditor() {
             }`}
           />
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
           {syncStatus === 'syncing' && (
             <>
               <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-indigo-600" />
@@ -337,19 +337,27 @@ export default function BotEditor() {
             </>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar max-w-[52vw] sm:max-w-none pl-1">
           <Button
             variant={showLivePreview ? 'primary' : 'secondary'}
             onClick={() => setShowLivePreview(!showLivePreview)}
             icon={showLivePreview ? <EyeOff size={22} /> : <Eye size={22} />}
+            className="shrink-0"
           />
-          <Button variant="secondary" onClick={handleSave} loading={syncStatus === 'syncing'} icon={<Rocket size={20} />}>
+          <Button
+            variant="secondary"
+            onClick={handleSave}
+            loading={syncStatus === 'syncing'}
+            icon={<Rocket size={20} />}
+            className="shrink-0"
+          >
             {syncStatus === 'syncing' ? t.editor.saving : t.editor.save}
           </Button>
           <Button
             variant="primary"
             onClick={() => navigate(`/bot/${project.id}/publish`)}
             icon={<Rocket size={20} fill="currentColor" />}
+            className="shrink-0"
           >
             {t.editor.publish}
           </Button>
@@ -434,6 +442,17 @@ export default function BotEditor() {
                 />
               ))}
             </div>
+          </div>
+
+          <div className="pt-8 pb-8">
+            <Button
+              variant="primary"
+              className="w-full justify-center"
+              onClick={() => navigate(`/bot/${project.id}/publish`)}
+              icon={<Rocket size={20} fill="currentColor" />}
+            >
+              Запустить бота
+            </Button>
           </div>
         </div>
 
