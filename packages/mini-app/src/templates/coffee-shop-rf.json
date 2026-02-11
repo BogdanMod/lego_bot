@@ -1,0 +1,154 @@
+{
+  "id": "coffee-shop-rf",
+  "name": "Кофейня (РФ)",
+  "description": "Развернутый шаблон кофейни: меню, предзаказ, доставка/самовывоз, акции, FAQ и связь с бариста.",
+  "category": "business",
+  "icon": "☕",
+  "preview": {
+    "features": [
+      "Категории напитков и десертов",
+      "Сценарий предзаказа с подтверждением",
+      "Акции и программы лояльности",
+      "FAQ и контакт с менеджером"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Добро пожаловать в кофейню! Выберите раздел: меню, предзаказ, акции или контакты.",
+        "buttons": [
+          { "text": "Меню", "nextState": "menu" },
+          { "text": "Сделать предзаказ", "nextState": "order_intro" },
+          { "text": "Акции", "nextState": "promotions" },
+          { "text": "FAQ", "nextState": "faq" },
+          { "text": "Контакты", "nextState": "contacts" },
+          { "text": "Связь с бариста", "nextState": "callback_intro" }
+        ]
+      },
+      "menu": {
+        "message": "Выберите категорию:",
+        "buttons": [
+          { "text": "Кофе", "nextState": "menu_coffee" },
+          { "text": "Авторские напитки", "nextState": "menu_signature" },
+          { "text": "Десерты", "nextState": "menu_desserts" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "menu_coffee": {
+        "message": "Кофе: эспрессо, американо, латте, капучино. Можно добавить размеры и сиропы.",
+        "buttons": [
+          { "text": "Оформить заказ", "nextState": "order_intro" },
+          { "text": "К меню", "nextState": "menu" }
+        ]
+      },
+      "menu_signature": {
+        "message": "Авторские напитки: сезонные предложения и фирменные рецепты.",
+        "buttons": [
+          { "text": "Оформить заказ", "nextState": "order_intro" },
+          { "text": "К меню", "nextState": "menu" }
+        ]
+      },
+      "menu_desserts": {
+        "message": "Десерты: сырники, чизкейк, брауни, круассаны и комбо-наборы.",
+        "buttons": [
+          { "text": "Оформить заказ", "nextState": "order_intro" },
+          { "text": "К меню", "nextState": "menu" }
+        ]
+      },
+      "order_intro": {
+        "message": "Отлично! Оставьте контакт, и мы подтвердим состав заказа и время готовности.",
+        "buttons": [
+          { "text": "Передать контакт", "nextState": "order_contact" },
+          { "text": "Вернуться к меню", "nextState": "menu" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "order_contact": {
+        "message": "Нажмите кнопку, чтобы поделиться номером телефона.",
+        "buttons": [
+          { "type": "request_contact", "text": "Поделиться номером", "nextState": "order_confirm" }
+        ]
+      },
+      "order_confirm": {
+        "message": "Заказ принят! Бариста свяжется для подтверждения и сообщит время готовности.",
+        "buttons": [
+          { "text": "Сделать еще заказ", "nextState": "start" },
+          { "text": "Посмотреть акции", "nextState": "promotions" }
+        ]
+      },
+      "promotions": {
+        "message": "Акции: кофе дня, комбо с десертом, бонусы по карте лояльности.",
+        "buttons": [
+          { "text": "Заказать по акции", "nextState": "promo_contact" },
+          { "text": "К меню", "nextState": "menu" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "promo_contact": {
+        "message": "Чтобы зафиксировать акцию, отправьте контакт.",
+        "buttons": [
+          { "type": "request_contact", "text": "Отправить контакт", "nextState": "promo_done" }
+        ]
+      },
+      "promo_done": {
+        "message": "Готово! Акция закреплена, ждём вас за вкусным кофе.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      },
+      "faq": {
+        "message": "Частые вопросы:",
+        "buttons": [
+          { "text": "Есть доставка?", "nextState": "faq_delivery" },
+          { "text": "Можно заранее заказать к времени?", "nextState": "faq_preorder" },
+          { "text": "Есть безлактозное/альтернативное молоко?", "nextState": "faq_milk" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "faq_delivery": {
+        "message": "Добавьте в этот блок зоны доставки, минимальную сумму и среднее время.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Сделать заказ", "nextState": "order_intro" }
+        ]
+      },
+      "faq_preorder": {
+        "message": "Да, предзаказ доступен. Мы подтвердим интервал выдачи/доставки после заявки.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Сделать заказ", "nextState": "order_intro" }
+        ]
+      },
+      "faq_milk": {
+        "message": "Можно добавить варианты молока и доплаты прямо в этот блок.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Сделать заказ", "nextState": "order_intro" }
+        ]
+      },
+      "contacts": {
+        "message": "Добавьте адрес, часы работы, соцсети и контакты кофейни.",
+        "buttons": [
+          { "type": "url", "text": "Открыть карту", "url": "https://yandex.ru/maps" },
+          { "text": "Сделать предзаказ", "nextState": "order_intro" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "callback_intro": {
+        "message": "Нужна помощь с выбором? Оставьте контакт, и бариста подскажет.",
+        "buttons": [
+          { "type": "request_contact", "text": "Оставить контакт", "nextState": "callback_done" }
+        ]
+      },
+      "callback_done": {
+        "message": "Спасибо! Ваш вопрос передан менеджеру кофейни.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      }
+    }
+  }
+}
+

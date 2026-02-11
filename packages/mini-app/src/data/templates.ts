@@ -127,5 +127,15 @@ export async function getTemplates(): Promise<{
     });
   }
 
+  // Keep priority templates at the top of the gallery.
+  const priorityOrder = ['coffee-shop-rf', 'barbershop-rf', 'flower-shop-rf'];
+  const priorityIndex = new Map(priorityOrder.map((id, index) => [id, index]));
+  templates.sort((a, b) => {
+    const aPriority = priorityIndex.has(a.id) ? priorityIndex.get(a.id)! : Number.MAX_SAFE_INTEGER;
+    const bPriority = priorityIndex.has(b.id) ? priorityIndex.get(b.id)! : Number.MAX_SAFE_INTEGER;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return a.name.localeCompare(b.name, 'ru');
+  });
+
   return { templates, errors };
 }
