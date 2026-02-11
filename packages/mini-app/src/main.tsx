@@ -6,10 +6,19 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import App from './App';
 import './index.css';
 
-function renderLaunchLoader(rootElement: HTMLElement) {
+function getLaunchTheme(): 'light' | 'dark' {
+  const telegramTheme = window.Telegram?.WebApp?.colorScheme;
+  if (telegramTheme === 'dark' || telegramTheme === 'light') {
+    return telegramTheme;
+  }
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function renderLaunchLoader(rootElement: HTMLElement, theme: 'light' | 'dark') {
   rootElement.innerHTML = `
-    <div class="launch-loader">
+    <div class="launch-loader launch-loader--${theme}">
       <div class="launch-loader__card">
+        <div class="launch-loader__brand-mark" aria-hidden="true">🤖</div>
         <div class="launch-loader__logo">Lego Bot</div>
         <div class="launch-loader__spinner" aria-hidden="true"></div>
         <div class="launch-loader__text">Запускаем Mini App...</div>
@@ -103,10 +112,13 @@ async function initApp() {
     if (!rootElement) {
       throw new Error('Root element not found');
     }
-    renderLaunchLoader(rootElement);
+    renderLaunchLoader(rootElement, getLaunchTheme());
 
-    // Ждем загрузки Telegram SDK
-    await waitForTelegramSDK();
+    // Ждем загрузки Telegram SDK и удерживаем лоадер минимум 2 секунды
+    await Promise.all([
+      waitForTelegramSDK(),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
 
     const manifestUrl = import.meta.env.VITE_TON_CONNECT_MANIFEST_URL;
     console.log('🔗 TON Connect Manifest URL:', manifestUrl || 'not set');
