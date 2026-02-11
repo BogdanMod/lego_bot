@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -86,50 +87,50 @@ async function proxy(req: NextRequest, pathParts: string[]) {
 }
 
 export async function GET(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
 export async function POST(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
 export async function PATCH(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
 export async function DELETE(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
 export async function PUT(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
 export async function OPTIONS(
-  request: Request,
-  context: { params: { path: string[] } }
+  req: NextRequest,
+  ctx: any
 ) {
-  const { path } = context.params;
-  return proxy(request as NextRequest, path);
+  const path = Array.isArray(ctx.params?.path) ? ctx.params.path : (ctx.params?.path ? [ctx.params.path] : []);
+  return proxy(req, path);
 }
 
