@@ -70,6 +70,22 @@ async function processEvent(eventData: Record<string, string>, eventId: string) 
       [botId, eventData.event_id]
     );
 
+    // v2: Публикуем событие в Redis PubSub для SSE
+    try {
+      const redis = await getRedisClient();
+      const channel = `bot:${botId}:events`;
+      await redis.publish(channel, JSON.stringify({
+        event_id: eventData.event_id,
+        type: eventType,
+        entity_type: entityType,
+        entity_id: entityId,
+        bot_id: botId,
+        processed_at: new Date().toISOString(),
+      }));
+    } catch (pubError) {
+      logger.warn('Failed to publish event to PubSub', { botId, eventId, error: pubError });
+    }
+
     logger.info('Event processed', { botId, eventId, eventType, entityType });
   } finally {
     client.release();

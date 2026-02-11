@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, createRateLimiter, errorMetricsMiddleware, getErrorMetrics, getTelegramBotToken, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, validateTelegramWebAppData } from '@dialogue-constructor/shared';
 import { getRequestId, validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
-import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason } from './db/redis';
+import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
@@ -2775,6 +2775,63 @@ app.get('/api/owner/bots/:botId/events', ensureDatabasesInitialized as any, requ
 app.get('/api/owner/bots/:botId/events/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
   const summary = await getEventsSummary(req.params.botId);
   res.json(summary);
+});
+
+// v2: SSE realtime stream endpoint
+app.get('/api/owner/bots/:botId/stream', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const botContext = (req as any).botContext;
+  
+  if (!botContext || botContext.botId !== botId) {
+    return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
+  }
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+  const sendSSE = (event: string, data: unknown) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendSSE('connected', { botId, timestamp: new Date().toISOString() });
+
+  // Subscribe to Redis PubSub for this bot
+  let redisSubscriber: any = null;
+  try {
+    const redis = await getRedisClient();
+    redisSubscriber = redis.duplicate();
+    await redisSubscriber.connect();
+    
+    const channel = `bot:${botId}:events`;
+    await redisSubscriber.subscribe(channel, (message: string) => {
+      try {
+        const data = JSON.parse(message);
+        sendSSE('event', data);
+      } catch (error) {
+        logger.error('Failed to parse SSE message', { error, message });
+      }
+    });
+
+    // Keep connection alive
+    const keepAlive = setInterval(() => {
+      sendSSE('ping', { timestamp: new Date().toISOString() });
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      redisSubscriber?.unsubscribe(channel);
+      redisSubscriber?.quit();
+      res.end();
+    });
+  } catch (error) {
+    logger.error('SSE connection error', { botId, error });
+    sendSSE('error', { message: 'Connection error' });
+    res.end();
+  }
 });
 
 app.get('/api/owner/bots/:botId/dashboard', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
