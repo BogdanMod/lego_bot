@@ -1,6 +1,7 @@
 ﻿import 'express-async-errors';
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
+import * as Sentry from '@sentry/node';
 import cors, { CorsOptions } from 'cors';
 import axios from 'axios';
 import { lookup } from 'dns/promises';
@@ -92,6 +93,27 @@ const logger = createLogger('core');
 if (!isTestEnv) {
   const envPath = path.resolve(__dirname, '../../../.env');
   logger.info({ path: envPath }, '📄 Загрузка .env из:');
+}
+
+// v2: Observability - Sentry initialization
+if (process.env.SENTRY_DSN && !isTestEnv) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    beforeSend(event, hint) {
+      // Безопасность: не отправляем чувствительные данные
+      if (event.request) {
+        delete event.request.cookies;
+        if (event.request.headers) {
+          delete event.request.headers.authorization;
+          delete event.request.headers.cookie;
+        }
+      }
+      return event;
+    },
+  });
+  logger.info('✅ Sentry initialized');
 }
 
 let app: ReturnType<typeof express> | null = null;
@@ -1622,6 +1644,11 @@ app.use(requestIdMiddleware());
 app.use(requestContextMiddleware());
 app.use(pinoHttp({ logger }));
 app.use(metricsMiddleware(logger));
+
+// v2: Observability - Sentry request handler
+if (process.env.SENTRY_DSN && !isTestEnv) {
+  app.use(Sentry.Handlers.requestHandler());
+}
 
 // Webhook endpoint для основного бота (должен быть ДО express.json() для raw body)
 // Регистрируем сразу, но обработчик будет работать только если botInstance инициализирован
@@ -3860,6 +3887,11 @@ function classifyErrorType(err: any): string {
 }
 
 app.use(errorMetricsMiddleware as any);
+
+// v2: Observability - Sentry error handler
+if (process.env.SENTRY_DSN && !isTestEnv) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 app.use((err: any, req: Request, res: Response, next: Function) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const userId = (req as any).user?.id;
