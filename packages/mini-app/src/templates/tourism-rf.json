@@ -1,0 +1,157 @@
+{
+  "id": "tourism-rf",
+  "name": "Турагентство (РФ)",
+  "description": "Развернутый шаблон для туризма: подбор туров, визовые вопросы, заявки, акции и FAQ.",
+  "category": "business",
+  "icon": "✈️",
+  "preview": {
+    "features": [
+      "Сценарии под разные типы туров",
+      "Сбор лида с контактами",
+      "FAQ по оплате и документам",
+      "Блоки акций и горячих предложений"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Турагентство: выберите направление — подбор тура, акции, вопросы или связь с менеджером.",
+        "buttons": [
+          { "text": "Подбор тура", "nextState": "services" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Горящие предложения", "nextState": "promotions" },
+          { "text": "FAQ", "nextState": "faq" },
+          { "text": "Контакты", "nextState": "contacts" },
+          { "text": "Связь с менеджером", "nextState": "callback_intro" }
+        ]
+      },
+      "services": {
+        "message": "Выберите тип поездки:",
+        "buttons": [
+          { "text": "Пляжный отдых", "nextState": "service_beach" },
+          { "text": "Экскурсионный тур", "nextState": "service_city" },
+          { "text": "Семейный тур", "nextState": "service_family" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "service_beach": {
+        "message": "Подбор пляжного тура по бюджету, датам и формату отдыха.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Связь с менеджером", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "service_city": {
+        "message": "Экскурсионные маршруты с насыщенной программой и гибкими датами.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Связь с менеджером", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "service_family": {
+        "message": "Семейные туры с учетом детей, удобной логистики и комфортных условий.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Связь с менеджером", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "booking_intro": {
+        "message": "Оставьте контакт, чтобы менеджер предложил несколько вариантов под ваш запрос.",
+        "buttons": [
+          { "text": "Передать контакт", "nextState": "booking_contact" },
+          { "text": "Уточнить направление", "nextState": "services" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "booking_contact": {
+        "message": "Нажмите кнопку, чтобы отправить номер телефона.",
+        "buttons": [
+          { "type": "request_contact", "text": "Поделиться номером", "nextState": "booking_confirm" }
+        ]
+      },
+      "booking_confirm": {
+        "message": "Заявка принята. Менеджер свяжется для уточнения дат, бюджета и пожеланий.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" },
+          { "text": "Посмотреть акции", "nextState": "promotions" }
+        ]
+      },
+      "promotions": {
+        "message": "Горящие туры, раннее бронирование и бонусы для повторных клиентов.",
+        "buttons": [
+          { "text": "Оставить заявку по акции", "nextState": "promo_contact" },
+          { "text": "К направлениям", "nextState": "services" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "promo_contact": {
+        "message": "Для закрепления предложения оставьте контакт.",
+        "buttons": [
+          { "type": "request_contact", "text": "Отправить контакт", "nextState": "promo_done" }
+        ]
+      },
+      "promo_done": {
+        "message": "Готово! Предложение зафиксировано.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      },
+      "faq": {
+        "message": "Частые вопросы:",
+        "buttons": [
+          { "text": "Какие документы нужны?", "nextState": "faq_docs" },
+          { "text": "Можно оплатить частями?", "nextState": "faq_pay" },
+          { "text": "Как быстро подберете тур?", "nextState": "faq_speed" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "faq_docs": {
+        "message": "Список документов зависит от направления и формата поездки.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "faq_pay": {
+        "message": "Добавьте в этот блок условия рассрочки и этапы оплаты, если доступны.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "faq_speed": {
+        "message": "Первичную подборку обычно можно отправить в течение рабочего дня.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "contacts": {
+        "message": "Добавьте адрес офиса, график и контакты менеджеров.",
+        "buttons": [
+          { "type": "url", "text": "Открыть карту", "url": "https://yandex.ru/maps" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Назад", "nextState": "start" }
+        ]
+      },
+      "callback_intro": {
+        "message": "Оставьте контакт, и менеджер свяжется для персонального подбора тура.",
+        "buttons": [
+          { "type": "request_contact", "text": "Оставить контакт", "nextState": "callback_done" }
+        ]
+      },
+      "callback_done": {
+        "message": "Спасибо! Ваш запрос отправлен менеджеру.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      }
+    }
+  }
+}
+

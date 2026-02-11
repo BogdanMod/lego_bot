@@ -1,0 +1,157 @@
+{
+  "id": "legal-services-rf",
+  "name": "Юридические услуги (РФ)",
+  "description": "Развернутый шаблон для юриста/юрфирмы: направления услуг, первичная квалификация лида и запись.",
+  "category": "business",
+  "icon": "⚖️",
+  "preview": {
+    "features": [
+      "Сценарии по основным юрнаправлениям",
+      "Первичный сбор заявок",
+      "Понятный FAQ для клиентов",
+      "Отдельный поток обратной связи"
+    ]
+  },
+  "schema": {
+    "version": 1,
+    "initialState": "start",
+    "states": {
+      "start": {
+        "message": "Юридическая консультация: выберите нужный раздел.",
+        "buttons": [
+          { "text": "Направления услуг", "nextState": "services" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Акции и условия", "nextState": "promotions" },
+          { "text": "Частые вопросы", "nextState": "faq" },
+          { "text": "Контакты офиса", "nextState": "contacts" },
+          { "text": "Срочная консультация", "nextState": "callback_intro" }
+        ]
+      },
+      "services": {
+        "message": "Основные направления: семейные дела, договоры, судебные споры.",
+        "buttons": [
+          { "text": "Семейные вопросы", "nextState": "service_family" },
+          { "text": "Договоры и документы", "nextState": "service_contracts" },
+          { "text": "Судебные споры", "nextState": "service_disputes" },
+          { "text": "Назад в меню", "nextState": "start" }
+        ]
+      },
+      "service_family": {
+        "message": "Семейные дела: консультации по разводу, алиментам и порядку общения с ребенком.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Срочный вопрос", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "service_contracts": {
+        "message": "Договорная работа: составление, проверка и юридическое сопровождение документов.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Срочный вопрос", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "service_disputes": {
+        "message": "Судебные споры: анализ позиции, подготовка документов и представительство.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Срочный вопрос", "nextState": "callback_intro" },
+          { "text": "К направлениям", "nextState": "services" }
+        ]
+      },
+      "booking_intro": {
+        "message": "Оставьте контакт, чтобы мы уточнили детали и предложили формат консультации.",
+        "buttons": [
+          { "text": "Передать контакт", "nextState": "booking_contact" },
+          { "text": "Уточнить направление", "nextState": "services" },
+          { "text": "Назад в меню", "nextState": "start" }
+        ]
+      },
+      "booking_contact": {
+        "message": "Нажмите кнопку, чтобы поделиться номером телефона.",
+        "buttons": [
+          { "type": "request_contact", "text": "Поделиться номером", "nextState": "booking_confirm" }
+        ]
+      },
+      "booking_confirm": {
+        "message": "Заявка получена. Юрист или администратор свяжется с вами для первичного разбора ситуации.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" },
+          { "text": "Частые вопросы", "nextState": "faq" }
+        ]
+      },
+      "promotions": {
+        "message": "Примеры условий: фиксированная цена первичной консультации, пакетное сопровождение, спецусловия для ИП.",
+        "buttons": [
+          { "text": "Оставить заявку", "nextState": "promo_contact" },
+          { "text": "К услугам", "nextState": "services" },
+          { "text": "Назад в меню", "nextState": "start" }
+        ]
+      },
+      "promo_contact": {
+        "message": "Для фиксации условий оставьте контакт.",
+        "buttons": [
+          { "type": "request_contact", "text": "Отправить контакт", "nextState": "promo_done" }
+        ]
+      },
+      "promo_done": {
+        "message": "Спасибо! Заявка принята, условия закреплены.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      },
+      "faq": {
+        "message": "Частые вопросы клиентов:",
+        "buttons": [
+          { "text": "Какие документы подготовить?", "nextState": "faq_docs" },
+          { "text": "Можно ли онлайн-консультацию?", "nextState": "faq_online" },
+          { "text": "Сколько стоит сопровождение?", "nextState": "faq_price" },
+          { "text": "Назад в меню", "nextState": "start" }
+        ]
+      },
+      "faq_docs": {
+        "message": "Список документов зависит от вопроса. После заявки мы отправим чек-лист под ваш кейс.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "faq_online": {
+        "message": "Да, можно провести консультацию онлайн (звонок или видео) и получить пошаговые рекомендации.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "faq_price": {
+        "message": "Стоимость зависит от сложности и объема работ. Можно настроить прайс по направлениям.",
+        "buttons": [
+          { "text": "Ещё вопросы", "nextState": "faq" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" }
+        ]
+      },
+      "contacts": {
+        "message": "Укажите адрес офиса, график, каналы связи и город работы. Этот блок можно отредактировать под ваш регион.",
+        "buttons": [
+          { "type": "url", "text": "Открыть карту", "url": "https://yandex.ru/maps" },
+          { "text": "Оставить заявку", "nextState": "booking_intro" },
+          { "text": "Назад в меню", "nextState": "start" }
+        ]
+      },
+      "callback_intro": {
+        "message": "Если вопрос срочный, оставьте контакт, и мы свяжемся в первую очередь.",
+        "buttons": [
+          { "type": "request_contact", "text": "Оставить контакт", "nextState": "callback_done" }
+        ]
+      },
+      "callback_done": {
+        "message": "Спасибо! Срочный запрос принят.",
+        "buttons": [
+          { "text": "Вернуться в меню", "nextState": "start" }
+        ]
+      }
+    }
+  }
+}
+
