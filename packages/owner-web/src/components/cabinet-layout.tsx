@@ -3,7 +3,7 @@
 import { ownerFetch, ownerLogout } from '@/lib/api';
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { usePathname, useRouter, useParams } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { BotSelector } from '@/components/bot-selector';
 import { CommandPalette } from '@/components/command-palette';
 import { i18n } from '@/lib/i18n';
@@ -43,7 +43,7 @@ function useHotkeys(botId?: string) {
   }, [botId, router]);
 }
 
-export function CabinetLayout({ children }: { children: React.ReactNode }) {
+export function CabinetLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useParams();
