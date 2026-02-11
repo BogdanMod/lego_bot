@@ -124,4 +124,3 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
     </>
   );
 }
-
