@@ -7,7 +7,6 @@ import { HomeTab } from '../components/tabs/HomeTab';
 import { LeadsTab } from '../components/tabs/LeadsTab';
 import { SettingsTab } from '../components/tabs/SettingsTab';
 import { StoreTab } from '../components/tabs/StoreTab';
-import { ProjectsProvider } from '../contexts/ProjectsContext';
 import { useLanguage } from '../hooks/useLanguage';
 import type { BotProject, MainTab } from '../types';
 
@@ -47,29 +46,27 @@ export default function BotList() {
   };
 
   return (
-    <ProjectsProvider>
-      <div className="min-h-screen">
-        <>
-          <GlobalHeader />
+    <div className="min-h-screen">
+      <>
+        <GlobalHeader />
 
-          <div className="mx-auto max-w-md pb-28">
-            <div key={activeTab} className="animate-in fade-in">
-              {renderTab()}
-            </div>
+        <div className="mx-auto max-w-md pb-28">
+          <div key={activeTab} className="animate-in fade-in">
+            {renderTab()}
           </div>
+        </div>
 
-          <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-        </>
+        <BottomNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+      </>
 
-        <LimitAlert
-          isOpen={isLimitOpen}
-          onClose={() => setIsLimitOpen(false)}
-          onUpgrade={() => {
-            setIsLimitOpen(false);
-            setActiveTab('store');
-          }}
-        />
-      </div>
-    </ProjectsProvider>
+      <LimitAlert
+        isOpen={isLimitOpen}
+        onClose={() => setIsLimitOpen(false)}
+        onUpgrade={() => {
+          setIsLimitOpen(false);
+          setActiveTab('store');
+        }}
+      />
+    </div>
   );
 }

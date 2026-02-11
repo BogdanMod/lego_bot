@@ -135,42 +135,23 @@ function App() {
 
   console.log('✅ Rendering main app');
   return (
-    <div className="app">
-      <Routes>
-        <Route path="/" element={<BotList />} />
-        <Route
-          path="/bot/:id"
-          element={
-            <ProjectsProvider>
-              <BotEditor />
-            </ProjectsProvider>
-          }
-        />
-        <Route
-          path="/bot/:id/editor"
-          element={
-            <ProjectsProvider>
-              <BotEditor />
-            </ProjectsProvider>
-          }
-        />
-        <Route
-          path="/bot/:id/publish"
-          element={
-            <ProjectsProvider>
-              <PublishPage />
-            </ProjectsProvider>
-          }
-        />
-        <Route path="/bot/:id/clients" element={<Clients />} />
-        <Route path="/bot/:id/integrations" element={<Integrations />} />
-        <Route path="/bot/:id/analytics" element={<Analytics />} />
-        <Route path="/bot/:id/broadcasts" element={<Broadcasts />} />
-        <Route path="/templates" element={<Templates />} />
-        <Route path="/admin" element={<AdminPanel />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </div>
+    <ProjectsProvider>
+      <div className="app">
+        <Routes>
+          <Route path="/" element={<BotList />} />
+          <Route path="/bot/:id" element={<BotEditor />} />
+          <Route path="/bot/:id/editor" element={<BotEditor />} />
+          <Route path="/bot/:id/publish" element={<PublishPage />} />
+          <Route path="/bot/:id/clients" element={<Clients />} />
+          <Route path="/bot/:id/integrations" element={<Integrations />} />
+          <Route path="/bot/:id/analytics" element={<Analytics />} />
+          <Route path="/bot/:id/broadcasts" element={<Broadcasts />} />
+          <Route path="/templates" element={<Templates />} />
+          <Route path="/admin" element={<AdminPanel />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </ProjectsProvider>
   );
 }
 
