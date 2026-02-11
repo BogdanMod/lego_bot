@@ -27,7 +27,7 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in"
         style={{ animationDuration: '300ms' }}
@@ -38,7 +38,9 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
         style={{ animationDuration: '300ms' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {children}
+        <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,
