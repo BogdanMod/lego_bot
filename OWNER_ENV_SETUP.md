@@ -15,6 +15,7 @@ Add the following variables to your environment (local + Vercel):
 - `NEXT_PUBLIC_OWNER_WEB_URL`
 - `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`
 - `JWT_SECRET`
+- `OWNER_BOTLINK_SECRET` (recommended; fallback is `JWT_SECRET`)
 - `ADMIN_USER_IDS`
 - `API_URL`
 - `ROUTER_URL`

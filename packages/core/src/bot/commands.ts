@@ -1,8 +1,10 @@
 import { Context } from 'telegraf';
 import { Scenes } from 'telegraf';
+import crypto from 'crypto';
 import { getBotsByUserId } from '../db/bots';
 import { setBotMenuButton } from '../services/telegram-webhook';
 import { getMainMenuWithMiniAppKeyboard, getBackButtonKeyboard, getBotsListKeyboard } from './keyboards';
+import { createOwnerBotlinkToken } from '../utils/owner-auth';
 
 function resolveMiniAppUrl(): { url: string; source: 'MINI_APP_URL' | 'DEFAULT_MINI_APP_URL' | 'FALLBACK' } {
   const explicitUrl = process.env.MINI_APP_URL;
@@ -62,6 +64,21 @@ function buildInstructionMessage(miniAppUrl: string): string {
 `;
 }
 
+function resolveOwnerWebBaseUrl(): string | null {
+  const baseUrl = process.env.OWNER_WEB_BASE_URL?.trim();
+  if (!baseUrl) return null;
+  return baseUrl.replace(/\/+$/, '');
+}
+
+function getOwnerBotlinkSecret(): string | null {
+  const explicit = process.env.OWNER_BOTLINK_SECRET?.trim();
+  if (explicit) return explicit;
+  const jwtSecret = process.env.JWT_SECRET?.trim();
+  if (jwtSecret) return jwtSecret;
+  const encryptionKey = process.env.ENCRYPTION_KEY?.trim();
+  return encryptionKey || null;
+}
+
 /**
  * Обработчик команды /start
  */
@@ -82,6 +99,7 @@ export async function handleStart(ctx: Context) {
 <b>Доступные команды:</b>
 /help - Помощь
 /instruction - Подробная инструкция по работе через Mini App
+/cabinet - Быстрый вход в Owner Cabinet
 
 Вы можете открыть Mini App через:
 • Кнопку меню рядом с полем ввода (после настройки через /setup_miniapp)
@@ -159,6 +177,7 @@ export async function handleHelp(ctx: Context) {
 /start - Начать работу с ботом
 /help - Показать это сообщение
 /instruction - Пошаговая инструкция по созданию бота через Mini App
+/cabinet - Мгновенный вход в Owner Cabinet по защищенной ссылке
 /setup_miniapp - Настроить Menu Button для Mini App
 
 <b>Команды администратора:</b>
@@ -194,6 +213,42 @@ export async function handleInstruction(ctx: Context) {
   await ctx.reply(buildInstructionMessage(miniAppUrl), {
     parse_mode: 'HTML',
     reply_markup: getBackButtonKeyboard(),
+  });
+}
+
+/**
+ * Обработчик команды /cabinet
+ */
+export async function handleCabinet(ctx: Context) {
+  const telegramUserId = ctx.from?.id;
+  if (!telegramUserId) {
+    await ctx.reply('❌ Не удалось определить ваш Telegram ID.');
+    return;
+  }
+
+  const ownerWebBaseUrl = resolveOwnerWebBaseUrl();
+  const secret = getOwnerBotlinkSecret();
+  if (!ownerWebBaseUrl || !secret) {
+    await ctx.reply(
+      '❌ Вход в кабинет временно недоступен. Проверьте настройки OWNER_WEB_BASE_URL и OWNER_BOTLINK_SECRET.'
+    );
+    return;
+  }
+
+  const token = createOwnerBotlinkToken(
+    {
+      telegramUserId,
+      jti: crypto.randomBytes(16).toString('hex'),
+      ttlSec: 120,
+    },
+    secret
+  );
+  const url = `${ownerWebBaseUrl}/auth/bot?token=${encodeURIComponent(token)}`;
+
+  await ctx.reply('🔐 Вход в Owner Cabinet готов. Нажмите кнопку ниже:', {
+    reply_markup: {
+      inline_keyboard: [[{ text: 'Открыть кабинет', url }]],
+    },
   });
 }
 

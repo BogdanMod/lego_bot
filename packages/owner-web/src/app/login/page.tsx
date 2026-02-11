@@ -44,6 +44,9 @@ export default function LoginPage() {
         <h1 className="text-2xl font-semibold">Owner Cabinet</h1>
         <p className="muted mt-2">Вход без пароля через Telegram</p>
         <div ref={containerRef} className="mt-6" />
+        <div className="mt-4 rounded-lg border border-border p-3 text-sm muted">
+          Альтернативный вход: откройте Telegram-бота и отправьте команду <b>/cabinet</b>.
+        </div>
         {error ? <div className="mt-4 text-sm text-red-500">{error}</div> : null}
       </div>
     </main>

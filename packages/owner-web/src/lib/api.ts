@@ -70,6 +70,13 @@ export function ownerAuthTelegram(payload: Record<string, unknown>) {
   });
 }
 
+export function ownerAuthBotlink(token: string) {
+  return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/botlink'), {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
 export async function ownerMe() {
   const data = await request<unknown>(normalizeOwnerPath('/api/owner/auth/me'));
   const parsed = OwnerMeSchema.parse(data);

@@ -21,6 +21,13 @@ export type OwnerSessionClaims = {
   exp: number;
 };
 
+export type OwnerBotlinkClaims = {
+  sub: number;
+  jti: string;
+  iat: number;
+  exp: number;
+};
+
 function toBase64Url(value: Buffer | string): string {
   const buf = Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8');
   return buf
@@ -124,6 +131,59 @@ export function verifyOwnerSession(token: string, secret: string, nowSec: number
     return payload;
   } catch {
     return null;
+  }
+}
+
+export function createOwnerBotlinkToken(
+  claims: { telegramUserId: number; jti: string; ttlSec?: number },
+  secret: string,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): string {
+  const ttlSec = Math.max(30, Math.floor(claims.ttlSec ?? 120));
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload: OwnerBotlinkClaims = {
+    sub: claims.telegramUserId,
+    jti: claims.jti,
+    iat: nowSec,
+    exp: nowSec + ttlSec,
+  };
+  const encodedHeader = toBase64Url(JSON.stringify(header));
+  const encodedPayload = toBase64Url(JSON.stringify(payload));
+  const data = `${encodedHeader}.${encodedPayload}`;
+  const signature = toBase64Url(crypto.createHmac('sha256', secret).update(data).digest());
+  return `${data}.${signature}`;
+}
+
+export function verifyOwnerBotlinkToken(
+  token: string,
+  secret: string,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): { valid: boolean; reason?: string; telegramUserId?: number; jti?: string; exp?: number } {
+  const parts = token.split('.');
+  if (parts.length !== 3) return { valid: false, reason: 'invalid_format' };
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const data = `${encodedHeader}.${encodedPayload}`;
+  const expectedSignature = toBase64Url(crypto.createHmac('sha256', secret).update(data).digest());
+  if (!safeEqual(expectedSignature, encodedSignature)) {
+    return { valid: false, reason: 'invalid_signature' };
+  }
+
+  try {
+    const payload = JSON.parse(fromBase64Url(encodedPayload).toString('utf8')) as OwnerBotlinkClaims;
+    if (!payload?.sub || !payload?.jti || !payload?.iat || !payload?.exp) {
+      return { valid: false, reason: 'invalid_payload' };
+    }
+    if (payload.exp <= nowSec) {
+      return { valid: false, reason: 'expired' };
+    }
+    return {
+      valid: true,
+      telegramUserId: payload.sub,
+      jti: payload.jti,
+      exp: payload.exp,
+    };
+  } catch {
+    return { valid: false, reason: 'invalid_payload' };
   }
 }
 

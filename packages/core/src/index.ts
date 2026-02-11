@@ -49,7 +49,7 @@ import {
   upsertBotTeamMember,
 } from './db/owner';
 import { createBotScene } from './bot/scenes';
-import { handleStart, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
+import { handleStart, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook, handleCabinet } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
 import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
@@ -61,6 +61,7 @@ import {
   parseCookies,
   serializeCookie,
   signOwnerSession,
+  verifyOwnerBotlinkToken,
   verifyOwnerSession,
   verifyTelegramLoginPayload,
 } from './utils/owner-auth';
@@ -327,6 +328,22 @@ async function initBot(): Promise<void> {
   });
   registeredCommands.push('/instruction');
   logger.info({ command: '/instruction' }, '✅ Command registered');
+
+  botInstance.command('cabinet', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/cabinet';
+    logger.info({ userId, command }, '🎯 Команда /cabinet получена');
+    try {
+      await handleCabinet(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /cabinet command:');
+      ctx.reply('❌ Произошла ошибка при входе в кабинет.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/cabinet');
+  logger.info({ command: '/cabinet' }, '✅ Command registered');
   
   // Обработка callback_query (кнопки)
   botInstance.action('back_to_menu', async (ctx) => {
@@ -2085,6 +2102,12 @@ function getOwnerJwtSecret(): string | null {
   return value;
 }
 
+function getOwnerBotlinkSecret(): string | null {
+  const explicit = process.env.OWNER_BOTLINK_SECRET?.trim();
+  if (explicit) return explicit;
+  return getOwnerJwtSecret() || process.env.ENCRYPTION_KEY?.trim() || null;
+}
+
 function isSecureCookieRequest(req: Request): boolean {
   if (process.env.NODE_ENV === 'production') return true;
   return req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -2209,6 +2232,10 @@ const OwnerTelegramAuthSchema = z.object({
   photo_url: z.string().optional(),
   auth_date: z.union([z.string(), z.number()]),
   hash: z.string().min(1),
+});
+
+const OwnerBotlinkAuthSchema = z.object({
+  token: z.string().trim().min(1).max(4096),
 });
 
 const OwnerEventsQuerySchema = z.object({
@@ -2420,6 +2447,94 @@ app.post('/api/promo-codes/redeem', ensureDatabasesInitialized as any, requireUs
 });
 
 // Owner auth + cabinet API
+app.post('/api/owner/auth/botlink', ensureDatabasesInitialized as any, ownerAuthRateLimit as any, validateBody(OwnerBotlinkAuthSchema) as any, async (req: Request, res: Response) => {
+  const jwtSecret = getOwnerJwtSecret();
+  const botlinkSecret = getOwnerBotlinkSecret();
+  if (!jwtSecret || !botlinkSecret) {
+    return ownerError(res, 500, 'misconfigured', 'Owner auth is not configured');
+  }
+
+  const body = req.body as z.infer<typeof OwnerBotlinkAuthSchema>;
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const nowSec = Math.floor(Date.now() / 1000);
+  const verified = verifyOwnerBotlinkToken(body.token, botlinkSecret, nowSec);
+  if (!verified.valid || !verified.telegramUserId || !verified.jti || !verified.exp) {
+    logger.warn(
+      {
+        requestId,
+        reason: verified.reason || 'invalid_botlink',
+      },
+      'Owner botlink auth failed'
+    );
+    const code = verified.reason === 'expired' ? 'botlink_expired' : 'invalid_botlink';
+    return ownerError(res, 401, code, 'Ссылка входа недействительна или устарела');
+  }
+
+  const redis = await getRedisClientOptional();
+  if (!redis) {
+    return ownerError(res, 500, 'misconfigured', 'Redis is required for botlink auth');
+  }
+
+  const jtiTtlSec = Math.max(1, verified.exp - nowSec);
+  const jtiKey = `owner:botlink:jti:${verified.jti}`;
+  const setResult = await redis.set(jtiKey, '1', { NX: true, EX: jtiTtlSec });
+  if (setResult !== 'OK') {
+    logger.warn(
+      {
+        requestId,
+        userId: verified.telegramUserId,
+        reason: 'botlink_used',
+      },
+      'Owner botlink auth denied'
+    );
+    return ownerError(res, 401, 'botlink_used', 'Ссылка уже использована, запросите новую через /cabinet');
+  }
+
+  const bots = await getOwnerAccessibleBots(verified.telegramUserId);
+  if (bots.length === 0) {
+    logger.warn(
+      {
+        requestId,
+        userId: verified.telegramUserId,
+        reason: 'no_bots_access',
+      },
+      'Owner botlink auth denied'
+    );
+    return ownerError(res, 403, 'no_bots_access', 'Нет доступа к кабинетам ботов');
+  }
+
+  const csrf = generateCsrfToken();
+  const sessionToken = signOwnerSession(
+    {
+      sub: verified.telegramUserId,
+      csrf,
+      ttlSec: OWNER_SESSION_TTL_SEC,
+    },
+    jwtSecret
+  );
+  res.setHeader(
+    'Set-Cookie',
+    serializeCookie(OWNER_SESSION_COOKIE, sessionToken, {
+      httpOnly: true,
+      secure: isSecureCookieRequest(req),
+      sameSite: 'Lax',
+      path: OWNER_COOKIE_PATH,
+      maxAgeSec: OWNER_SESSION_TTL_SEC,
+    })
+  );
+
+  logger.info(
+    {
+      requestId,
+      userId: verified.telegramUserId,
+      result: 'success',
+    },
+    'Owner botlink auth success'
+  );
+
+  return res.json({ ok: true });
+});
+
 app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAuthRateLimit as any, validateBody(OwnerTelegramAuthSchema) as any, async (req: Request, res: Response) => {
   const botToken = getTelegramBotToken();
   const jwtSecret = getOwnerJwtSecret();
