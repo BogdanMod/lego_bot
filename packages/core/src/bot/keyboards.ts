@@ -7,11 +7,8 @@ export function getMainMenuKeyboard(): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       [
-        { text: '🤖 Создать бота', callback_data: 'create_bot' },
-        { text: '📋 Мои боты', callback_data: 'my_bots' },
-      ],
-      [
         { text: 'ℹ️ Помощь', callback_data: 'help' },
+        { text: '📘 Инструкция', callback_data: 'instruction' },
       ],
     ],
   };

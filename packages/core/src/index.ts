@@ -20,7 +20,7 @@ import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
 import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
 import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
 import { createBotScene } from './bot/scenes';
-import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
+import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
 import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
@@ -279,6 +279,22 @@ async function initBot(): Promise<void> {
   });
   registeredCommands.push('/help');
   logger.info({ command: '/help' }, '✅ Command registered');
+
+  botInstance.command('instruction', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/instruction';
+    logger.info({ userId, command }, '🎯 Команда /instruction получена');
+    try {
+      await handleInstruction(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /instruction command:');
+      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/instruction');
+  logger.info({ command: '/instruction' }, '✅ Command registered');
   
   // Обработка callback_query (кнопки)
   botInstance.action('back_to_menu', async (ctx) => {
@@ -346,6 +362,23 @@ async function initBot(): Promise<void> {
       await handleHelp(ctx as any);
     } catch (error) {
       logger.error({ userId, command, error }, 'Error handling help action:');
+      ctx.answerCbQuery('Ошибка').catch((replyError) => {
+        logger.error(
+          { userId, command, error: replyError },
+          'Failed to answer callback query'
+        );
+      });
+    }
+  });
+
+  botInstance.action('instruction', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = 'instruction';
+    try {
+      await ctx.answerCbQuery();
+      await handleInstruction(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error handling instruction action:');
       ctx.answerCbQuery('Ошибка').catch((replyError) => {
         logger.error(
           { userId, command, error: replyError },

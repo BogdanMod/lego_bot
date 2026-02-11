@@ -6,6 +6,7 @@ import {
   handleCreateBot,
   handleMyBots,
   handleHelp,
+  handleInstruction,
   handleSetupMiniApp,
   handleCheckWebhook,
 } from '../commands';
@@ -212,10 +213,31 @@ describe('handleHelp', () => {
 
     const repliedText = (ctx.reply as any).mock.calls[0][0] as string;
     expect(repliedText).toContain('/start');
-    expect(repliedText).toContain('/create_bot');
-    expect(repliedText).toContain('/my_bots');
     expect(repliedText).toContain('/help');
+    expect(repliedText).toContain('/instruction');
     expect(repliedText).toContain('/setup_miniapp');
+    expect(ctx.reply).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        reply_markup: { k: 'back' },
+      })
+    );
+  });
+});
+
+describe('handleInstruction', () => {
+  it('should send detailed Mini App instructions', async () => {
+    process.env.MINI_APP_URL = 'https://test.app';
+    (getBackButtonKeyboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ k: 'back' });
+
+    const ctx = createMockContext();
+    await handleInstruction(ctx as Context);
+
+    const repliedText = (ctx.reply as any).mock.calls[0][0] as string;
+    expect(repliedText).toContain('Инструкция');
+    expect(repliedText).toContain('Open Mini App');
+    expect(repliedText).toContain('/newbot');
+    expect(repliedText).toContain('https://test.app');
     expect(ctx.reply).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
