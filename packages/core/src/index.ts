@@ -13,7 +13,7 @@ import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, Broad
 import { getRequestId, validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason } from './db/redis';
-import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, updateBotSchema, createBot, deleteBot } from './db/bots';
+import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
@@ -2659,7 +2659,7 @@ app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireO
   const owner = (req as any).owner as any;
   const role = (req as any).ownerRole as OwnerRole;
   const settings = await getBotSettings(botId);
-  const bot = await getBotById(botId);
+  const bot = await getBotByIdAnyUser(botId);
   if (!bot) {
     return ownerError(res, 404, 'not_found', 'Бот не найден');
   }
@@ -2757,7 +2757,8 @@ app.get('/api/owner/bots/:botId/events/summary', ensureDatabasesInitialized as a
 app.get('/api/owner/bots/:botId/dashboard', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
   const botId = req.params.botId;
   const now = new Date();
-  const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const last7DaysDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const last7Days = last7DaysDate.toISOString();
   const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [eventsSummary, recentLeads, recentOrders, recentAppointments] = await Promise.all([
@@ -2772,8 +2773,8 @@ app.get('/api/owner/bots/:botId/dashboard', ensureDatabasesInitialized as any, r
 
   res.json({
     kpi: {
-      newLeads7d: newLeads7d.items.filter((l: any) => new Date(l.createdAt) >= last7Days).length,
-      orders7d: orders7d.items.filter((o: any) => new Date(o.createdAt) >= last7Days).length,
+      newLeads7d: newLeads7d.items.filter((l: any) => new Date(l.createdAt) >= last7DaysDate).length,
+      orders7d: orders7d.items.filter((o: any) => new Date(o.createdAt) >= last7DaysDate).length,
       revenue30d: 0, // TODO: calculate from orders
       conversion: 0, // TODO: calculate
     },
