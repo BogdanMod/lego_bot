@@ -2,7 +2,9 @@
 
 import { ownerAuthBotlink, type ApiError } from '@/lib/api';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+
+export const dynamic = 'force-dynamic';
 
 function mapAuthError(error: unknown): string {
   const err = error as ApiError | undefined;
@@ -19,7 +21,7 @@ function mapAuthError(error: unknown): string {
   return err.message || 'Не удалось выполнить вход. Попробуйте снова через /cabinet.';
 }
 
-export default function BotAuthPage() {
+function BotAuthContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -52,16 +54,26 @@ export default function BotAuthPage() {
   }, [router, searchParams]);
 
   return (
+    <>
+      {loading ? <p className="muted mt-3">Проверяем ссылку входа...</p> : null}
+      {error ? <div className="mt-4 text-sm text-red-500">{error}</div> : null}
+      {!loading ? (
+        <p className="muted mt-4 text-sm">
+          Вернитесь в Telegram, отправьте команду <b>/cabinet</b> и откройте новую ссылку.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+export default function BotAuthPage() {
+  return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="panel w-full max-w-xl p-8">
         <h1 className="text-2xl font-semibold">Вход в Owner Cabinet</h1>
-        {loading ? <p className="muted mt-3">Проверяем ссылку входа...</p> : null}
-        {error ? <div className="mt-4 text-sm text-red-500">{error}</div> : null}
-        {!loading ? (
-          <p className="muted mt-4 text-sm">
-            Вернитесь в Telegram, отправьте команду <b>/cabinet</b> и откройте новую ссылку.
-          </p>
-        ) : null}
+        <Suspense fallback={<p className="muted mt-3">Загрузка...</p>}>
+          <BotAuthContent />
+        </Suspense>
       </div>
     </main>
   );
