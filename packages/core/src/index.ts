@@ -27,6 +27,7 @@ import {
   getBotRoleForUser,
   getBotRoleAndPermissions,
   getBotSettings,
+  getBotUsage,
   getCustomer,
   getCustomerTimeline,
   getEventsSummary,
@@ -3082,6 +3083,14 @@ app.post('/api/owner/bots/:botId/export', ensureDatabasesInitialized as any, req
     status: body.status,
   });
   return writeCsv(res, `${body.type}-${Date.now()}.csv`, rows);
+});
+
+// v2: Billing-ready - получить usage статистику
+app.get('/api/owner/bots/:botId/usage', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const q = req.query as any;
+  const usage = await getBotUsage(botId, q.from, q.to);
+  res.json({ items: usage });
 });
 
 app.get('/api/owner/bots/:botId/audit', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAuditQuerySchema) as any, async (req: Request, res: Response) => {

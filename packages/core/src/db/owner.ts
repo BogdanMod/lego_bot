@@ -929,6 +929,44 @@ export async function insertOwnerAudit(params: {
   }
 }
 
+// v2: Billing-ready - получить usage статистику
+export async function getBotUsage(botId: string, from?: string, to?: string): Promise<Array<Record<string, unknown>>> {
+  const client = await getPostgresClient();
+  try {
+    const values: any[] = [botId];
+    const where: string[] = ['bot_id = $1'];
+    
+    if (from) {
+      values.push(from);
+      where.push(`date >= $${values.length}::date`);
+    }
+    if (to) {
+      values.push(to);
+      where.push(`date <= $${values.length}::date`);
+    }
+    
+    const result = await client.query(
+      `SELECT
+         date::text as date,
+         events_count as "eventsCount",
+         messages_count as "messagesCount",
+         customers_count as "customersCount",
+         leads_count as "leadsCount",
+         orders_count as "ordersCount",
+         appointments_count as "appointmentsCount",
+         updated_at::text as "updatedAt"
+       FROM bot_usage_daily
+       WHERE ${where.join(' AND ')}
+       ORDER BY date DESC
+       LIMIT 365`,
+      values
+    );
+    return result.rows;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listOwnerAudit(params: {
   botId: string;
   cursor?: string;

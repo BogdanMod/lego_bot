@@ -942,6 +942,26 @@ CREATE INDEX IF NOT EXISTS idx_owner_audit_bot_created_at
 CREATE INDEX IF NOT EXISTS idx_owner_audit_actor
   ON owner_audit_log(actor_telegram_user_id, created_at DESC);
 `,
+  '020_create_bot_usage_daily': `
+-- v2: Billing-ready usage counters
+CREATE TABLE IF NOT EXISTS bot_usage_daily (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    date DATE NOT NULL,
+    events_count INTEGER NOT NULL DEFAULT 0,
+    messages_count INTEGER NOT NULL DEFAULT 0,
+    customers_count INTEGER NOT NULL DEFAULT 0,
+    leads_count INTEGER NOT NULL DEFAULT 0,
+    orders_count INTEGER NOT NULL DEFAULT 0,
+    appointments_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_usage_daily_unique
+  ON bot_usage_daily(bot_id, date);
+CREATE INDEX IF NOT EXISTS idx_bot_usage_daily_bot_date
+  ON bot_usage_daily(bot_id, date DESC);
+`,
 };
 
 /**
@@ -974,6 +994,7 @@ export async function initializeBotsTable(): Promise<void> {
     '017_create_owner_cabinet_tables',
     '018_create_owner_operational_tables',
     '019_create_owner_events_and_audit',
+    '020_create_bot_usage_daily',
   ];
   
   for (const migrationKey of migrationKeys) {
