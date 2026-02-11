@@ -73,6 +73,99 @@ export async function getBotRoleForUser(botId: string, telegramUserId: number): 
   }
 }
 
+// v2: RBAC 2.0 - получить роль и permissions
+export async function getBotRoleAndPermissions(botId: string, telegramUserId: number): Promise<{ role: OwnerRole; permissions: Record<string, boolean> } | null> {
+  const client = await getPostgresClient();
+  try {
+    const result = await client.query<{ role: OwnerRole; permissions_json: Record<string, boolean> | null }>(
+      `SELECT role::text as role, permissions_json
+       FROM bot_admins
+       WHERE bot_id = $1 AND telegram_user_id = $2
+       LIMIT 1`,
+      [botId, telegramUserId]
+    );
+    if (!result.rows[0]) return null;
+    
+    const { role, permissions_json } = result.rows[0];
+    // Если permissions_json не задан, используем дефолтные на основе роли
+    const permissions = permissions_json || getDefaultPermissions(role);
+    
+    return { role, permissions };
+  } finally {
+    client.release();
+  }
+}
+
+function getDefaultPermissions(role: OwnerRole): Record<string, boolean> {
+  const defaults: Record<string, Record<string, boolean>> = {
+    owner: {
+      'orders.write': true,
+      'orders.read': true,
+      'leads.write': true,
+      'leads.read': true,
+      'customers.write': true,
+      'customers.read': true,
+      'appointments.write': true,
+      'appointments.read': true,
+      'team.write': true,
+      'team.read': true,
+      'settings.write': true,
+      'settings.read': true,
+      'audit.read': true,
+      'export': true,
+    },
+    admin: {
+      'orders.write': true,
+      'orders.read': true,
+      'leads.write': true,
+      'leads.read': true,
+      'customers.write': true,
+      'customers.read': true,
+      'appointments.write': true,
+      'appointments.read': true,
+      'team.write': false,
+      'team.read': true,
+      'settings.write': false,
+      'settings.read': true,
+      'audit.read': true,
+      'export': true,
+    },
+    staff: {
+      'orders.write': true,
+      'orders.read': true,
+      'leads.write': true,
+      'leads.read': true,
+      'customers.write': true,
+      'customers.read': true,
+      'appointments.write': true,
+      'appointments.read': true,
+      'team.write': false,
+      'team.read': false,
+      'settings.write': false,
+      'settings.read': false,
+      'audit.read': false,
+      'export': true,
+    },
+    viewer: {
+      'orders.write': false,
+      'orders.read': true,
+      'leads.write': false,
+      'leads.read': true,
+      'customers.write': false,
+      'customers.read': true,
+      'appointments.write': false,
+      'appointments.read': true,
+      'team.write': false,
+      'team.read': false,
+      'settings.write': false,
+      'settings.read': false,
+      'audit.read': false,
+      'export': false,
+    },
+  };
+  return defaults[role] || defaults.viewer;
+}
+
 export async function listBotTeam(botId: string): Promise<Array<{ telegramUserId: string; role: OwnerRole; createdAt: string }>> {
   const client = await getPostgresClient();
   try {

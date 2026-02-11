@@ -24,6 +24,7 @@ import {
   createAppointment,
   getAvailability,
   getBotRoleForUser,
+  getBotRoleAndPermissions,
   getBotSettings,
   getCustomer,
   getCustomerTimeline,
@@ -2161,26 +2162,42 @@ async function requireBotContext(req: Request, res: Response, next: Function) {
     return ownerError(res, 400, 'invalid_request', 'botId обязателен');
   }
   
-  const role = await getBotRoleForUser(botId, ownerClaims.sub);
-  if (!role) {
+  // v2: RBAC 2.0 - получаем роль и permissions
+  const roleAndPerms = await getBotRoleAndPermissions(botId, ownerClaims.sub);
+  if (!roleAndPerms) {
     return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
   }
   
-  // v2: Кладем контекст бота в request
+  const { role, permissions } = roleAndPerms;
+  
+  // v2: Кладем контекст бота в request с permissions
   (req as any).botContext = {
     botId,
     role,
-    permissions: role === 'owner' || role === 'admin' 
-      ? { canMutateTeam: true, canMutateSettings: true, canViewAudit: true, canExport: true }
-      : role === 'staff'
-      ? { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: true }
-      : { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: false },
+    permissions,
   };
   
   // Обратная совместимость
   (req as any).ownerRole = role;
   
   return next();
+}
+
+// v2: RBAC 2.0 - middleware для проверки permissions
+function requirePermission(permission: string) {
+  return (req: Request, res: Response, next: Function) => {
+    const botContext = (req as any).botContext;
+    if (!botContext) {
+      return ownerError(res, 401, 'unauthorized', 'Требуется botContext');
+    }
+    
+    const hasPermission = botContext.permissions[permission] === true;
+    if (!hasPermission) {
+      return ownerError(res, 403, 'forbidden', `Требуется permission: ${permission}`);
+    }
+    
+    return next();
+  };
 }
 
 // Legacy: для обратной совместимости
