@@ -85,27 +85,51 @@ async function proxy(req: NextRequest, pathParts: string[]) {
   });
 }
 
-export async function GET(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function GET(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
-export async function POST(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function POST(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function PATCH(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
-export async function DELETE(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function DELETE(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
-export async function PUT(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function PUT(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
-export async function OPTIONS(req: NextRequest, ctx: { params: { path: string[] } }) {
-  return proxy(req, ctx.params.path);
+export async function OPTIONS(
+  request: Request,
+  context: { params: { path: string[] } }
+) {
+  const { path } = context.params;
+  return proxy(request as NextRequest, path);
 }
 
