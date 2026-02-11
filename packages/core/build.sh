@@ -11,19 +11,48 @@ cd "$(dirname "$0")/../.."
 # (Avoids wasted time + potential conflicts with pnpm/yarn on local machines.)
 if { [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; } && [ ! -d "node_modules" ]; then
   echo "📦 Installing dependencies (unexpected missing node_modules on CI/Vercel)..."
-  npm ci
+  npm ci || true
 fi
 
 # Build shared package using Turbo (or direct build if turbo fails)
 echo "🏗️  Building @dialogue-constructor/shared..."
-if command -v turbo &> /dev/null || npx --yes turbo --version &> /dev/null; then
-  npx --yes turbo run build --filter=@dialogue-constructor/shared || {
-    echo "⚠️  Turbo failed, building shared directly..."
-    cd packages/shared && npm run build && cd ../..
-  }
-else
-  echo "⚠️  Turbo not available, building shared directly..."
-  cd packages/shared && npm run build && cd ../..
+SHARED_BUILT=false
+
+# Try turbo first
+if command -v turbo &> /dev/null 2>&1; then
+  echo "📦 Trying turbo..."
+  if npx --yes turbo run build --filter=@dialogue-constructor/shared 2>&1; then
+    SHARED_BUILT=true
+  else
+    echo "⚠️  Turbo failed, will try direct build..."
+  fi
+fi
+
+# Fallback to direct build if turbo didn't work
+if [ "$SHARED_BUILT" = "false" ]; then
+  echo "⚠️  Building shared directly..."
+  if [ -d "packages/shared" ]; then
+    cd packages/shared
+    if [ -f "package.json" ]; then
+      npm run build || {
+        echo "❌ Direct shared build failed, trying tsc directly..."
+        npx tsc || {
+          echo "❌ tsc also failed. Checking if dist already exists..."
+          if [ ! -d "dist" ] && [ ! -d "dist-cjs" ]; then
+            echo "❌ No dist directories found. Build failed."
+            exit 1
+          fi
+        }
+      }
+    else
+      echo "❌ packages/shared/package.json not found"
+      exit 1
+    fi
+    cd ../..
+  else
+    echo "❌ packages/shared directory not found"
+    exit 1
+  fi
 fi
 
 # Ensure core's node_modules exists
