@@ -47,7 +47,7 @@ export function verifyTelegramLoginPayload(
   payload: TelegramLoginPayload,
   botToken: string,
   nowSec: number = Math.floor(Date.now() / 1000),
-  maxAgeSec: number = 86400
+  maxAgeSec: number = 60
 ): { valid: boolean; reason?: string; userId?: number } {
   const hash = payload.hash;
   if (!hash) return { valid: false, reason: 'missing_hash' };

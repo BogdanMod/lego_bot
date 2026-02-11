@@ -2427,10 +2427,26 @@ app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAut
     return ownerError(res, 500, 'misconfigured', 'Owner auth is not configured');
   }
   const payload = req.body as z.infer<typeof OwnerTelegramAuthSchema>;
-  const verified = verifyTelegramLoginPayload(payload as any, botToken);
+  const verified = verifyTelegramLoginPayload(payload as any, botToken, Math.floor(Date.now() / 1000), 60);
   if (!verified.valid || !verified.userId) {
+    logger.warn(
+      {
+        requestId: getRequestId() ?? (req as any)?.id ?? 'unknown',
+        userId: Number(payload.id) || null,
+        reason: verified.reason || 'invalid_telegram_auth',
+      },
+      'Owner telegram auth failed'
+    );
     return ownerError(res, 401, 'invalid_telegram_auth', 'Неверные данные Telegram входа');
   }
+  logger.info(
+    {
+      requestId: getRequestId() ?? (req as any)?.id ?? 'unknown',
+      userId: verified.userId,
+      result: 'success',
+    },
+    'Owner telegram auth success'
+  );
 
   const csrf = generateCsrfToken();
   const token = signOwnerSession(
@@ -2487,6 +2503,26 @@ app.post('/api/owner/auth/logout', ensureDatabasesInitialized as any, async (req
     })
   );
   res.json({ ok: true });
+});
+
+app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, async (req: Request, res: Response) => {
+  const jwtSecret = getOwnerJwtSecret();
+  const cookies = parseCookies(req.headers.cookie);
+  const token = cookies[OWNER_SESSION_COOKIE];
+  const claims = jwtSecret && token ? verifyOwnerSession(token, jwtSecret) : null;
+  const isDev = process.env.NODE_ENV !== 'production';
+  const isAdmin = Boolean(claims?.sub && isAdminUser(claims.sub));
+  if (!isDev && !isAdmin) {
+    return ownerError(res, 403, 'forbidden', 'Debug endpoint is disabled');
+  }
+
+  const botCount = claims?.sub ? (await getOwnerAccessibleBots(claims.sub)).length : 0;
+  return res.json({
+    hasCookie: Boolean(token),
+    userId: claims?.sub ?? null,
+    botCount,
+    csrfPresent: Boolean(claims?.csrf),
+  });
 });
 
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {

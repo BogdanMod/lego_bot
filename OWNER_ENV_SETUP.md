@@ -11,7 +11,8 @@ Add the following variables to your environment (local + Vercel):
 - `FRONTEND_URL`
 - `MINI_APP_URL`
 - `OWNER_WEB_BASE_URL`
-- `NEXT_PUBLIC_CORE_API_URL`
+- `CORE_API_ORIGIN`
+- `NEXT_PUBLIC_OWNER_WEB_URL`
 - `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`
 - `JWT_SECRET`
 - `ADMIN_USER_IDS`

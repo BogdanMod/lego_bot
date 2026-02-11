@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const API_BASE = process.env.NEXT_PUBLIC_CORE_API_URL || '';
+const OWNER_PROXY_PREFIX = '/api/core';
+let csrfTokenCache: string | null = null;
 
 export type ApiError = {
   code: string;
@@ -28,7 +29,7 @@ const OwnerMeSchema = z.object({
 });
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${API_BASE}${path}`;
+  const url = path;
   const response = await fetch(url, {
     ...init,
     credentials: 'include',
@@ -51,23 +52,46 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function normalizeOwnerPath(path: string): string {
+  if (path.startsWith('/api/core/')) return path;
+  if (path.startsWith('/api/')) {
+    return path.replace(/^\/api\//, '/api/core/');
+  }
+  if (path.startsWith('/')) {
+    return `${OWNER_PROXY_PREFIX}${path}`;
+  }
+  return `${OWNER_PROXY_PREFIX}/${path}`;
+}
+
 export function ownerAuthTelegram(payload: Record<string, unknown>) {
-  return request<{ ok: boolean }>('/api/owner/auth/telegram', {
+  return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/telegram'), {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
 export async function ownerMe() {
-  const data = await request<unknown>('/api/owner/auth/me');
-  return OwnerMeSchema.parse(data);
+  const data = await request<unknown>(normalizeOwnerPath('/api/owner/auth/me'));
+  const parsed = OwnerMeSchema.parse(data);
+  csrfTokenCache = parsed.csrfToken;
+  return parsed;
 }
 
 export function ownerLogout() {
-  return request<{ ok: boolean }>('/api/owner/auth/logout', { method: 'POST' });
+  return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/logout'), { method: 'POST' });
 }
 
-export function ownerFetch<T>(
+async function ensureCsrfToken(): Promise<string | null> {
+  if (csrfTokenCache) return csrfTokenCache;
+  try {
+    const data = await ownerMe();
+    return data.csrfToken || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function ownerFetch<T>(
   path: string,
   options?: {
     method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -75,12 +99,16 @@ export function ownerFetch<T>(
     csrfToken?: string;
   }
 ) {
+  const method = options?.method || 'GET';
   const headers: Record<string, string> = {};
-  if (options?.csrfToken && options.method && options.method !== 'GET') {
-    headers['x-csrf-token'] = options.csrfToken;
+  if (method !== 'GET') {
+    const csrf = options?.csrfToken || (await ensureCsrfToken());
+    if (csrf) {
+      headers['x-csrf-token'] = csrf;
+    }
   }
-  return request<T>(path, {
-    method: options?.method || 'GET',
+  return request<T>(normalizeOwnerPath(path), {
+    method,
     headers,
     body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
