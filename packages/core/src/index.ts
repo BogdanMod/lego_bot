@@ -2151,24 +2151,33 @@ function requireOwnerAuth(req: Request, res: Response, next: Function) {
 
 // v2: Tenant isolation middleware - проверяет botId и кладет контекст
 async function requireBotContext(req: Request, res: Response, next: Function) {
+  const startTime = Date.now();
+  const requestId = getRequestId() || (req as any)?.id || 'unknown';
   const ownerClaims = (req as any).owner as { sub: number } | undefined;
   const botId = req.params.botId || req.query.botId as string | undefined;
   
   if (!ownerClaims?.sub) {
+    logger.warn({ requestId, route: req.path, method: req.method }, 'Unauthorized: missing owner claims');
     return ownerError(res, 401, 'unauthorized', 'Требуется авторизация');
   }
   
   if (!botId) {
+    logger.warn({ requestId, route: req.path, method: req.method, userId: ownerClaims.sub }, 'Bad request: missing botId');
     return ownerError(res, 400, 'invalid_request', 'botId обязателен');
   }
   
   // v2: RBAC 2.0 - получаем роль и permissions
   const roleAndPerms = await getBotRoleAndPermissions(botId, ownerClaims.sub);
   if (!roleAndPerms) {
+    logger.warn({ requestId, route: req.path, method: req.method, botId, userId: ownerClaims.sub }, 'Forbidden: no access to bot');
     return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
   }
   
   const { role, permissions } = roleAndPerms;
+  const latency = Date.now() - startTime;
+  
+  // v2: Structured logging
+  logger.debug({ requestId, botId, userId: ownerClaims.sub, role, route: req.path, method: req.method, latency }, 'Bot context loaded');
   
   // v2: Кладем контекст бота в request с permissions
   (req as any).botContext = {
