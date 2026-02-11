@@ -14,9 +14,17 @@ if { [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; } && [ ! -d "node_modules" 
   npm ci
 fi
 
-# Build shared package using Turbo
+# Build shared package using Turbo (or direct build if turbo fails)
 echo "🏗️  Building @dialogue-constructor/shared..."
-npx turbo run build --filter=@dialogue-constructor/shared
+if command -v turbo &> /dev/null || npx --yes turbo --version &> /dev/null; then
+  npx --yes turbo run build --filter=@dialogue-constructor/shared || {
+    echo "⚠️  Turbo failed, building shared directly..."
+    cd packages/shared && npm run build && cd ../..
+  }
+else
+  echo "⚠️  Turbo not available, building shared directly..."
+  cd packages/shared && npm run build && cd ../..
+fi
 
 # Ensure core's node_modules exists
 mkdir -p packages/core/node_modules/@dialogue-constructor
