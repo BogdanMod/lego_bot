@@ -8,6 +8,7 @@
   --card: 0 0% 100%;
   --border: 220 20% 88%;
   --primary: 239 84% 67%;
+  --muted-foreground: 215 18% 55%;
 }
 
 .dark {
@@ -16,6 +17,7 @@
   --card: 223 47% 12%;
   --border: 215 28% 20%;
   --primary: 239 84% 67%;
+  --muted-foreground: 215 18% 65%;
 }
 
 body {
