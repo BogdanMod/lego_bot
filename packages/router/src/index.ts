@@ -25,6 +25,7 @@ import { createOrUpdateBotUser, getBotUserProfile } from './db/bot-users';
 import { createWebhookLog } from './db/webhook-logs';
 import { logAnalyticsEvent } from './db/bot-analytics';
 import { findBroadcastMessageIdByTelegramMessage, findLatestSentBroadcastMessageId, incrementBroadcastMessageClicks, markBroadcastMessageEngaged } from './db/broadcasts';
+import { ingestOwnerEvent } from './db/owner-ingest';
 import { prepareWebhookPayload, sendWebhook, sendWebhookWithRetry } from './services/webhook-sender';
 import { sendToGoogleSheets } from './services/integrations/google-sheets';
 import { sendToTelegramChannel } from './services/integrations/telegram-channel';
@@ -499,6 +500,45 @@ app.post('/webhook/:botId',
     }
 
     logger.info({ botId: bot.id, botName: bot.name, requestId }, '✅ Bot found');
+
+    // Unified ingest for Owner Cabinet (dedup + normalized entities + inbox events).
+    try {
+      const profileFromUpdate = update.message?.from
+        ? {
+            first_name: update.message.from.first_name ?? null,
+            last_name: update.message.from.last_name ?? null,
+            username: update.message.from.username ?? null,
+            language_code: update.message.from.language_code ?? null,
+          }
+        : update.callback_query?.from
+          ? {
+              first_name: update.callback_query.from.first_name ?? null,
+              last_name: update.callback_query.from.last_name ?? null,
+              username: update.callback_query.from.username ?? null,
+              language_code: update.callback_query.from.language_code ?? null,
+            }
+          : undefined;
+      await ingestOwnerEvent({
+        botId,
+        sourceId: `tg:${update.update_id}:${updateType}`,
+        type: 'message_received',
+        telegramUserId: userId ?? null,
+        customerName: [
+          profileFromUpdate?.first_name,
+          profileFromUpdate?.last_name,
+        ]
+          .filter(Boolean)
+          .join(' ') || null,
+        messageText: update.message?.text || update.callback_query?.data || null,
+        payload: {
+          updateType,
+          updateId: update.update_id,
+        },
+        profile: profileFromUpdate,
+      });
+    } catch (ingestError) {
+      logger.warn({ botId, requestId, ingestError }, 'Owner ingest failed, continuing webhook processing');
+    }
 
     // Расшифровываем токен
     const encryptionKey = process.env.ENCRYPTION_KEY;

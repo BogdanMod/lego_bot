@@ -1,6 +1,7 @@
 // Types
 export * from './types/bot-schema-browser';
 export * from './types/analytics';
+export * from './types/owner';
 
 // Constants
 export * from './constants/limits-browser';

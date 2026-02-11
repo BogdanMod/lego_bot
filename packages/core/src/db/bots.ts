@@ -49,6 +49,7 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
   // Например, 32 байта -> 64 hex-символа. Опции: переименовать в `SECRET_TOKEN_BYTES` или генерировать base64url.
 
   try {
+    await client.query('BEGIN');
     const result = await client.query<Bot>(
       `INSERT INTO bots (user_id, token, name, webhook_set, schema, schema_version, webhook_secret)
        VALUES ($1, $2, $3, false, NULL, 0, $4)
@@ -57,6 +58,25 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     );
     
     const bot = result.rows[0];
+    // Owner Cabinet: создатель автоматически получает роль owner для нового bot_id.
+    await client.query(
+      `INSERT INTO bot_admins (bot_id, telegram_user_id, role, created_by)
+       VALUES ($1, $2, 'owner', $2)
+       ON CONFLICT (bot_id, telegram_user_id) DO NOTHING`,
+      [bot.id, data.user_id]
+    );
+    await client.query(
+      `INSERT INTO bot_settings (
+        bot_id,
+        timezone,
+        notify_new_leads,
+        notify_new_orders,
+        notify_new_appointments,
+        notify_chat_id
+      ) VALUES ($1, 'Europe/Moscow', true, true, true, NULL)
+      ON CONFLICT (bot_id) DO NOTHING`,
+      [bot.id]
+    );
     try {
       await logAuditEvent({
         userId: data.user_id,
@@ -71,7 +91,11 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     } catch (error) {
       console.error('Audit log failed:', error);
     }
+    await client.query('COMMIT');
     return bot;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   } finally {
     client.release();
   }
@@ -656,6 +680,268 @@ CREATE TABLE IF NOT EXISTS system_settings (
 CREATE INDEX IF NOT EXISTS idx_system_settings_updated_at
   ON system_settings(updated_at DESC);
 `,
+  '017_create_owner_cabinet_tables': `
+CREATE TABLE IF NOT EXISTS bot_admins (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'admin', 'staff', 'viewer')),
+    permissions_json JSONB,
+    created_by BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_admins_bot_user_unique
+  ON bot_admins(bot_id, telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_bot_admins_user
+  ON bot_admins(telegram_user_id);
+
+CREATE TABLE IF NOT EXISTS bot_settings (
+    bot_id UUID PRIMARY KEY REFERENCES bots(id) ON DELETE CASCADE,
+    timezone TEXT NOT NULL DEFAULT 'Europe/Moscow',
+    business_name TEXT,
+    brand_json JSONB,
+    working_hours_json JSONB,
+    notify_new_leads BOOLEAN NOT NULL DEFAULT true,
+    notify_new_orders BOOLEAN NOT NULL DEFAULT true,
+    notify_new_appointments BOOLEAN NOT NULL DEFAULT true,
+    notify_chat_id BIGINT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`,
+  '018_create_owner_operational_tables': `
+CREATE TABLE IF NOT EXISTS customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT,
+    name TEXT,
+    phone TEXT,
+    email TEXT,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    notes TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_bot_tg_user_unique
+  ON customers(bot_id, telegram_user_id)
+  WHERE telegram_user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_bot_created_at
+  ON customers(bot_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customers_bot_phone
+  ON customers(bot_id, phone);
+CREATE INDEX IF NOT EXISTS idx_customers_bot_email
+  ON customers(bot_id, email);
+
+CREATE TABLE IF NOT EXISTS staff (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    role TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_staff_bot_id
+  ON staff(bot_id);
+
+CREATE TABLE IF NOT EXISTS services (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    duration_min INTEGER,
+    price NUMERIC(12,2),
+    active BOOLEAN NOT NULL DEFAULT true,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_services_bot_id
+  ON services(bot_id);
+
+CREATE TABLE IF NOT EXISTS leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    assignee BIGINT,
+    title TEXT,
+    message TEXT,
+    source TEXT,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_leads_bot_status_created_at
+  ON leads(bot_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    payment_status TEXT NOT NULL DEFAULT 'pending',
+    amount NUMERIC(12,2),
+    currency TEXT DEFAULT 'RUB',
+    tracking TEXT,
+    assignee BIGINT,
+    items_json JSONB,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_orders_bot_status_created_at
+  ON orders(bot_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_bot_payment_status
+  ON orders(bot_id, payment_status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS appointments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    staff_id UUID REFERENCES staff(id) ON DELETE SET NULL,
+    service_id UUID REFERENCES services(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at TIMESTAMPTZ NOT NULL,
+    notes TEXT,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_appointments_bot_starts_at
+  ON appointments(bot_id, starts_at);
+CREATE INDEX IF NOT EXISTS idx_appointments_bot_status_starts_at
+  ON appointments(bot_id, status, starts_at);
+
+CREATE TABLE IF NOT EXISTS payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    amount NUMERIC(12,2),
+    currency TEXT DEFAULT 'RUB',
+    provider TEXT,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_bot_status_created_at
+  ON payments(bot_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    channel TEXT NOT NULL DEFAULT 'telegram',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_conversations_bot_customer
+  ON conversations(bot_id, customer_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    status TEXT NOT NULL DEFAULT 'new',
+    text TEXT,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_bot_created_at
+  ON messages(bot_id, created_at DESC);
+`,
+  '019_create_owner_events_and_audit': `
+CREATE TABLE IF NOT EXISTS bot_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id UUID,
+    status TEXT NOT NULL DEFAULT 'new',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    assignee BIGINT,
+    payload_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bot_events_bot_created_at
+  ON bot_events(bot_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_events_bot_status_created_at
+  ON bot_events(bot_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_events_bot_type_created_at
+  ON bot_events(bot_id, type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bot_events_payload_gin
+  ON bot_events USING GIN (payload_json);
+
+CREATE TABLE IF NOT EXISTS event_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES bot_events(id) ON DELETE CASCADE,
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    author_telegram_user_id BIGINT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_event_notes_event
+  ON event_notes(event_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS entity_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    author_telegram_user_id BIGINT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_entity_notes_entity
+  ON entity_notes(bot_id, entity_type, entity_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id UUID NOT NULL,
+    file_name TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    mime_type TEXT,
+    size_bytes BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_entity
+  ON attachments(bot_id, entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS event_dedup (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_dedup_unique
+  ON event_dedup(bot_id, source_id);
+
+CREATE TABLE IF NOT EXISTS owner_audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
+    actor_telegram_user_id BIGINT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id UUID,
+    action TEXT NOT NULL,
+    before_json JSONB,
+    after_json JSONB,
+    request_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_owner_audit_bot_created_at
+  ON owner_audit_log(bot_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_owner_audit_actor
+  ON owner_audit_log(actor_telegram_user_id, created_at DESC);
+`,
 };
 
 /**
@@ -685,6 +971,9 @@ export async function initializeBotsTable(): Promise<void> {
     '014_create_user_subscriptions',
     '015_create_promo_code_redemptions',
     '016_create_system_settings',
+    '017_create_owner_cabinet_tables',
+    '018_create_owner_operational_tables',
+    '019_create_owner_events_and_audit',
   ];
   
   for (const migrationKey of migrationKeys) {

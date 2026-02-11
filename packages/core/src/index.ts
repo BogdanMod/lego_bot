@@ -19,6 +19,35 @@ import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelD
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
 import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
 import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
+import {
+  addEventNote,
+  createAppointment,
+  getAvailability,
+  getBotRoleForUser,
+  getBotSettings,
+  getCustomer,
+  getCustomerTimeline,
+  getEventsSummary,
+  getOrder,
+  getOwnerAccessibleBots,
+  insertOwnerAudit,
+  listAppointments,
+  listBotTeam,
+  listCustomers,
+  listExportRows,
+  listInboxEvents,
+  listLeads,
+  listOrders,
+  listOwnerAudit,
+  patchAppointment,
+  patchCustomer,
+  patchEvent,
+  patchLead,
+  patchOrder,
+  removeBotTeamMember,
+  updateBotSettings,
+  upsertBotTeamMember,
+} from './db/owner';
 import { createBotScene } from './bot/scenes';
 import { handleStart, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
@@ -27,6 +56,14 @@ import path from 'path';
 import * as crypto from 'crypto';
 import { decryptToken, encryptToken } from './utils/encryption';
 import { processBroadcastAsync } from './services/broadcast-processor';
+import {
+  generateCsrfToken,
+  parseCookies,
+  serializeCookie,
+  signOwnerSession,
+  verifyOwnerSession,
+  verifyTelegramLoginPayload,
+} from './utils/owner-auth';
 
 /**
  * Core Server - Основной сервер приложения
@@ -74,6 +111,14 @@ let lastProcessedUpdate: {
   command: string | null;
   processedAt: string | null;
 } | null = null;
+
+const OWNER_SESSION_COOKIE = 'owner_session';
+const OWNER_COOKIE_PATH = '/';
+const OWNER_SESSION_TTL_SEC = 60 * 60 * 12; // 12h
+
+const ownerAuthRateWindowMs = 60_000;
+const ownerAuthRateMax = 20;
+const ownerAuthHits = new Map<string, { count: number; resetAt: number }>();
 
 const DEFAULT_ADMIN_USER_IDS = [1217607615];
 const MAINTENANCE_CACHE_MS = 10000;
@@ -1478,16 +1523,18 @@ app.locals.getBotById = getBotById;
 // CORS configuration
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://lego-bot-miniapp.vercel.app';
+const OWNER_WEB_BASE_URL = process.env.OWNER_WEB_BASE_URL || 'http://localhost:5175';
 const MINI_APP_DEV_URL = 'http://localhost:5174';
 const MINI_APP_DEV_URL_127 = 'http://127.0.0.1:5174';
   // NOTE: `t.me/...` — это deep-link, а не реальное значение заголовка `Origin`.
   // Держим allowlist только для реальных web-origin’ов MiniApp/Frontend.
   // Если в прод-логах прилетает origin, которого нет в allowlist — добавь именно его (обычно через существующие env: MINI_APP_URL/FRONTEND_URL и т.д.).
-  const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
+  const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, OWNER_WEB_BASE_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
 
 logger.info('🎯 CORS configuration:');
 logger.info({ value: FRONTEND_URL }, '  FRONTEND_URL:');
 logger.info({ value: MINI_APP_URL }, '  MINI_APP_URL:');
+logger.info({ value: OWNER_WEB_BASE_URL }, '  OWNER_WEB_BASE_URL:');
   logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
   logger.info({ value: MINI_APP_DEV_URL_127 }, '  MINI_APP_DEV_URL_127:');
   logger.info({ value: allowedOrigins }, '  Allowed origins:');
@@ -2016,6 +2063,122 @@ function requireAdmin(req: Request, res: Response, next: Function) {
   next();
 }
 
+function ownerError(
+  res: Response,
+  status: number,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>
+) {
+  const requestId = getRequestId() || (res.req as any)?.id || 'unknown';
+  return res.status(status).json({
+    code,
+    message,
+    ...(details ? { details } : {}),
+    request_id: requestId,
+  });
+}
+
+function getOwnerJwtSecret(): string | null {
+  const value = process.env.JWT_SECRET?.trim();
+  if (!value) return null;
+  return value;
+}
+
+function isSecureCookieRequest(req: Request): boolean {
+  if (process.env.NODE_ENV === 'production') return true;
+  return req.secure || req.headers['x-forwarded-proto'] === 'https';
+}
+
+function ownerAuthRateLimit(req: Request, res: Response, next: Function) {
+  const key = `${req.ip || 'ip:unknown'}:${req.path}`;
+  const now = Date.now();
+  const existing = ownerAuthHits.get(key);
+  if (!existing || existing.resetAt <= now) {
+    ownerAuthHits.set(key, { count: 1, resetAt: now + ownerAuthRateWindowMs });
+    return next();
+  }
+  if (existing.count >= ownerAuthRateMax) {
+    return ownerError(res, 429, 'rate_limited', 'Слишком много попыток входа');
+  }
+  existing.count += 1;
+  ownerAuthHits.set(key, existing);
+  return next();
+}
+
+function requireOwnerAuth(req: Request, res: Response, next: Function) {
+  const jwtSecret = getOwnerJwtSecret();
+  if (!jwtSecret) {
+    return ownerError(res, 500, 'misconfigured', 'JWT_SECRET is not set');
+  }
+  const cookies = parseCookies(req.headers.cookie);
+  const session = cookies[OWNER_SESSION_COOKIE];
+  if (!session) {
+    return ownerError(res, 401, 'unauthorized', 'Требуется авторизация');
+  }
+  const claims = verifyOwnerSession(session, jwtSecret);
+  if (!claims) {
+    return ownerError(res, 401, 'unauthorized', 'Недействительная сессия');
+  }
+  (req as any).owner = claims;
+  return next();
+}
+
+async function requireOwnerBotAccess(req: Request, res: Response, next: Function) {
+  const ownerClaims = (req as any).owner as { sub: number } | undefined;
+  const botId = req.params.botId;
+  if (!ownerClaims?.sub) {
+    return ownerError(res, 401, 'unauthorized', 'Требуется авторизация');
+  }
+  if (!botId) {
+    return ownerError(res, 400, 'invalid_request', 'botId is required');
+  }
+  const role = await getBotRoleForUser(botId, ownerClaims.sub);
+  if (!role) {
+    return ownerError(res, 403, 'forbidden', 'Нет доступа к этому боту');
+  }
+  (req as any).ownerRole = role;
+  return next();
+}
+
+function requireOwnerCsrf(req: Request, res: Response, next: Function) {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    return next();
+  }
+  const ownerClaims = (req as any).owner as { csrf?: string } | undefined;
+  const csrfHeader = (req.headers['x-csrf-token'] as string | undefined) || '';
+  if (!ownerClaims?.csrf || !csrfHeader || ownerClaims.csrf !== csrfHeader) {
+    return ownerError(res, 403, 'csrf_failed', 'CSRF token mismatch');
+  }
+  return next();
+}
+
+function toCsvValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+}
+
+function writeCsv(res: Response, filename: string, rows: Array<Record<string, unknown>>) {
+  if (rows.length === 0) {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send('');
+  }
+  const headers = Object.keys(rows[0]);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.write(`${headers.join(',')}\n`);
+  for (const row of rows) {
+    const line = headers.map((h) => toCsvValue((row as any)[h])).join(',');
+    res.write(`${line}\n`);
+  }
+  res.end();
+}
+
 const AdminPromoCodeCreateSchema = z.object({
   code: z.string().trim().min(4).max(40).optional(),
   durationDays: z.number().int().min(1).max(3650),
@@ -2036,6 +2199,138 @@ const AdminGrantSubscriptionSchema = z.object({
 
 const PromoRedeemSchema = z.object({
   code: z.string().trim().min(1).max(64),
+});
+
+const OwnerTelegramAuthSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
+  username: z.string().optional(),
+  photo_url: z.string().optional(),
+  auth_date: z.union([z.string(), z.number()]),
+  hash: z.string().min(1),
+});
+
+const OwnerEventsQuerySchema = z.object({
+  status: z.enum(['new', 'in_progress', 'done', 'cancelled']).optional(),
+  type: z.string().trim().min(1).max(100).optional(),
+  q: z.string().trim().max(200).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const OwnerEventPatchSchema = z.object({
+  status: z.enum(['new', 'in_progress', 'done', 'cancelled']).optional(),
+  priority: z.enum(['low', 'normal', 'high']).optional(),
+  assignee: z.number().int().positive().nullable().optional(),
+});
+
+const OwnerEventNoteSchema = z.object({
+  note: z.string().trim().min(1).max(5000),
+});
+
+const OwnerCustomersQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const OwnerCustomerPatchSchema = z.object({
+  name: z.string().trim().max(200).nullable().optional(),
+  phone: z.string().trim().max(64).nullable().optional(),
+  email: z.string().trim().max(200).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(60)).max(50).optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
+});
+
+const OwnerAppointmentsQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  staffId: z.string().uuid().optional(),
+  status: z.string().trim().min(1).max(50).optional(),
+});
+
+const OwnerCreateAppointmentSchema = z.object({
+  customerId: z.string().uuid().nullable().optional(),
+  staffId: z.string().uuid().nullable().optional(),
+  serviceId: z.string().uuid().nullable().optional(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  status: z.string().trim().min(1).max(50).optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
+  payloadJson: z.record(z.any()).nullable().optional(),
+});
+
+const OwnerPatchAppointmentSchema = z.object({
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  status: z.string().trim().min(1).max(50).optional(),
+  staffId: z.string().uuid().nullable().optional(),
+  serviceId: z.string().uuid().nullable().optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
+});
+
+const OwnerAvailabilityQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  serviceId: z.string().uuid().optional(),
+  staffId: z.string().uuid().optional(),
+});
+
+const OwnerOrdersQuerySchema = z.object({
+  status: z.string().trim().min(1).max(50).optional(),
+  q: z.string().trim().max(200).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const OwnerPatchOrderSchema = z.object({
+  status: z.string().trim().min(1).max(50).optional(),
+  paymentStatus: z.string().trim().min(1).max(50).nullable().optional(),
+  tracking: z.string().trim().max(255).nullable().optional(),
+  amount: z.number().nullable().optional(),
+});
+
+const OwnerLeadsQuerySchema = z.object({
+  status: z.string().trim().min(1).max(50).optional(),
+  q: z.string().trim().max(200).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const OwnerPatchLeadSchema = z.object({
+  status: z.string().trim().min(1).max(50).optional(),
+  assignee: z.number().int().positive().nullable().optional(),
+});
+
+const OwnerExportSchema = z.object({
+  type: z.enum(['leads', 'orders', 'appointments', 'customers', 'events']),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  status: z.string().trim().min(1).max(50).optional(),
+});
+
+const OwnerAuditQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const OwnerTeamInviteSchema = z.object({
+  telegramUserId: z.number().int().positive(),
+  role: z.enum(['owner', 'admin', 'staff', 'viewer']),
+  permissionsJson: z.record(z.any()).optional(),
+});
+
+const OwnerBotSettingsPatchSchema = z.object({
+  timezone: z.string().trim().min(1).max(80).optional(),
+  businessName: z.string().trim().max(200).nullable().optional(),
+  brand: z.record(z.any()).optional(),
+  workingHours: z.record(z.any()).optional(),
+  notifyNewLeads: z.boolean().optional(),
+  notifyNewOrders: z.boolean().optional(),
+  notifyNewAppointments: z.boolean().optional(),
+  notifyChatId: z.number().int().nullable().optional(),
 });
 
 // Public maintenance status (for clients)
@@ -2122,6 +2417,334 @@ app.post('/api/promo-codes/redeem', ensureDatabasesInitialized as any, requireUs
       error: error instanceof Error ? error.message : 'Ошибка активации промокода',
     });
   }
+});
+
+// Owner auth + cabinet API
+app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAuthRateLimit as any, validateBody(OwnerTelegramAuthSchema) as any, async (req: Request, res: Response) => {
+  const botToken = getTelegramBotToken();
+  const jwtSecret = getOwnerJwtSecret();
+  if (!botToken || !jwtSecret) {
+    return ownerError(res, 500, 'misconfigured', 'Owner auth is not configured');
+  }
+  const payload = req.body as z.infer<typeof OwnerTelegramAuthSchema>;
+  const verified = verifyTelegramLoginPayload(payload as any, botToken);
+  if (!verified.valid || !verified.userId) {
+    return ownerError(res, 401, 'invalid_telegram_auth', 'Неверные данные Telegram входа');
+  }
+
+  const csrf = generateCsrfToken();
+  const token = signOwnerSession(
+    {
+      sub: verified.userId,
+      username: payload.username ?? null,
+      first_name: payload.first_name ?? null,
+      last_name: payload.last_name ?? null,
+      photo_url: payload.photo_url ?? null,
+      csrf,
+      ttlSec: OWNER_SESSION_TTL_SEC,
+    },
+    jwtSecret
+  );
+
+  res.setHeader(
+    'Set-Cookie',
+    serializeCookie(OWNER_SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: isSecureCookieRequest(req),
+      sameSite: 'Lax',
+      path: OWNER_COOKIE_PATH,
+      maxAgeSec: OWNER_SESSION_TTL_SEC,
+    })
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/owner/auth/me', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const owner = (req as any).owner as any;
+  const bots = await getOwnerAccessibleBots(owner.sub);
+  res.json({
+    user: {
+      telegramUserId: owner.sub,
+      username: owner.username ?? null,
+      firstName: owner.first_name ?? null,
+      lastName: owner.last_name ?? null,
+      photoUrl: owner.photo_url ?? null,
+    },
+    bots,
+    csrfToken: owner.csrf,
+  });
+});
+
+app.post('/api/owner/auth/logout', ensureDatabasesInitialized as any, async (req: Request, res: Response) => {
+  res.setHeader(
+    'Set-Cookie',
+    serializeCookie(OWNER_SESSION_COOKIE, '', {
+      httpOnly: true,
+      secure: isSecureCookieRequest(req),
+      sameSite: 'Lax',
+      path: OWNER_COOKIE_PATH,
+      maxAgeSec: 0,
+    })
+  );
+  res.json({ ok: true });
+});
+
+app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const owner = (req as any).owner as any;
+  const bots = await getOwnerAccessibleBots(owner.sub);
+  res.json({ items: bots });
+});
+
+app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const settings = await getBotSettings(botId);
+  const team = await listBotTeam(botId);
+  res.json({ botId, settings, team, role: (req as any).ownerRole });
+});
+
+app.patch('/api/owner/bots/:botId/settings', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerBotSettingsPatchSchema) as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const updated = await updateBotSettings(botId, req.body as any);
+  await insertOwnerAudit({
+    botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'bot_settings',
+    action: 'update',
+    afterJson: updated as any,
+    requestId: getRequestId() ?? null,
+  });
+  res.json(updated);
+});
+
+app.get('/api/owner/bots/:botId/team', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const items = await listBotTeam(req.params.botId);
+  res.json({ items });
+});
+
+app.post('/api/owner/bots/:botId/team', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerTeamInviteSchema) as any, async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof OwnerTeamInviteSchema>;
+  await upsertBotTeamMember({
+    botId: req.params.botId,
+    telegramUserId: body.telegramUserId,
+    role: body.role,
+    permissionsJson: body.permissionsJson ?? null,
+    actorUserId: (req as any).owner.sub,
+  });
+  await insertOwnerAudit({
+    botId: req.params.botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'bot_admins',
+    action: 'upsert',
+    afterJson: body as any,
+    requestId: getRequestId() ?? null,
+  });
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/api/owner/bots/:botId/team/:telegramUserId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  await removeBotTeamMember(req.params.botId, Number(req.params.telegramUserId));
+  await insertOwnerAudit({
+    botId: req.params.botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'bot_admins',
+    action: 'remove',
+    afterJson: { telegramUserId: req.params.telegramUserId },
+    requestId: getRequestId() ?? null,
+  });
+  res.json({ ok: true });
+});
+
+app.get('/api/owner/bots/:botId/events', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerEventsQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const page = await listInboxEvents({
+    botId: req.params.botId,
+    status: q.status,
+    type: q.type,
+    q: q.q,
+    from: q.from,
+    to: q.to,
+    cursor: q.cursor,
+    limit: q.limit ? Number(q.limit) : undefined,
+  });
+  res.json(page);
+});
+
+app.get('/api/owner/bots/:botId/events/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const summary = await getEventsSummary(req.params.botId);
+  res.json(summary);
+});
+
+app.patch('/api/owner/bots/:botId/events/:eventId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerEventPatchSchema) as any, async (req: Request, res: Response) => {
+  const patched = await patchEvent(req.params.botId, req.params.eventId, req.body as any);
+  if (!patched) return ownerError(res, 404, 'not_found', 'Событие не найдено');
+  await insertOwnerAudit({
+    botId: req.params.botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'bot_events',
+    entityId: req.params.eventId,
+    action: 'update',
+    afterJson: req.body as any,
+    requestId: getRequestId() ?? null,
+  });
+  res.json(patched);
+});
+
+app.post('/api/owner/bots/:botId/events/:eventId/notes', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerEventNoteSchema) as any, async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof OwnerEventNoteSchema>;
+  const note = await addEventNote({
+    botId: req.params.botId,
+    eventId: req.params.eventId,
+    authorTelegramUserId: (req as any).owner.sub,
+    note: body.note,
+  });
+  res.status(201).json(note);
+});
+
+app.get('/api/owner/bots/:botId/customers', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerCustomersQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const page = await listCustomers({
+    botId: req.params.botId,
+    q: q.q,
+    cursor: q.cursor,
+    limit: q.limit ? Number(q.limit) : undefined,
+  });
+  res.json(page);
+});
+
+app.get('/api/owner/bots/:botId/customers/:customerId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const customer = await getCustomer(req.params.botId, req.params.customerId);
+  if (!customer) return ownerError(res, 404, 'not_found', 'Клиент не найден');
+  res.json(customer);
+});
+
+app.patch('/api/owner/bots/:botId/customers/:customerId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerCustomerPatchSchema) as any, async (req: Request, res: Response) => {
+  const updated = await patchCustomer(req.params.botId, req.params.customerId, req.body as any);
+  if (!updated) return ownerError(res, 404, 'not_found', 'Клиент не найден');
+  await insertOwnerAudit({
+    botId: req.params.botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'customers',
+    entityId: req.params.customerId,
+    action: 'update',
+    afterJson: req.body as any,
+    requestId: getRequestId() ?? null,
+  });
+  res.json(updated);
+});
+
+app.get('/api/owner/bots/:botId/customers/:customerId/timeline', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const items = await getCustomerTimeline(req.params.botId, req.params.customerId);
+  res.json({ items });
+});
+
+app.get('/api/owner/bots/:botId/appointments', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAppointmentsQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const items = await listAppointments({
+    botId: req.params.botId,
+    from: q.from,
+    to: q.to,
+    staffId: q.staffId,
+    status: q.status,
+  });
+  res.json({ items });
+});
+
+app.post('/api/owner/bots/:botId/appointments', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerCreateAppointmentSchema) as any, async (req: Request, res: Response) => {
+  const created = await createAppointment({
+    botId: req.params.botId,
+    ...(req.body as any),
+  });
+  await insertOwnerAudit({
+    botId: req.params.botId,
+    actorTelegramUserId: (req as any).owner.sub,
+    entity: 'appointments',
+    entityId: (created as any).id,
+    action: 'create',
+    afterJson: created as any,
+    requestId: getRequestId() ?? null,
+  });
+  res.status(201).json(created);
+});
+
+app.patch('/api/owner/bots/:botId/appointments/:id', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerPatchAppointmentSchema) as any, async (req: Request, res: Response) => {
+  const updated = await patchAppointment(req.params.botId, req.params.id, req.body as any);
+  if (!updated) return ownerError(res, 404, 'not_found', 'Запись не найдена');
+  res.json(updated);
+});
+
+app.get('/api/owner/bots/:botId/availability', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAvailabilityQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const items = await getAvailability({
+    botId: req.params.botId,
+    date: q.date,
+    staffId: q.staffId,
+    serviceId: q.serviceId,
+  });
+  res.json({ items });
+});
+
+app.get('/api/owner/bots/:botId/orders', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerOrdersQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const page = await listOrders({
+    botId: req.params.botId,
+    q: q.q,
+    status: q.status,
+    cursor: q.cursor,
+    limit: q.limit ? Number(q.limit) : undefined,
+  });
+  res.json(page);
+});
+
+app.get('/api/owner/bots/:botId/orders/:id', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const order = await getOrder(req.params.botId, req.params.id);
+  if (!order) return ownerError(res, 404, 'not_found', 'Заказ не найден');
+  res.json(order);
+});
+
+app.patch('/api/owner/bots/:botId/orders/:id', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerPatchOrderSchema) as any, async (req: Request, res: Response) => {
+  const updated = await patchOrder(req.params.botId, req.params.id, req.body as any);
+  if (!updated) return ownerError(res, 404, 'not_found', 'Заказ не найден');
+  res.json(updated);
+});
+
+app.get('/api/owner/bots/:botId/leads', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerLeadsQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const page = await listLeads({
+    botId: req.params.botId,
+    q: q.q,
+    status: q.status,
+    cursor: q.cursor,
+    limit: q.limit ? Number(q.limit) : undefined,
+  });
+  res.json(page);
+});
+
+app.patch('/api/owner/bots/:botId/leads/:id', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerPatchLeadSchema) as any, async (req: Request, res: Response) => {
+  const updated = await patchLead(req.params.botId, req.params.id, req.body as any);
+  if (!updated) return ownerError(res, 404, 'not_found', 'Заявка не найдена');
+  res.json(updated);
+});
+
+app.post('/api/owner/bots/:botId/export', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerExportSchema) as any, async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof OwnerExportSchema>;
+  const rows = await listExportRows({
+    botId: req.params.botId,
+    type: body.type,
+    from: body.from,
+    to: body.to,
+    status: body.status,
+  });
+  return writeCsv(res, `${body.type}-${Date.now()}.csv`, rows);
+});
+
+app.get('/api/owner/bots/:botId/audit', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAuditQuerySchema) as any, async (req: Request, res: Response) => {
+  const q = req.query as any;
+  const page = await listOwnerAudit({
+    botId: req.params.botId,
+    cursor: q.cursor,
+    limit: q.limit ? Number(q.limit) : undefined,
+  });
+  res.json(page);
 });
 
 // API Routes

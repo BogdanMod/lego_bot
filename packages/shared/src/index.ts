@@ -8,6 +8,7 @@ export * from './logger.js';
 export * from './middleware/index.js';
 export * from './constants/limits.js';
 export * from './types/bot-schema.js';
+export * from './types/owner.js';
 export * from './services/telegram.js';
 export * from './utils/circuit-breaker.js';
 export * from './utils/graceful-degradation.js';

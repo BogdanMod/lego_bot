@@ -1,0 +1,20 @@
+# Owner Cabinet Env
+
+Add the following variables to your environment (local + Vercel):
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `NODE_ENV`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_SECRET_TOKEN`
+- `ENCRYPTION_KEY`
+- `FRONTEND_URL`
+- `MINI_APP_URL`
+- `OWNER_WEB_BASE_URL`
+- `NEXT_PUBLIC_CORE_API_URL`
+- `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`
+- `JWT_SECRET`
+- `ADMIN_USER_IDS`
+- `API_URL`
+- `ROUTER_URL`
+

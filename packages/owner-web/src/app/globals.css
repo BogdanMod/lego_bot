@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 220 30% 98%;
+  --fg: 222 47% 11%;
+  --card: 0 0% 100%;
+  --border: 220 20% 88%;
+  --primary: 239 84% 67%;
+}
+
+.dark {
+  --bg: 222 47% 8%;
+  --fg: 210 40% 98%;
+  --card: 223 47% 12%;
+  --border: 215 28% 20%;
+  --primary: 239 84% 67%;
+}
+
+body {
+  background: hsl(var(--bg));
+  color: hsl(var(--fg));
+}
+
+.panel {
+  @apply rounded-xl border border-border bg-card shadow-sm;
+}
+
+.muted {
+  color: hsl(215 18% 55%);
+}
+

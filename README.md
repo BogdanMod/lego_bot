@@ -76,6 +76,11 @@ lego_bot/
 │   │   └── public/
 │   │       └── tonconnect-manifest.json # TON Connect манифест
 │   │
+│   ├── owner-web/      # Owner Cabinet (Next.js App Router)
+│   │   ├── src/app/    # Layout + dashboard sections
+│   │   ├── src/components/
+│   │   └── src/lib/api.ts
+│   │
 │   └── shared/         # Общие TypeScript типы
 │       └── src/
 │           └── types/
@@ -152,6 +157,16 @@ React + TypeScript + Vite приложение:
 - `src/pages/` - страницы приложения
 - `src/utils/api.ts` - API клиент
 
+### `@dialogue-constructor/owner-web`
+
+**Owner Cabinet (SaaS-style)**
+
+Next.js App Router приложение для владельцев ботов:
+- Telegram SSO login widget
+- Inbox, Orders, Leads, Customers, Calendar, Team, Settings, Audit
+- Server-side API через `packages/core` (`/api/owner/*`)
+- Cursor pagination + экспорт CSV + RBAC
+
 ### `@dialogue-constructor/shared`
 
 **Общие TypeScript типы**
@@ -211,6 +226,10 @@ npm run dev  # tsx watch src/index.ts
 # Frontend
 cd packages/frontend
 python3 -m http.server 8000
+
+# Owner Cabinet
+cd packages/owner-web
+npm run dev
 ```
 
 ### Сборка
@@ -259,6 +278,10 @@ docker-compose up -d
 - `GET /api/bots?user_id={id}` - список ботов пользователя
 - `GET /api/bot/:id/schema` - получить схему бота
 - `POST /api/bot/:id/schema` - обновить схему бота
+- `POST /api/owner/auth/telegram` - login через Telegram
+- `GET /api/owner/auth/me` - профиль + доступные боты
+- `POST /api/owner/auth/logout` - logout
+- `/api/owner/bots/:botId/*` - owner cabinet endpoints (events, customers, leads, orders, appointments, audit, export)
 
 ### Router (`packages/router`)
 
@@ -268,6 +291,8 @@ docker-compose up -d
 ## 🔐 Безопасность
 
 См. [SECURITY.md](./SECURITY.md) для деталей по валидации, аутентификации, шифрованию, аудит-логированию и ротации ключей.
+
+Owner Cabinet env checklist: [OWNER_ENV_SETUP.md](./OWNER_ENV_SETUP.md)
 
 Обязательные переменные окружения для безопасности: `ENCRYPTION_KEY`, `TELEGRAM_BOT_TOKEN` (устаревший `BOT_TOKEN` устарел).
 
