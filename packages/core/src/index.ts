@@ -20,7 +20,7 @@ import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
 import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
 import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
 import { createBotScene } from './bot/scenes';
-import { handleStart, handleCreateBot, handleMyBots, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
+import { handleStart, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook } from './bot/commands';
 import { handleSetWebhook, handleDeleteWebhook } from './bot/webhook-commands';
 import { handleEditSchema } from './bot/schema-commands';
 import path from 'path';
@@ -33,7 +33,7 @@ import { processBroadcastAsync } from './services/broadcast-processor';
  *
  * Функциональность:
  * - Express API для фронтенда (/api/bots, /api/bot/:id/schema)
- * - Telegram бот (Telegraf) с командами /start, /create_bot, /my_bots, etc.
+ * - Telegram бот (Telegraf) с командами /start, /help, /instruction, etc.
  * - PostgreSQL для хранения ботов (токены зашифрованы)
  * - Redis для кеширования
  */
@@ -228,42 +228,29 @@ async function initBot(): Promise<void> {
   botInstance.command('create_bot', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/create_bot';
-    logger.info({ userId, command }, '🎯 Команда /create_bot получена');
-    try {
-      if (ctx.scene) {
-        await handleCreateBot(ctx as Scenes.SceneContext);
-      } else {
-        logger.warn({ userId, command }, 'Сцены не инициализированы');
-        ctx.reply('❌ Сцены не инициализированы.').catch((error) => {
-          logger.error({ userId, command, error }, 'Failed to send scene initialization error');
-        });
-      }
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /create_bot command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
+    logger.info({ userId, command }, 'ℹ️ Legacy command received');
+    await ctx.reply(
+      'Создание бота через чат отключено.\n\n' +
+        'Используйте Mini App: кнопка "🚀 Open Mini App".\n' +
+        'Подробная инструкция: /instruction'
+    ).catch((error) => {
+      logger.error({ userId, command, error }, 'Failed to send legacy command message');
+    });
   });
-  registeredCommands.push('/create_bot');
-  logger.info({ command: '/create_bot' }, '✅ Command registered');
-  
+
   botInstance.command('my_bots', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/my_bots';
-    logger.info({ userId, command }, '🎯 Команда /my_bots получена');
-    try {
-      await handleMyBots(ctx as any);
-    } catch (error) {
-      logger.error({ userId, command, error }, 'Error in /my_bots command:');
-      ctx.reply('❌ Произошла ошибка при обработке команды.').catch((replyError) => {
-        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
-      });
-    }
+    logger.info({ userId, command }, 'ℹ️ Legacy command received');
+    await ctx.reply(
+      'Список ботов в чате отключен.\n\n' +
+        'Управление ботами теперь доступно только в Mini App: "🚀 Open Mini App".\n' +
+        'Подробная инструкция: /instruction'
+    ).catch((error) => {
+      logger.error({ userId, command, error }, 'Failed to send legacy command message');
+    });
   });
-  registeredCommands.push('/my_bots');
-  logger.info({ command: '/my_bots' }, '✅ Command registered');
-  
+
   botInstance.command('help', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/help';
@@ -320,12 +307,11 @@ async function initBot(): Promise<void> {
     const command = 'create_bot';
     try {
       await ctx.answerCbQuery();
-      if (ctx.scene) {
-        await handleCreateBot(ctx as Scenes.SceneContext);
-      } else {
-        logger.warn({ userId, command }, 'Сцены не инициализированы');
-        await ctx.reply('❌ Сцены не инициализированы.');
-      }
+      await ctx.reply(
+        'Создание бота через кнопки чата отключено.\n' +
+          'Откройте Mini App: "🚀 Open Mini App".\n' +
+          'Инструкция: /instruction'
+      );
     } catch (error) {
       logger.error({ userId, command, error }, 'Error handling create_bot action:');
       ctx.answerCbQuery('Ошибка').catch((replyError) => {
@@ -342,7 +328,11 @@ async function initBot(): Promise<void> {
     const command = 'my_bots';
     try {
       await ctx.answerCbQuery();
-      await handleMyBots(ctx as any);
+      await ctx.reply(
+        'Просмотр списка ботов через кнопки чата отключен.\n' +
+          'Откройте Mini App: "🚀 Open Mini App".\n' +
+          'Инструкция: /instruction'
+      );
     } catch (error) {
       logger.error({ userId, command, error }, 'Error handling my_bots action:');
       ctx.answerCbQuery('Ошибка').catch((replyError) => {
