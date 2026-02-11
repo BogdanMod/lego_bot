@@ -2812,7 +2812,8 @@ app.get('/api/owner/bots/:botId/stream', ensureDatabasesInitialized as any, requ
         const data = JSON.parse(message);
         sendSSE('event', data);
       } catch (error) {
-        logger.error('Failed to parse SSE message', { error, message });
+        const sseLogger = createLogger('sse');
+        sseLogger.error('Failed to parse SSE message', { error, message });
       }
     });
 
@@ -2828,7 +2829,8 @@ app.get('/api/owner/bots/:botId/stream', ensureDatabasesInitialized as any, requ
       res.end();
     });
   } catch (error) {
-    logger.error('SSE connection error', { botId, error });
+    const sseLogger = createLogger('sse');
+    sseLogger.error('SSE connection error', { botId, error });
     sendSSE('error', { message: 'Connection error' });
     res.end();
   }

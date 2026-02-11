@@ -2,6 +2,7 @@
 
 import { ownerFetch, ownerLogout } from '@/lib/api';
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
+import { useSSEStream } from '@/hooks/use-sse-stream';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { BotSelector } from '@/components/bot-selector';
@@ -53,6 +54,7 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
   const activeBot = data?.bots?.find((b) => b.botId === currentBotId) || data?.bots?.[0];
   
   useHotkeys(currentBotId);
+  useSSEStream(currentBotId); // v2: SSE realtime updates
 
   useEffect(() => {
     if (!isLoading && (isError || !data)) {
