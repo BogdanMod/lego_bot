@@ -5,6 +5,7 @@ import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect } from 'react';
 import { BotSelector } from '@/components/bot-selector';
+import { CommandPalette } from '@/components/command-palette';
 import { i18n } from '@/lib/i18n';
 
 const sections = [
@@ -64,8 +65,10 @@ export function CabinetLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen grid grid-cols-[260px_1fr]">
-      <aside className="border-r border-border bg-card p-5">
+    <>
+      <CommandPalette botId={currentBotId} />
+      <div className="min-h-screen grid grid-cols-[260px_1fr]">
+        <aside className="border-r border-border bg-card p-5">
         <div className="text-xl font-semibold">Owner Cabinet</div>
         <div className="mt-1 text-sm text-muted-foreground">{data.user.firstName || 'Пользователь'}</div>
 
@@ -118,7 +121,7 @@ export function CabinetLayout({ children }: { children: React.ReactNode }) {
         </header>
         <div>{children}</div>
       </div>
-    </div>
+    </>
   );
 }
 

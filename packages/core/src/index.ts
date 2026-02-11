@@ -2754,6 +2754,38 @@ app.get('/api/owner/bots/:botId/events/summary', ensureDatabasesInitialized as a
   res.json(summary);
 });
 
+app.get('/api/owner/bots/:botId/dashboard', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const now = new Date();
+  const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [eventsSummary, recentLeads, recentOrders, recentAppointments] = await Promise.all([
+    getEventsSummary(botId),
+    listLeads({ botId, cursor: undefined, limit: 5 }),
+    listOrders({ botId, cursor: undefined, limit: 5 }),
+    listAppointments({ botId, from: last7Days, to: now.toISOString() }),
+  ]);
+
+  const newLeads7d = await listLeads({ botId, cursor: undefined, limit: 1 });
+  const orders7d = await listOrders({ botId, cursor: undefined, limit: 1 });
+
+  res.json({
+    kpi: {
+      newLeads7d: newLeads7d.items.filter((l: any) => new Date(l.createdAt) >= last7Days).length,
+      orders7d: orders7d.items.filter((o: any) => new Date(o.createdAt) >= last7Days).length,
+      revenue30d: 0, // TODO: calculate from orders
+      conversion: 0, // TODO: calculate
+    },
+    eventsSummary,
+    recent: {
+      leads: recentLeads.items.slice(0, 5),
+      orders: recentOrders.items.slice(0, 5),
+      appointments: (recentAppointments as any).items?.slice(0, 5) || [],
+    },
+  });
+});
+
 app.patch('/api/owner/bots/:botId/events/:eventId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerEventPatchSchema) as any, async (req: Request, res: Response) => {
   const patched = await patchEvent(req.params.botId, req.params.eventId, req.body as any);
   if (!patched) return ownerError(res, 404, 'not_found', 'Событие не найдено');
