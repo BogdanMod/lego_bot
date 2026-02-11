@@ -121,6 +121,7 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
         </header>
         <div>{children}</div>
       </div>
+      </div>
     </>
   );
 }
