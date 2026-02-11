@@ -1,10 +1,11 @@
 import { OwnerSection } from '@/components/owner-section';
 
-export default function OwnerSectionPage({
+export default async function OwnerSectionPage({
   params,
 }: {
-  params: { botId: string; section: string };
+  params: Promise<{ botId: string; section: string }>;
 }) {
-  return <OwnerSection botId={params.botId} section={params.section} />;
+  const { botId, section } = await params;
+  return <OwnerSection botId={botId} section={section} />;
 }
 
