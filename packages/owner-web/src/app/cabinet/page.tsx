@@ -9,8 +9,24 @@ export default function CabinetIndexPage() {
   const { data } = useOwnerAuth();
 
   useEffect(() => {
-    if (data?.bots?.[0]?.botId) {
-      router.replace(`/cabinet/${data.bots[0].botId}/overview`);
+    if (!data?.bots || data.bots.length === 0) return;
+
+    // Try to restore lastBotId from localStorage
+    let targetBotId: string | undefined;
+    if (typeof window !== 'undefined') {
+      const lastBotId = localStorage.getItem('owner_lastBotId');
+      if (lastBotId && data.bots.some((b) => b.botId === lastBotId)) {
+        targetBotId = lastBotId;
+      }
+    }
+
+    // Fallback to first available bot
+    if (!targetBotId) {
+      targetBotId = data.bots[0]?.botId;
+    }
+
+    if (targetBotId) {
+      router.replace(`/cabinet/${targetBotId}/overview`);
     }
   }, [data, router]);
 

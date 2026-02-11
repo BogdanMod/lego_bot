@@ -47,6 +47,7 @@ import {
   removeBotTeamMember,
   updateBotSettings,
   upsertBotTeamMember,
+  type OwnerRole,
 } from './db/owner';
 import { createBotScene } from './bot/scenes';
 import { handleStart, handleHelp, handleInstruction, handleSetupMiniApp, handleCheckWebhook, handleCabinet } from './bot/commands';
@@ -2651,6 +2652,34 @@ app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwne
   const settings = await getBotSettings(botId);
   const team = await listBotTeam(botId);
   res.json({ botId, settings, team, role: (req as any).ownerRole });
+});
+
+app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const role = (req as any).ownerRole as OwnerRole;
+  const settings = await getBotSettings(botId);
+  const bot = await getBotById(botId);
+  if (!bot) {
+    return ownerError(res, 404, 'not_found', 'Бот не найден');
+  }
+  const permissions = role === 'owner' || role === 'admin' 
+    ? { canMutateTeam: true, canMutateSettings: true, canViewAudit: true, canExport: true }
+    : role === 'staff'
+    ? { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: true }
+    : { canMutateTeam: false, canMutateSettings: false, canViewAudit: false, canExport: false };
+  res.json({
+    role,
+    permissions,
+    settingsSummary: settings ? {
+      businessName: (settings as any).businessName,
+      timezone: (settings as any).timezone,
+    } : null,
+    bot: {
+      id: bot.id,
+      name: bot.name,
+    },
+  });
 });
 
 app.patch('/api/owner/bots/:botId/settings', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerBotSettingsPatchSchema) as any, async (req: Request, res: Response) => {
