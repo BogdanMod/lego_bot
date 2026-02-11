@@ -1,4 +1,5 @@
 import { getPostgresClient } from './postgres';
+import { getRedisClient } from './redis';
 
 type UserProfile = {
   first_name?: string | null;
@@ -142,12 +143,13 @@ export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
       eventType = 'appointment_created';
     }
 
-    await client.query(
+    const eventResult = await client.query<{ id: string; created_at: string }>(
       `INSERT INTO bot_events (
          bot_id, type, entity_type, entity_id, status, priority, payload_json, created_at, updated_at
        ) VALUES (
          $1, $2, $3, $4::uuid, 'new', 'normal', $5, now(), now()
-       )`,
+       )
+       RETURNING id::text as id, created_at::text as created_at`,
       [
         params.botId,
         eventType,
@@ -162,6 +164,31 @@ export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
     );
 
     await client.query('COMMIT');
+
+    // v2: Event pipeline - добавить событие в Redis Stream для обработки worker'ом
+    const eventId = eventResult.rows[0]?.id;
+    const eventCreatedAt = eventResult.rows[0]?.created_at;
+    if (eventId && eventCreatedAt) {
+      try {
+        const redis = await getRedisClient();
+        await redis.xAdd('events', '*', {
+          bot_id: params.botId,
+          event_id: eventId,
+          type: eventType,
+          entity_type: entityType || '',
+          entity_id: entityId || '',
+          created_at: eventCreatedAt,
+          payload: JSON.stringify({
+            text: params.messageText ?? null,
+            telegram_user_id: params.telegramUserId ?? null,
+            ...params.payload,
+          }),
+        });
+      } catch (redisError) {
+        // Не падаем, если Redis недоступен - события уже в БД
+        console.error('[ingest] Failed to add event to Redis stream:', redisError);
+      }
+    }
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
