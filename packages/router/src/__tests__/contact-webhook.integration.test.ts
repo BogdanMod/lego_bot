@@ -23,7 +23,7 @@ import {
   getUserState,
   resetInMemoryStateForTests,
 } from '../db/redis';
-import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../../shared/src/test-utils/db-helpers';
+import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../test-utils/db-helpers';
 
 import {
   sendTelegramMessage,

@@ -22,8 +22,8 @@ import {
   resetInMemoryStateForTests,
   setRedisUnavailableForTests,
 } from '../db/redis';
-import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../../shared/src/test-utils/db-helpers';
-import { createMockBotSchema, createMockTelegramUpdate } from '../../../shared/src/test-utils/mock-factories';
+import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../test-utils/db-helpers';
+import { createMockBotSchema, createMockTelegramUpdate } from '../../test-utils/mock-factories';
 
 import {
   sendTelegramMessage,
