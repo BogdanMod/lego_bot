@@ -18,6 +18,7 @@ import {
   logBroadcastMessageSent,
   logBroadcastProcessingDuration,
 } from '../middleware/shared/metrics.js';
+import { sendTelegramMessage, sendPhoto, sendVideo, sendDocument, sendAudio, logger } from '@dialogue-constructor/shared';
 
 const TELEGRAM_RATE_LIMIT = 30;
 const BATCH_SIZE = 30;

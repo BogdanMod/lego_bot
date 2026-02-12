@@ -1,4 +1,4 @@
-import type { BotSchema } from '../types/bot-schema.js';
+import type { BotSchema } from '@dialogue-constructor/shared';
 
 export type MockBot = {
   id: string;
