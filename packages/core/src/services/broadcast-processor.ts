@@ -17,7 +17,7 @@ import {
   logBroadcastMessageFailed,
   logBroadcastMessageSent,
   logBroadcastProcessingDuration,
-} from '@dialogue-constructor/shared';
+} from '../middleware/shared/metrics.js';
 
 const TELEGRAM_RATE_LIMIT = 30;
 const BATCH_SIZE = 30;

@@ -6,3 +6,5 @@ export * from './rate-limit-metrics.js';
 export * from './error-metrics.js';
 export * from './validation.js';
 export * from './authorization.js';
+// Re-export getRequestId for convenience
+export { getRequestId } from './request-id.js';

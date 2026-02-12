@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
-import { CircuitBreaker, CircuitBreakerOpenError, recordCacheHit, recordCacheMiss } from '@dialogue-constructor/shared';
+import { CircuitBreaker, CircuitBreakerOpenError } from '@dialogue-constructor/shared';
+import { recordCacheHit, recordCacheMiss } from '../middleware/metrics.js';
 import type { Logger } from '@dialogue-constructor/shared';
 import type { LoggerLike } from '@dialogue-constructor/shared/cache/bot-schema-cache';
 
@@ -351,7 +352,7 @@ export async function getBotSchema(botId: string, logger?: LoggerLike): Promise<
     return cached.schema;
   }
 
-  recordCacheMiss('schema');
+    recordCacheHit('schema');
   logger?.debug?.({ service: 'postgres', operation: 'getBotSchema', botId, source: 'database' }, 'Schema from database');
   const bot = await getBotById(botId);
   const schema = bot?.schema || null;

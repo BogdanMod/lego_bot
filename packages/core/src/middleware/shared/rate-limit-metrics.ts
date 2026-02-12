@@ -1,4 +1,4 @@
-import type { Logger } from '../logger.js';
+import type { Logger } from 'pino';
 
 export function logRateLimitMetrics(logger: Logger) {
   return (req: any, res: any, next: any) => {

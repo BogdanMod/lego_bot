@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import type { Logger } from '../logger.js';
-import { RATE_LIMITS } from '../constants/limits.js';
+import type { Logger } from 'pino';
+import { RATE_LIMITS } from '@dialogue-constructor/shared';
 
 type RateLimitRedisClient = {
   sendCommand: (args: string[]) => Promise<any>;
@@ -53,3 +53,4 @@ export function createRateLimiter(
     },
   });
 }
+

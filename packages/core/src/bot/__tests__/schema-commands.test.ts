@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Context } from 'telegraf';
 
 import { BOT_LIMITS } from '@dialogue-constructor/shared';
-import { createMockBotSchema } from '../../../../shared/src/test-utils/mock-factories';
+import { createMockBotSchema } from '../../../test-utils/mock-factories';
 
 import { handleEditSchema, validateSchemaLimits } from '../schema-commands';
 

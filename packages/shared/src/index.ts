@@ -5,7 +5,6 @@ import { createLogger } from './logger.js';
 export const logger = createLogger('shared');
 
 export * from './logger.js';
-export * from './middleware/index.js';
 export * from './constants/limits.js';
 export * from './types/bot-schema.js';
 export * from './types/owner.js';
@@ -18,7 +17,7 @@ export * from './validation/bot-schema-validation.js';
 export * from './validation/schemas.js';
 export * from './db/bot-users.js';
 export * from './db/bot-analytics.js';
-export { recordCacheHit, recordCacheMiss, getCacheMetrics } from './middleware/metrics.js';
+// Cache metrics moved to core (express-dependent)
 export * from './env/getTelegramBotToken.js';
 
 export interface User {
