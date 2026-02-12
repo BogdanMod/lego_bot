@@ -19,7 +19,8 @@ Monorepo содержит 5 сервисов:
 
 ### Общие настройки
 - **Root Directory**: (пусто) - Railway должен работать из корня репо
-- **Install Command**: `npm ci` (из корня репо)
+- **Install Command**: `pnpm install` (из корня репо)
+- **Package Manager**: `pnpm@9.0.0` (указан в package.json)
 
 ### Workspace Names
 - `@dialogue-constructor/core`
@@ -33,8 +34,8 @@ Monorepo содержит 5 сервисов:
 
 ### Railway Configuration
 - **Root Directory**: (пусто)
-- **Build Command**: `npm run build -w @dialogue-constructor/core`
-- **Start Command**: `npm run start -w @dialogue-constructor/core`
+- **Build Command**: `pnpm --filter @dialogue-constructor/core build`
+- **Start Command**: `pnpm --filter @dialogue-constructor/core start`
 - **Port**: Railway автоматически устанавливает `PORT` env var
 
 ### Environment Variables (обязательные)
@@ -66,8 +67,8 @@ LOG_LEVEL=info
 
 ### Railway Configuration
 - **Root Directory**: (пусто)
-- **Build Command**: `npm run build -w @dialogue-constructor/worker`
-- **Start Command**: `npm run start -w @dialogue-constructor/worker`
+- **Build Command**: `pnpm --filter @dialogue-constructor/worker build`
+- **Start Command**: `pnpm --filter @dialogue-constructor/worker start`
 - **Port**: Не требуется (worker не слушает HTTP)
 
 ### Environment Variables (обязательные)
@@ -95,8 +96,8 @@ LOG_LEVEL=info
 
 ### Railway Configuration
 - **Root Directory**: (пусто)
-- **Build Command**: `npm run build -w @dialogue-constructor/owner-web`
-- **Start Command**: `npm run start -w @dialogue-constructor/owner-web`
+- **Build Command**: `pnpm --filter @dialogue-constructor/owner-web build`
+- **Start Command**: `pnpm --filter @dialogue-constructor/owner-web start`
 - **Port**: Railway автоматически устанавливает `PORT` env var (Next.js использует его автоматически)
 
 ### Environment Variables (обязательные)
@@ -121,8 +122,8 @@ NODE_ENV=production
 
 ### Railway Configuration
 - **Root Directory**: (пусто)
-- **Build Command**: `npm run build -w @dialogue-constructor/mini-app`
-- **Start Command**: `npm run start -w @dialogue-constructor/mini-app`
+- **Build Command**: `pnpm --filter @dialogue-constructor/mini-app build`
+- **Start Command**: `pnpm --filter @dialogue-constructor/mini-app start`
 - **Port**: Railway автоматически устанавливает `PORT` env var
 
 ### Environment Variables
@@ -146,8 +147,8 @@ PORT=5174  # Railway установит автоматически
 
 ### Railway Configuration
 - **Root Directory**: (пусто)
-- **Build Command**: `npm run build -w @dialogue-constructor/frontend`
-- **Start Command**: `npm run start -w @dialogue-constructor/frontend`
+- **Build Command**: `pnpm --filter @dialogue-constructor/frontend build`
+- **Start Command**: `pnpm --filter @dialogue-constructor/frontend start`
 - **Port**: Railway автоматически устанавливает `PORT` env var
 
 ### Environment Variables
@@ -184,9 +185,9 @@ PORT=5173  # Railway установит автоматически
 ## Build процесс
 
 Railway автоматически:
-1. Устанавливает зависимости из корня: `npm ci` (создает симлинки для workspace-пакетов)
-2. Запускает Build Command с флагом `-w`: `npm run build -w @dialogue-constructor/<service>`
-3. Запускает Start Command с флагом `-w`: `npm run start -w @dialogue-constructor/<service>`
+1. Устанавливает зависимости из корня: `pnpm install` (создает симлинки для workspace-пакетов)
+2. Запускает Build Command с флагом `--filter`: `pnpm --filter @dialogue-constructor/<service> build`
+3. Запускает Start Command с флагом `--filter`: `pnpm --filter @dialogue-constructor/<service> start`
 
 ## Переменные окружения
 
