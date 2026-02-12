@@ -4027,7 +4027,8 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Export app for Vercel serverless functions
-const appInstance = createApp();
+import type { Express } from 'express';
+const appInstance: Express = createApp();
 export default appInstance;
 module.exports = appInstance; // Also export as CommonJS for compatibility
 
