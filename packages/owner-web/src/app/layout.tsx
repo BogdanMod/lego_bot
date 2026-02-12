@@ -3,14 +3,15 @@ import './globals.css';
 import { Providers } from '@/components/providers';
 import { ThemeScript } from '@/components/theme-script';
 
-// v2: Observability - Sentry initialization
-if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
-  import('@sentry/nextjs').then((Sentry) => {
+// v2: Observability - Sentry initialization (optional)
+if (process.env.NEXT_PUBLIC_SENTRY_DSN && typeof window !== 'undefined') {
+  // @ts-ignore - @sentry/nextjs is optional dependency
+  import('@sentry/nextjs').then((Sentry: any) => {
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
       environment: process.env.NODE_ENV || 'development',
       tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-      beforeSend(event, hint) {
+      beforeSend(event: any, hint: any) {
         // Безопасность: не отправляем чувствительные данные
         if (event.request) {
           delete event.request.cookies;
@@ -22,6 +23,8 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
         return event;
       },
     });
+  }).catch(() => {
+    // Sentry не критичен, игнорируем ошибки загрузки
   });
 }
 
