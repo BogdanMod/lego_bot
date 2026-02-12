@@ -16,7 +16,7 @@
     "validate-templates": "node scripts/validate-templates.js"
   },
   "dependencies": {
-    "@dialogue-constructor/shared": "*",
+    "@dialogue-constructor/shared": "workspace:*",
     "@tonconnect/ui-react": "^2.1.0",
     "lucide-react": "^0.563.0",
     "react": "^18.2.0",

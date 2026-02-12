@@ -171,12 +171,15 @@ PORT=5173  # Railway установит автоматически
 
 ## Workspace Dependencies
 
-Все локальные зависимости используют `"*"` версию:
-- `@dialogue-constructor/shared: "*"` в `core`, `worker`, `mini-app`, `router`, `bot-router`
+**Enterprise-требование**: Все локальные зависимости **обязательно** должны использовать протокол `workspace:*`:
+- `@dialogue-constructor/shared: "workspace:*"` в `core`, `worker`, `mini-app`, `router`, `bot-router`
+- Любой `@dialogue-constructor/*` пакет, который находится в `packages/*`, должен использовать `workspace:*`
 
-npm workspaces автоматически резолвит эти зависимости при установке из корня репо.
-
-**Важно**: Railway должен запускать команды из корня репо с флагом `-w` (workspace), чтобы npm правильно линковал workspace-пакеты.
+**Важно**: 
+- `workspace:*` протокол поддерживается pnpm и yarn, но **не поддерживается npm напрямую**
+- Для использования `workspace:*` необходимо переключиться на pnpm или yarn
+- Railway должен запускать команды из корня репо с флагом `-w` (workspace), чтобы правильно линковать workspace-пакеты
+- При использовании npm локальные зависимости будут резолвиться автоматически через npm workspaces, но `workspace:*` в package.json будет игнорироваться
 
 ## Build процесс
 
