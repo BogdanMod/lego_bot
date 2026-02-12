@@ -9,6 +9,7 @@
     "clean": "node scripts/clean-dist.js",
     "dev": "vite",
     "build": "npx vite build",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-5174}",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "type-check": "tsc --noEmit",
