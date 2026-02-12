@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { createApp } from '../index';
 import { encryptToken } from '../utils/encryption';
 import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../test-utils/db-helpers';
-import { authenticateRequest } from '../../test-utils/api-helpers';
+import { authenticateRequest } from '../test-utils/api-helpers';
 import { getRedisClientOptional } from '../db/redis';
 
 const app = createApp();
