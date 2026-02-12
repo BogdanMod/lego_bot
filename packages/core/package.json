@@ -8,7 +8,7 @@
     "build": "node -e \"process.platform === 'win32' ? require('child_process').execSync('build.cmd', {stdio: 'inherit'}) : require('child_process').execSync('bash build.sh', {stdio: 'inherit'})\"",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc -p tsconfig.build.json --noEmit",
     "test-db": "tsx src/test-db.ts"
   },
   "dependencies": {
