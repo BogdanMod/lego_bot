@@ -352,7 +352,7 @@ export async function getBotSchema(botId: string, logger?: LoggerLike): Promise<
     return cached.schema;
   }
 
-    recordCacheHit('schema');
+  recordCacheMiss('schema');
   logger?.debug?.({ service: 'postgres', operation: 'getBotSchema', botId, source: 'database' }, 'Schema from database');
   const bot = await getBotById(botId);
   const schema = bot?.schema || null;
