@@ -6,15 +6,15 @@ import { createApp, setRedisAvailableForTests } from '../index';
 import { encryptToken } from '../utils/encryption';
 import * as redisModule from '../db/redis';
 import { setRedisUnavailableForTests } from '../db/redis';
-import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../../test-utils/db-helpers';
+import { createTestPostgresPool, cleanupAllTestState, seedTestData } from '../test-utils/db-helpers';
 import {
   authenticateRequest,
   buildTelegramInitData,
   createTelegramCallbackQueryUpdate,
   createTelegramContactUpdate,
   createTelegramMessageUpdate,
-} from '../../test-utils/api-helpers';
-import { createMockBotSchema } from '../../test-utils/mock-factories';
+} from '../test-utils/api-helpers';
+import { createMockBotSchema } from '../test-utils/mock-factories';
 import { TelegramApiMock } from './telegram-api-mock';
 
 const app = createApp();
