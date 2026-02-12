@@ -102,7 +102,7 @@ fi
 # Build core package
 echo "🏗️  Building @dialogue-constructor/core..."
 cd packages/core
-npx tsc
+npx tsc -p tsconfig.build.json
 
 #
 # Ensure dist/bot-instance.js exists for serverless runtime resolution
