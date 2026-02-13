@@ -236,7 +236,9 @@ async function initBot(): Promise<void> {
         '📨 Bot middleware: Update received'
       );
       const maintenance = await getMaintenanceStateCached();
-      if (maintenance.enabled && !isAdminUser(userId)) {
+      // Check admin status from DB (async, but we're in middleware)
+      const adminUser = userId ? await getAdminUserByTelegramId(userId) : null;
+      if (maintenance.enabled && (!adminUser || !adminUser.is_active)) {
         const message = maintenance.message || 'Бот временно на технических работах. Попробуйте позже.';
         if (userId) {
           try {
@@ -2086,7 +2088,9 @@ async function requireUserId(req: Request, res: Response, next: Function) {
     req.path.startsWith('/api/admin') || req.path === '/api/maintenance';
   if (!isAdminPath) {
     const maintenance = await getMaintenanceStateCached();
-    if (maintenance.enabled && !isAdminUser(validation.userId)) {
+    // Check admin status from DB
+    const adminUser = validation.userId ? await getAdminUserByTelegramId(validation.userId) : null;
+    if (maintenance.enabled && (!adminUser || !adminUser.is_active)) {
       return res.status(503).json({
         error: 'Maintenance',
         message: maintenance.message || 'Сервис временно недоступен. Технические работы.',
