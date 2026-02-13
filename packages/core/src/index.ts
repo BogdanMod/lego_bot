@@ -2120,7 +2120,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 /**
  * Require admin user ID check (must be called after requireUserId)
  */
-function requireAdmin(req: Request, res: Response, next: Function) {
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = (req as any)?.user?.id as number | undefined;
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   
