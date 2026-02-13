@@ -75,7 +75,13 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     
     // Advisory lock для защиты от race condition: блокируем создание ботов для одного user_id
     // pg_advisory_xact_lock автоматически освобождается при COMMIT/ROLLBACK
-    await client.query('SELECT pg_advisory_xact_lock($1)', [data.user_id]);
+    // Используем bigint cast для безопасности (user_id может быть большим числом)
+    await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [data.user_id]);
+    
+    // В тестовом окружении добавляем небольшую задержку для гарантии конкуренции
+    if (process.env.NODE_ENV === 'test') {
+      await client.query('SELECT pg_sleep(0.05)');
+    }
     
     // Проверка лимита после получения lock (без FOR UPDATE, т.к. advisory lock уже защищает)
     const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
@@ -89,9 +95,9 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     
     logger.info({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Checking bot limit');
     if (activeCount >= BOT_LIMITS.MAX_BOTS_PER_USER) {
-      await client.query('ROLLBACK');
       logger.warn({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Bot limit reached');
-      throw new Error(`Bot limit reached: ${activeCount}/${BOT_LIMITS.MAX_BOTS_PER_USER}`);
+      // Не делаем ROLLBACK здесь - он будет в catch
+      throw new BotLimitError(data.user_id, activeCount, BOT_LIMITS.MAX_BOTS_PER_USER);
     }
     
     const result = await client.query<Bot>(
