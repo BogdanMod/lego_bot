@@ -1132,6 +1132,95 @@ CREATE INDEX IF NOT EXISTS idx_bots_user_id_active
 -- Обновление существующих записей: все существующие боты считаются активными
 UPDATE bots SET is_active = true, deleted_at = NULL WHERE is_active IS NULL OR deleted_at IS NOT NULL;
 `,
+  '022_create_admin_security_tables': `
+-- Admin users table (replaces ADMIN_USER_IDS from ENV)
+CREATE TABLE IF NOT EXISTS admin_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  telegram_user_id BIGINT NOT NULL UNIQUE,
+  role VARCHAR(30) NOT NULL CHECK (role IN ('super_admin', 'security_admin', 'billing_admin', 'support_admin', 'read_only_admin')),
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_users_telegram_user_id ON admin_users(telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_users_role ON admin_users(role);
+CREATE INDEX IF NOT EXISTS idx_admin_users_active ON admin_users(is_active) WHERE is_active = true;
+
+-- Admin secrets table (rotating secrets)
+CREATE TABLE IF NOT EXISTS admin_secrets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  secret_hash TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_secrets_active ON admin_secrets(is_active, expires_at) WHERE is_active = true;
+
+-- Security events table (for logging security violations)
+CREATE TABLE IF NOT EXISTS security_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type VARCHAR(100) NOT NULL,
+  metadata JSONB,
+  ip_address INET,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_security_events_created_at ON security_events(created_at DESC);
+`,
+  '023_make_audit_logs_immutable': `
+-- Add hash chain fields to audit_logs
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS prev_hash TEXT;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entry_hash TEXT NOT NULL DEFAULT '';
+
+-- Create index for hash chain verification
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entry_hash ON audit_logs(entry_hash);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_prev_hash ON audit_logs(prev_hash);
+
+-- Make audit_logs immutable (revoke UPDATE and DELETE)
+REVOKE UPDATE, DELETE ON audit_logs FROM PUBLIC;
+REVOKE UPDATE, DELETE ON audit_logs FROM CURRENT_USER;
+
+-- Create trigger to prevent UPDATE/DELETE
+CREATE OR REPLACE FUNCTION prevent_audit_log_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'audit_logs table is immutable. Use INSERT only.';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS audit_logs_prevent_modification ON audit_logs;
+CREATE TRIGGER audit_logs_prevent_modification
+  BEFORE UPDATE OR DELETE ON audit_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_audit_log_modification();
+
+-- Log trigger violations to security_events
+CREATE OR REPLACE FUNCTION log_audit_modification_attempt()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO security_events (event_type, metadata)
+  VALUES (
+    'audit_log_modification_attempt',
+    jsonb_build_object(
+      'operation', TG_OP,
+      'table', 'audit_logs',
+      'id', COALESCE(OLD.id::text, NEW.id::text)
+    )
+  );
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS audit_logs_log_modification_attempt ON audit_logs;
+CREATE TRIGGER audit_logs_log_modification_attempt
+  AFTER UPDATE OR DELETE ON audit_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION log_audit_modification_attempt();
+`,
 };
 
 /**
@@ -1166,6 +1255,8 @@ export async function initializeBotsTable(): Promise<void> {
     '019_create_owner_events_and_audit',
     '020_create_bot_usage_daily',
     '021_add_bot_soft_delete',
+    '022_create_admin_security_tables',
+    '023_make_audit_logs_immutable',
   ];
   
   for (const migrationKey of migrationKeys) {

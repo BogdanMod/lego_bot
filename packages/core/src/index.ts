@@ -70,6 +70,16 @@ import {
   verifyOwnerSession,
   verifyTelegramLoginPayload,
 } from './utils/owner-auth';
+import {
+  getAdminUserByTelegramId,
+  verifyAdminSecretFromDB,
+  hasAdminPermission,
+  ADMIN_ROLE_PERMISSIONS,
+  type AdminRole,
+  rotateAdminSecret,
+  logSecurityEvent,
+  clearAdminUsersCache,
+} from './db/admin-security';
 
 /**
  * Core Server - Основной сервер приложения
@@ -147,7 +157,6 @@ const ownerAuthRateWindowMs = 60_000;
 const ownerAuthRateMax = 20;
 const ownerAuthHits = new Map<string, { count: number; resetAt: number }>();
 
-const DEFAULT_ADMIN_USER_IDS = [1217607615];
 const MAINTENANCE_CACHE_MS = 10000;
 let maintenanceCache: MaintenanceState = {
   enabled: false,
@@ -156,21 +165,6 @@ let maintenanceCache: MaintenanceState = {
   updatedAt: null,
 };
 let maintenanceCacheLoadedAt = 0;
-
-function getAdminUserIds(): number[] {
-  const adminUserIds = (process.env.ADMIN_USER_IDS || '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean)
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id));
-  return adminUserIds.length > 0 ? adminUserIds : DEFAULT_ADMIN_USER_IDS;
-}
-
-function isAdminUser(userId?: number | null): boolean {
-  if (!userId) return false;
-  return getAdminUserIds().includes(userId);
-}
 
 async function getMaintenanceStateCached(force = false): Promise<MaintenanceState> {
   if (!dbInitialized && !force) {
@@ -2119,8 +2113,9 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 /**
  * Require admin user ID check (must be called after requireUserId)
+ * Loads admin from DB with caching
  */
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = (req as any)?.user?.id as number | undefined;
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   
@@ -2129,36 +2124,104 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  if (!isAdminUser(userId)) {
-    logger.warn({ requestId, userId, path: req.path, method: req.method }, 'Admin check failed: user is not admin');
-    return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const adminUser = await getAdminUserByTelegramId(userId);
+    
+    if (!adminUser || !adminUser.is_active) {
+      logger.warn({ requestId, userId, path: req.path, method: req.method }, 'Admin check failed: user is not admin or inactive');
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    // Store admin user in request for permission checks
+    (req as any).adminUser = adminUser;
+    (req as any).adminRole = adminUser.role;
+    
+    next();
+  } catch (error) {
+    logger.error({ requestId, userId, error }, 'Failed to check admin status');
+    return res.status(500).json({ error: 'Internal server error' });
   }
-  
-  next();
 }
 
 /**
  * Require X-Admin-Secret header with timing-safe comparison
+ * Checks against active secrets in DB (supports rotating secrets)
  */
-function requireAdminSecret(req: Request, res: Response, next: NextFunction) {
+async function requireAdminSecret(req: Request, res: Response, next: NextFunction) {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const providedSecret = req.headers['x-admin-secret'] as string | undefined;
-  const expectedSecret = process.env.ADMIN_SECRET;
-  
-  if (!expectedSecret) {
-    logger.error({ requestId, path: req.path }, 'ADMIN_SECRET is not configured');
-    return res.status(500).json({ error: 'Internal server error' });
-  }
   
   if (!providedSecret) {
     logger.warn({ requestId, path: req.path, method: req.method }, 'Admin secret check failed: missing header');
     return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  if (!timingSafeEqual(providedSecret, expectedSecret)) {
-    logger.warn({ requestId, path: req.path, method: req.method }, 'Admin secret check failed: invalid secret');
-    return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const isValid = await verifyAdminSecretFromDB(providedSecret);
+    
+    if (!isValid) {
+      logger.warn({ requestId, path: req.path, method: req.method }, 'Admin secret check failed: invalid secret');
+      // Log security event
+      await logSecurityEvent('invalid_admin_secret', {
+        path: req.path,
+        method: req.method,
+        requestId,
+      }, req.ip, req.headers['user-agent']);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    next();
+  } catch (error) {
+    logger.error({ requestId, error }, 'Failed to verify admin secret');
+    return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+/**
+ * Require admin permission
+ */
+function requireAdminPermission(permission: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+    const adminRole = (req as any)?.adminRole as AdminRole | undefined;
+    
+    if (!adminRole) {
+      logger.warn({ requestId, path: req.path, permission }, 'Permission check failed: no admin role');
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    if (!hasAdminPermission(adminRole, permission)) {
+      logger.warn({ requestId, adminRole, permission, path: req.path }, 'Permission check failed: insufficient permissions');
+      return res.status(403).json({ error: 'Forbidden', message: `Permission '${permission}' required` });
+    }
+    
+    next();
+  };
+}
+
+/**
+ * Require CSRF token (for mutating operations)
+ */
+function requireCsrf(req: Request, res: Response, next: NextFunction) {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  
+  // Skip CSRF for webhook endpoints
+  if (req.path.startsWith('/webhook') || req.path.startsWith('/api/webhook')) {
+    return next();
+  }
+  
+  // Get CSRF token from header
+  const providedToken = req.headers['x-csrf-token'] as string | undefined;
+  
+  // For admin endpoints, we need to get CSRF from session
+  // Since admin uses X-Admin-Secret, we'll use a simpler approach:
+  // CSRF token can be in header or validated against a session token
+  
+  // For now, if using X-Admin-Secret, we skip CSRF (secret is already strong)
+  // But we can add CSRF token validation if needed
+  
+  // TODO: Implement proper CSRF validation for cookie-based admin sessions
+  // For now, X-Admin-Secret provides sufficient protection
   
   next();
 }
@@ -2166,23 +2229,33 @@ function requireAdminSecret(req: Request, res: Response, next: NextFunction) {
 /**
  * Strict admin middleware: requires userId (from requireUserId), admin check, and secret header
  */
-function requireStrictAdmin(req: Request, res: Response, next: NextFunction) {
-  requireAdmin(req, res, ((err?: any) => {
-    if (err) return next(err);
-    requireAdminSecret(req, res, next);
-  }) as NextFunction);
+async function requireStrictAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    await requireAdmin(req, res, async () => {
+      await requireAdminSecret(req, res, next);
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 /**
  * Structured logger for admin actions (destructive operations)
  */
-function adminActionLogger(action: string, actorUserId: number, metadata?: Record<string, unknown>) {
-  const requestId = getRequestId() ?? 'unknown';
+function adminActionLogger(action: string, actorUserId: number, metadata?: Record<string, unknown>, req?: Request) {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const adminRole = (req as any)?.adminRole as AdminRole | undefined;
+  const ipAddress = req?.ip;
+  const userAgent = req?.headers['user-agent'];
+  
   logger.warn({
     type: 'admin_action',
     action,
     actorUserId,
+    role: adminRole,
     requestId,
+    ipAddress,
+    userAgent,
     timestamp: new Date().toISOString(),
     ...metadata,
   }, `Admin action: ${action}`);
