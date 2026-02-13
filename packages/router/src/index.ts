@@ -52,8 +52,8 @@ if (!isTestEnv) {
 
 let app: ReturnType<typeof express> | null = null;
 let appInitialized = false;
-// Router должен использовать ROUTER_PORT, чтобы не конфликтовать с core (PORT=3000)
-const PORT = process.env.ROUTER_PORT || 3001;
+// Railway uses PORT, fallback to ROUTER_PORT for local dev
+const PORT = Number(process.env.PORT || process.env.ROUTER_PORT || 3001);
 let server: Server | null = null;
 const BOT_ID_FORMAT_REGEX = /^[0-9a-fA-F-]{36}$/;
 const BROADCAST_ENGAGEMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -99,57 +99,60 @@ function validateRouterEnv(): void {
 // Инициализация PostgreSQL
 async function startServer() {
   logger.info({ port: PORT }, 'Запуск сервера роутера');
-  let postgresReady = false;
+  
+  // Validate environment (non-blocking, log errors but don't exit)
   try {
     validateRouterEnv();
   } catch (error) {
     logger.error({ error }, 'Failed to validate router environment variables:');
-    process.exit(1);
-  }
-  try {
-    await initPostgres(logger);
-    postgresReady = true;
-    logger.info('✅ PostgreSQL pool initialized');
-  } catch (error) {
-    logger.error({ error }, '❌ Failed to initialize PostgreSQL:');
-    if ((error as any)?.message?.includes('Missing required')) {
-      process.exit(1);
-    }
-    if (process.env.VERCEL !== '1') {
-      process.exit(1);
-    }
-    if (process.env.VERCEL === '1') {
-      logger.warn('⚠️ PostgreSQL initialization failed, continuing without exit');
-    }
+    // Don't exit - let server start and fail gracefully on requests
   }
 
-  try {
-    const redisClient = await initRedis(logger);
-    if (redisClient) {
-      logger.info('✅ Redis initialized');
-    } else {
-      logger.warn('⚠️ Redis initialization failed, continuing without cache');
-    }
-    rateLimiterRedisClient = redisClient;
-  } catch (error) {
-    logger.warn({ error }, '⚠️ Redis initialization failed, continuing without cache:');
-  }
+  // Start server immediately (Railway requirement - no blocking awaits)
+  const appInstance = createApp();
+  server = appInstance.listen(PORT, '0.0.0.0', () => {
+    logger.info(`[router] listening on ${PORT}`);
+    logger.info(`🚀 Сервер роутера запущен на порту ${PORT}`);
+    logger.info(`🔗 Webhook endpoint: http://0.0.0.0:${PORT}/webhook/:botId`);
+  });
 
-  await initializeRateLimiters().catch((error) => {
+  // Initialize databases asynchronously (non-blocking)
+  let postgresReady = false;
+  void (async () => {
+    try {
+      await initPostgres(logger);
+      postgresReady = true;
+      logger.info('✅ PostgreSQL pool initialized');
+    } catch (error) {
+      logger.error({ error }, '❌ Failed to initialize PostgreSQL:');
+      // Don't exit - server is already running
+    }
+  })();
+
+  void (async () => {
+    try {
+      const redisClient = await initRedis(logger);
+      if (redisClient) {
+        logger.info('✅ Redis initialized');
+      } else {
+        logger.warn('⚠️ Redis initialization failed, continuing without cache');
+      }
+      rateLimiterRedisClient = redisClient;
+    } catch (error) {
+      logger.warn({ error }, '⚠️ Redis initialization failed, continuing without cache:');
+    }
+  })();
+
+  void initializeRateLimiters().catch((error) => {
     logger.warn({ error }, 'Rate limiter initialization failed, continuing without exit');
   });
   void prewarmConnections();
 
-  const appInstance = createApp();
-  server = appInstance.listen(PORT, () => {
-    logger.info(`🚀 Сервер роутера запущен на порту ${PORT}`);
-    logger.info(`🔗 Webhook endpoint: http://localhost:${PORT}/webhook/:botId`);
-  });
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info('✅ Router Service Ready');
   logger.info(`  Port: ${PORT}`);
-  logger.info(`  Database: ${postgresReady ? 'Connected' : 'Unavailable'}`);
-  logger.info(`  Redis: ${rateLimiterRedisClient ? 'Connected' : 'Unavailable'}`);
+  logger.info(`  Database: Initializing...`);
+  logger.info(`  Redis: Initializing...`);
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
@@ -300,6 +303,11 @@ app.use('/webhook/:botId', (req, res, next) => {
 });
 
 app.use(logRateLimitMetrics(logger));
+
+// Simple root endpoint for Railway health checks
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).send('router ok');
+});
 
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
