@@ -3212,15 +3212,14 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
     try {
       bot = await createBot({ user_id: userId, token: encryptedToken, name }, context);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Bot limit reached')) {
-        // Получаем актуальное количество для ответа
-        const currentActiveCount = await countActiveBotsByUserId(userId);
-        logger.warn({ userId, activeCount: currentActiveCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId }, 'Bot creation limit reached');
+      if (error instanceof BotLimitError) {
+        logger.warn({ userId: error.userId, activeCount: error.activeCount, limit: error.limit, requestId }, 'Bot creation limit reached');
         return res.status(429).json({
           error: 'Bot limit reached',
-          message: `You can create maximum ${BOT_LIMITS.MAX_BOTS_PER_USER} bots`,
-          currentCount: currentActiveCount,
-          maxAllowed: BOT_LIMITS.MAX_BOTS_PER_USER,
+          code: error.code,
+          message: `You can create maximum ${error.limit} bots`,
+          currentCount: error.activeCount,
+          maxAllowed: error.limit,
         });
       }
       throw error;
