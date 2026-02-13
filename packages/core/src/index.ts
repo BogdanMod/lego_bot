@@ -2208,7 +2208,7 @@ async function getAdminDestructiveRateLimiter() {
   return adminDestructiveRateLimiter;
 }
 
-async function requireAdminDestructiveRateLimit(req: Request, res: Response, next: Function) {
+async function requireAdminDestructiveRateLimit(req: Request, res: Response, next: NextFunction) {
   const limiter = await getAdminDestructiveRateLimiter();
   return limiter(req, res, next);
 }
