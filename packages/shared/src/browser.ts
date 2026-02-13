@@ -19,7 +19,7 @@ import {
   BroadcastIdSchema,
   UpdateBroadcastStatusSchema,
   TelegramUpdateSchema,
-} from './validation/schemas';
+} from './validation/schemas.js';
 
 // Re-export explicitly to ensure Rollup can resolve exports
 export {

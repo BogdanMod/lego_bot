@@ -2,8 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// In production build, use compiled dist; in dev, use source
+const isProduction = process.env.NODE_ENV === 'production';
+const sharedBrowserPath = isProduction && existsSync(path.resolve(__dirname, '../shared/dist/browser.js'))
+  ? path.resolve(__dirname, '../shared/dist/browser.js')
+  : path.resolve(__dirname, '../shared/src/browser.ts');
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -11,9 +18,9 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
-      { find: '@dialogue-constructor/shared/browser', replacement: path.resolve(__dirname, '../shared/src/browser.ts') },
+      { find: '@dialogue-constructor/shared/browser', replacement: sharedBrowserPath },
       { find: '@dialogue-constructor/shared/server', replacement: path.resolve(__dirname, './src/stubs/shared-server.ts') },
-      { find: '@dialogue-constructor/shared', replacement: path.resolve(__dirname, '../shared/src/browser.ts') },
+      { find: '@dialogue-constructor/shared', replacement: sharedBrowserPath },
     ],
     conditions: ['browser', 'module', 'import', 'default'],
   },
