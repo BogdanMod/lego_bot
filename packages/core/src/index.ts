@@ -2103,12 +2103,113 @@ async function requireUserId(req: Request, res: Response, next: Function) {
   next();
 }
 
+/**
+ * Timing-safe string comparison to prevent timing attacks
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
+ * Require admin user ID check (must be called after requireUserId)
+ */
 function requireAdmin(req: Request, res: Response, next: Function) {
   const userId = (req as any)?.user?.id as number | undefined;
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  
+  if (!userId) {
+    logger.warn({ requestId, path: req.path, method: req.method }, 'Admin check failed: no userId');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
   if (!isAdminUser(userId)) {
+    logger.warn({ requestId, userId, path: req.path, method: req.method }, 'Admin check failed: user is not admin');
     return res.status(403).json({ error: 'Forbidden' });
   }
+  
   next();
+}
+
+/**
+ * Require X-Admin-Secret header with timing-safe comparison
+ */
+function requireAdminSecret(req: Request, res: Response, next: NextFunction) {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const providedSecret = req.headers['x-admin-secret'] as string | undefined;
+  const expectedSecret = process.env.ADMIN_SECRET;
+  
+  if (!expectedSecret) {
+    logger.error({ requestId, path: req.path }, 'ADMIN_SECRET is not configured');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+  
+  if (!providedSecret) {
+    logger.warn({ requestId, path: req.path, method: req.method }, 'Admin secret check failed: missing header');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  if (!timingSafeEqual(providedSecret, expectedSecret)) {
+    logger.warn({ requestId, path: req.path, method: req.method }, 'Admin secret check failed: invalid secret');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  next();
+}
+
+/**
+ * Strict admin middleware: requires userId (from requireUserId), admin check, and secret header
+ */
+function requireStrictAdmin(req: Request, res: Response, next: NextFunction) {
+  requireAdmin(req, res, () => {
+    requireAdminSecret(req, res, next);
+  });
+}
+
+/**
+ * Structured logger for admin actions (destructive operations)
+ */
+function adminActionLogger(action: string, actorUserId: number, metadata?: Record<string, unknown>) {
+  const requestId = getRequestId() ?? 'unknown';
+  logger.warn({
+    type: 'admin_action',
+    action,
+    actorUserId,
+    requestId,
+    timestamp: new Date().toISOString(),
+    ...metadata,
+  }, `Admin action: ${action}`);
+}
+
+/**
+ * Rate limiter for destructive admin endpoints
+ */
+let adminDestructiveRateLimiter: ReturnType<typeof createRateLimiter> | null = null;
+
+async function getAdminDestructiveRateLimiter() {
+  if (!adminDestructiveRateLimiter) {
+    const redisClient = await getRedisClientOptional();
+    adminDestructiveRateLimiter = createRateLimiter(redisClient, logger, {
+      windowMs: 60_000, // 1 minute
+      max: 5, // 5 requests per minute per user
+      keyGenerator: (req) => {
+        const userId = (req as any)?.user?.id || 'anonymous';
+        return `admin:destructive:${userId}`;
+      },
+    });
+  }
+  return adminDestructiveRateLimiter;
+}
+
+async function requireAdminDestructiveRateLimit(req: Request, res: Response, next: Function) {
+  const limiter = await getAdminDestructiveRateLimiter();
+  return limiter(req, res, next);
 }
 
 function ownerError(
@@ -2449,68 +2550,143 @@ app.get('/api/maintenance', ensureDatabasesInitialized as any, async (req: Reque
   });
 });
 
-// Admin API
-app.get('/api/admin/stats', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, async (req: Request, res: Response) => {
-  const stats = await getAdminStats();
-  res.json(stats);
+// Admin API - All endpoints require strict authentication: requireUserId + requireAdmin + requireAdminSecret
+
+// Read-only admin endpoints (require secret but no rate limit)
+app.get('/api/admin/stats', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
+  
+  try {
+    const stats = await getAdminStats();
+    logger.info({ requestId, actorUserId, action: 'get_admin_stats' }, 'Admin stats retrieved');
+    res.json(stats);
+  } catch (error) {
+    logger.error({ requestId, actorUserId, error }, 'Failed to get admin stats');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.get('/api/admin/promo-codes', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, async (req: Request, res: Response) => {
-  const codes = await listPromoCodes();
-  res.json({ items: codes });
+app.get('/api/admin/promo-codes', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
+  
+  try {
+    const codes = await listPromoCodes();
+    logger.info({ requestId, actorUserId, action: 'list_promo_codes', count: codes.length }, 'Admin promo codes listed');
+    res.json({ items: codes });
+  } catch (error) {
+    logger.error({ requestId, actorUserId, error }, 'Failed to list promo codes');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.post('/api/admin/promo-codes', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, validateBody(AdminPromoCodeCreateSchema) as any, async (req: Request, res: Response) => {
+// Destructive admin endpoints (require secret + rate limit + structured logging)
+app.post('/api/admin/promo-codes', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, requireAdminDestructiveRateLimit as any, validateBody(AdminPromoCodeCreateSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
   const body = req.body as z.infer<typeof AdminPromoCodeCreateSchema>;
+  
   const code =
     body.code ||
     crypto
       .randomBytes(5)
       .toString('hex')
       .toUpperCase();
+  
   try {
     const created = await createPromoCode({
       code,
       durationDays: body.durationDays,
       maxRedemptions: body.maxRedemptions ?? 1,
       expiresAt: body.expiresAt ?? null,
-      createdBy: (req as any)?.user?.id ?? null,
+      createdBy: actorUserId ?? null,
     });
+    
+    adminActionLogger('create_promo_code', actorUserId, {
+      promoCodeId: created.id,
+      code: created.code,
+      durationDays: created.durationDays,
+      requestId,
+    });
+    
     res.status(201).json(created);
   } catch (error: any) {
     if (error?.code === '23505') {
+      logger.warn({ requestId, actorUserId, code, error: 'duplicate_code' }, 'Promo code creation failed: duplicate');
       return res.status(409).json({ error: 'Промокод с таким кодом уже существует' });
     }
+    logger.error({ requestId, actorUserId, error }, 'Failed to create promo code');
     throw error;
   }
 });
 
-app.get('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, async (req: Request, res: Response) => {
-  const state = await getMaintenanceStateCached();
-  res.json(state);
+app.get('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
+  
+  try {
+    const state = await getMaintenanceStateCached();
+    logger.info({ requestId, actorUserId, action: 'get_maintenance_state' }, 'Admin maintenance state retrieved');
+    res.json(state);
+  } catch (error) {
+    logger.error({ requestId, actorUserId, error }, 'Failed to get maintenance state');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.post('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, validateBody(AdminMaintenanceSchema) as any, async (req: Request, res: Response) => {
+app.post('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, requireAdminDestructiveRateLimit as any, validateBody(AdminMaintenanceSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
   const body = req.body as z.infer<typeof AdminMaintenanceSchema>;
-  const updated = await setMaintenanceState(
-    body.enabled,
-    body.message ?? null,
-    (req as any)?.user?.id ?? null
-  );
-  maintenanceCache = updated;
-  maintenanceCacheLoadedAt = Date.now();
-  res.json(updated);
+  
+  try {
+    const updated = await setMaintenanceState(
+      body.enabled,
+      body.message ?? null,
+      actorUserId ?? null
+    );
+    maintenanceCache = updated;
+    maintenanceCacheLoadedAt = Date.now();
+    
+    adminActionLogger('set_maintenance', actorUserId, {
+      enabled: body.enabled,
+      message: body.message,
+      requestId,
+    });
+    
+    res.json(updated);
+  } catch (error) {
+    logger.error({ requestId, actorUserId, error }, 'Failed to set maintenance state');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.post('/api/admin/subscriptions/grant', ensureDatabasesInitialized as any, requireUserId as any, requireAdmin as any, validateBody(AdminGrantSubscriptionSchema) as any, async (req: Request, res: Response) => {
+app.post('/api/admin/subscriptions/grant', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, requireAdminDestructiveRateLimit as any, validateBody(AdminGrantSubscriptionSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
   const body = req.body as z.infer<typeof AdminGrantSubscriptionSchema>;
-  const granted = await grantSubscriptionByAdmin({
-    telegramUserId: body.telegramUserId,
-    durationDays: body.durationDays,
-    plan: body.plan ?? 'premium',
-    adminUserId: (req as any)?.user?.id ?? null,
-  });
-  res.status(201).json(granted);
+  
+  try {
+    const granted = await grantSubscriptionByAdmin({
+      telegramUserId: body.telegramUserId,
+      durationDays: body.durationDays,
+      plan: body.plan ?? 'premium',
+      adminUserId: actorUserId ?? null,
+    });
+    
+    adminActionLogger('grant_subscription', actorUserId, {
+      targetUserId: body.telegramUserId,
+      durationDays: body.durationDays,
+      plan: body.plan ?? 'premium',
+      requestId,
+    });
+    
+    res.status(201).json(granted);
+  } catch (error) {
+    logger.error({ requestId, actorUserId, targetUserId: body.telegramUserId, error }, 'Failed to grant subscription');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.post('/api/promo-codes/redeem', ensureDatabasesInitialized as any, requireUserId as any, validateBody(PromoRedeemSchema) as any, async (req: Request, res: Response) => {
@@ -2699,18 +2875,19 @@ app.post('/api/owner/auth/logout', ensureDatabasesInitialized as any, async (req
   res.json({ ok: true });
 });
 
-app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, async (req: Request, res: Response) => {
+// Debug endpoint - returns 404 in production, requires admin + secret in all environments
+app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
   const jwtSecret = getOwnerJwtSecret();
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies[OWNER_SESSION_COOKIE];
   const claims = jwtSecret && token ? verifyOwnerSession(token, jwtSecret) : null;
-  const isDev = process.env.NODE_ENV !== 'production';
-  const isAdmin = Boolean(claims?.sub && isAdminUser(claims.sub));
-  if (!isDev && !isAdmin) {
-    return ownerError(res, 403, 'forbidden', 'Debug endpoint is disabled');
-  }
 
   const botCount = claims?.sub ? (await getOwnerAccessibleBots(claims.sub)).length : 0;
+  
+  logger.info({ requestId, actorUserId, action: 'debug_session' }, 'Debug session endpoint accessed');
+  
   return res.json({
     hasCookie: Boolean(token),
     userId: claims?.sub ?? null,
@@ -2719,29 +2896,29 @@ app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, async (r
   });
 });
 
-// Admin endpoint для сброса ботов пользователя (только dev или admin)
-app.post('/api/admin/bots/reset-user', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
-  const isDev = process.env.NODE_ENV !== 'production';
-  const userId = (req as any).user.id;
-  const isAdmin = isAdminUser(userId);
-  
-  if (!isDev && !isAdmin) {
-    return res.status(403).json({ error: 'Forbidden: admin or dev only' });
-  }
-  
-  const body = req.body as { userId: number };
-  if (!body.userId || typeof body.userId !== 'number') {
-    return res.status(400).json({ error: 'Invalid userId' });
-  }
+// Destructive admin endpoint: reset user bots (requires strict admin + rate limit + structured logging)
+const AdminResetUserBotsSchema = z.object({
+  userId: z.number().int().positive(),
+});
+
+app.post('/api/admin/bots/reset-user', ensureDatabasesInitialized as any, requireUserId as any, requireStrictAdmin as any, requireAdminDestructiveRateLimit as any, validateBody(AdminResetUserBotsSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const actorUserId = (req as any)?.user?.id;
+  const body = req.body as z.infer<typeof AdminResetUserBotsSchema>;
   
   try {
     const deletedCount = await resetUserBots(body.userId, {
-      requestId: getRequestId() ?? (req as any)?.id,
+      requestId,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
     
-    logger.info({ adminUserId: userId, targetUserId: body.userId, deletedCount }, 'Admin reset user bots');
+    adminActionLogger('reset_user_bots', actorUserId, {
+      targetUserId: body.userId,
+      deletedCount,
+      requestId,
+    });
+    
     return res.json({ 
       success: true, 
       userId: body.userId, 
@@ -2749,7 +2926,7 @@ app.post('/api/admin/bots/reset-user', ensureDatabasesInitialized as any, requir
       message: `Soft deleted ${deletedCount} active bot(s) for user ${body.userId}`,
     });
   } catch (error) {
-    logger.error({ error, targetUserId: body.userId }, 'Failed to reset user bots');
+    logger.error({ requestId, actorUserId, targetUserId: body.userId, error }, 'Failed to reset user bots');
     return res.status(500).json({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : String(error),
@@ -4123,5 +4300,3 @@ process.on('uncaughtException', (error) => {
 
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
-
-
