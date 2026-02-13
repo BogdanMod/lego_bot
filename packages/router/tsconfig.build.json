@@ -3,14 +3,20 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "declaration": true,
+    "paths": {
+      "@dialogue-constructor/shared": ["../shared/dist/index.d.ts"],
+      "@dialogue-constructor/shared/*": ["../shared/dist/*"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": [
     "src/**/__tests__/**",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
-    "src/test-utils/**"
+    "src/test-utils/**",
+    "dist"
   ]
 }
 
