@@ -224,6 +224,49 @@ describe('bots CRUD operations', () => {
       count = await countActiveBotsByUserId(currentUserId);
       expect(count).toBe(1);
     });
+
+    it('should prevent race condition with parallel bot creation', async () => {
+      const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
+      const { countActiveBotsByUserId } = await import('../bots');
+      
+      // Создаем ботов до лимита - 1
+      const bots = [];
+      for (let i = 0; i < BOT_LIMITS.MAX_BOTS_PER_USER - 1; i++) {
+        bots.push(await createTestBot(`token-${i}`, `Bot ${i}`));
+      }
+      
+      // Проверяем что осталось место для 1 бота
+      let count = await countActiveBotsByUserId(currentUserId);
+      expect(count).toBe(BOT_LIMITS.MAX_BOTS_PER_USER - 1);
+      
+      // Параллельно пытаемся создать 2 бота одновременно
+      // Один должен пройти, второй должен упасть по лимиту
+      const [result1, result2] = await Promise.allSettled([
+        createTestBot('parallel-token-1', 'Parallel Bot 1'),
+        createTestBot('parallel-token-2', 'Parallel Bot 2'),
+      ]);
+      
+      // Один должен быть успешным, второй - отклонен
+      const successCount = [result1, result2].filter(r => r.status === 'fulfilled').length;
+      const failureCount = [result1, result2].filter(r => r.status === 'rejected').length;
+      
+      expect(successCount).toBe(1);
+      expect(failureCount).toBe(1);
+      
+      // Проверяем что в БД ровно MAX_BOTS_PER_USER ботов (не больше)
+      count = await countActiveBotsByUserId(currentUserId);
+      expect(count).toBe(BOT_LIMITS.MAX_BOTS_PER_USER);
+      
+      // Проверяем что один из запросов вернул ошибку о лимите
+      const rejectedReasons = [result1, result2]
+        .filter(r => r.status === 'rejected')
+        .map(r => (r as PromiseRejectedResult).reason);
+      
+      const hasLimitError = rejectedReasons.some(
+        (reason: any) => reason?.message?.includes('Bot limit reached')
+      );
+      expect(hasLimitError).toBe(true);
+    });
   });
 
   describe('updateWebhookStatus', () => {
