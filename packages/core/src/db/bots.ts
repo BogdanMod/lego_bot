@@ -55,9 +55,20 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
   try {
     await client.query('BEGIN');
     
-    // Проверка лимита с защитой от race condition (внутри транзакции с FOR UPDATE)
-    const activeCount = await countActiveBotsByUserId(data.user_id, client);
+    // Advisory lock для защиты от race condition: блокируем создание ботов для одного user_id
+    // pg_advisory_xact_lock автоматически освобождается при COMMIT/ROLLBACK
+    await client.query('SELECT pg_advisory_xact_lock($1)', [data.user_id]);
+    
+    // Проверка лимита после получения lock (без FOR UPDATE, т.к. advisory lock уже защищает)
     const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
+    const countResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM bots
+       WHERE user_id = $1 AND is_active = true`,
+      [data.user_id]
+    );
+    const activeCount = parseInt(countResult.rows[0]?.count || '0', 10);
+    
     logger.info({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Checking bot limit');
     if (activeCount >= BOT_LIMITS.MAX_BOTS_PER_USER) {
       await client.query('ROLLBACK');
@@ -329,8 +340,8 @@ export async function setBotWebhookSecret(
  * Удалить бота
  */
 /**
- * Подсчитать количество активных ботов пользователя (для проверки лимита)
- * Использует FOR UPDATE для защиты от race condition
+ * Подсчитать количество активных ботов пользователя
+ * Примечание: для защиты от race condition используйте pg_advisory_xact_lock в транзакции перед вызовом
  */
 export async function countActiveBotsByUserId(userId: number, client?: PoolClient): Promise<number> {
   const dbClient = client || await getPostgresClient();
@@ -340,8 +351,7 @@ export async function countActiveBotsByUserId(userId: number, client?: PoolClien
     const result = await dbClient.query<{ count: string }>(
       `SELECT COUNT(*)::text as count
        FROM bots
-       WHERE user_id = $1 AND is_active = true
-       FOR UPDATE`,
+       WHERE user_id = $1 AND is_active = true`,
       [userId]
     );
     
