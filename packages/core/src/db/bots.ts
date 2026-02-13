@@ -13,6 +13,24 @@ import { logAuditEvent } from './audit-log';
 
 const logger = createLogger('bots');
 
+/**
+ * Ошибка достижения лимита ботов
+ */
+export class BotLimitError extends Error {
+  public readonly userId: number;
+  public readonly activeCount: number;
+  public readonly limit: number;
+  public readonly code = 'BOT_LIMIT_REACHED';
+
+  constructor(userId: number, activeCount: number, limit: number) {
+    super(`Bot limit reached: ${activeCount}/${limit}`);
+    this.name = 'BotLimitError';
+    this.userId = userId;
+    this.activeCount = activeCount;
+    this.limit = limit;
+  }
+}
+
 export interface Bot {
   id: string;
   user_id: number;

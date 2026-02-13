@@ -227,7 +227,7 @@ describe('bots CRUD operations', () => {
 
     it('should prevent race condition with parallel bot creation', async () => {
       const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
-      const { countActiveBotsByUserId } = await import('../bots');
+      const { countActiveBotsByUserId, BotLimitError } = await import('../bots');
       
       // Создаем ботов до лимита - 1
       const bots = [];
@@ -239,33 +239,40 @@ describe('bots CRUD operations', () => {
       let count = await countActiveBotsByUserId(currentUserId);
       expect(count).toBe(BOT_LIMITS.MAX_BOTS_PER_USER - 1);
       
-      // Параллельно пытаемся создать 2 бота одновременно
-      // Один должен пройти, второй должен упасть по лимиту
-      const [result1, result2] = await Promise.allSettled([
-        createTestBot('parallel-token-1', 'Parallel Bot 1'),
-        createTestBot('parallel-token-2', 'Parallel Bot 2'),
-      ]);
+      // Барьер запуска: создаем массив промисов, которые стартуют одновременно
+      const parallelCount = 10;
+      const promises: Promise<any>[] = [];
       
-      // Один должен быть успешным, второй - отклонен
-      const successCount = [result1, result2].filter(r => r.status === 'fulfilled').length;
-      const failureCount = [result1, result2].filter(r => r.status === 'rejected').length;
+      // Запускаем все промисы одновременно через Promise.allSettled
+      const results = await Promise.allSettled(
+        Array.from({ length: parallelCount }, (_, i) =>
+          createTestBot(`parallel-token-${i}`, `Parallel Bot ${i}`)
+        )
+      );
       
-      expect(successCount).toBe(1);
-      expect(failureCount).toBe(1);
+      // Один должен быть успешным, остальные - отклонены
+      const fulfilled = results.filter(r => r.status === 'fulfilled');
+      const rejected = results.filter(r => r.status === 'rejected');
       
-      // Проверяем что в БД ровно MAX_BOTS_PER_USER ботов (не больше)
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(parallelCount - 1);
+      
+      // Проверяем что в БД ровно MAX_BOTS_PER_USER ботов (не больше, не меньше)
       count = await countActiveBotsByUserId(currentUserId);
       expect(count).toBe(BOT_LIMITS.MAX_BOTS_PER_USER);
       
-      // Проверяем что один из запросов вернул ошибку о лимите
-      const rejectedReasons = [result1, result2]
-        .filter(r => r.status === 'rejected')
+      // Проверяем что все отклоненные запросы вернули BotLimitError
+      const rejectedReasons = rejected
         .map(r => (r as PromiseRejectedResult).reason);
       
-      const hasLimitError = rejectedReasons.some(
-        (reason: any) => reason?.message?.includes('Bot limit reached')
+      const allLimitErrors = rejectedReasons.every(
+        (reason: any) => reason instanceof BotLimitError || reason?.message?.includes('Bot limit reached')
       );
-      expect(hasLimitError).toBe(true);
+      expect(allLimitErrors).toBe(true);
+      
+      // Дополнительная проверка: убеждаемся что ни один запрос не создал лишнего бота
+      // (count должен быть ровно limit, не больше)
+      expect(count).toBeLessThanOrEqual(BOT_LIMITS.MAX_BOTS_PER_USER);
     });
   });
 
