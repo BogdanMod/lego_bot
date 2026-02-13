@@ -178,20 +178,51 @@ describe('bots CRUD operations', () => {
   });
 
   describe('deleteBot', () => {
-    it('should delete bot', async () => {
+    it('should soft delete bot (is_active = false)', async () => {
       const bot = await createTestBot('token', 'Bot');
 
       const result = await deleteBot(bot.id, currentUserId);
       const fetched = await getBotById(bot.id, currentUserId);
 
       expect(result).toBe(true);
-      expect(fetched).toBeNull();
+      expect(fetched).toBeNull(); // getBotById фильтрует по is_active = true
     });
 
     it('should return false when bot not found', async () => {
       const result = await deleteBot('00000000-0000-0000-0000-000000000000', currentUserId);
 
       expect(result).toBe(false);
+    });
+
+    it('should exclude deleted bots from limit count', async () => {
+      const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
+      const { countActiveBotsByUserId } = await import('../bots');
+      
+      // Создаем 5 ботов (лимит)
+      const bots = [];
+      for (let i = 0; i < BOT_LIMITS.MAX_BOTS_PER_USER; i++) {
+        bots.push(await createTestBot(`token-${i}`, `Bot ${i}`));
+      }
+      
+      // Проверяем что лимит достигнут
+      let count = await countActiveBotsByUserId(currentUserId);
+      expect(count).toBe(BOT_LIMITS.MAX_BOTS_PER_USER);
+      
+      // Удаляем все 5 ботов
+      for (const bot of bots) {
+        await deleteBot(bot.id, currentUserId);
+      }
+      
+      // Проверяем что count = 0
+      count = await countActiveBotsByUserId(currentUserId);
+      expect(count).toBe(0);
+      
+      // Создание нового бота должно пройти
+      const newBot = await createTestBot('new-token', 'New Bot');
+      expect(newBot).toBeTruthy();
+      
+      count = await countActiveBotsByUserId(currentUserId);
+      expect(count).toBe(1);
     });
   });
 

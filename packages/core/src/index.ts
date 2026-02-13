@@ -15,7 +15,7 @@ import { createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcas
 import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
-import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot } from './db/bots';
+import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
@@ -3208,7 +3208,21 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
 
     const encryptedToken = encryptToken(token, encryptionKey);
     const context = (req as any).context;
-    const bot = await createBot({ user_id: userId, token: encryptedToken, name }, context);
+    let bot;
+    try {
+      bot = await createBot({ user_id: userId, token: encryptedToken, name }, context);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Bot limit reached')) {
+        logger.warn({ userId, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId }, 'Bot creation limit reached');
+        return res.status(429).json({
+          error: 'Bot limit reached',
+          message: `You can create maximum ${BOT_LIMITS.MAX_BOTS_PER_USER} bots`,
+          currentCount: activeCount,
+          maxAllowed: BOT_LIMITS.MAX_BOTS_PER_USER,
+        });
+      }
+      throw error;
+    }
 
     res.json({
       id: bot.id,

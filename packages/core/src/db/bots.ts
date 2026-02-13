@@ -7,9 +7,11 @@
 
 import { Pool, PoolClient } from 'pg';
 import { getPool, getPostgresClient } from './postgres';
-import { BotSchema, WEBHOOK_LIMITS } from '@dialogue-constructor/shared';
+import { BotSchema, WEBHOOK_LIMITS, createLogger } from '@dialogue-constructor/shared';
 import crypto from 'crypto';
 import { logAuditEvent } from './audit-log';
+
+const logger = createLogger('bots');
 
 export interface Bot {
   id: string;
@@ -20,6 +22,8 @@ export interface Bot {
   webhook_secret: string | null;
   schema: BotSchema | null;
   schema_version: number;
+  is_active: boolean;
+  deleted_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -50,10 +54,21 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
 
   try {
     await client.query('BEGIN');
+    
+    // Проверка лимита с защитой от race condition (внутри транзакции с FOR UPDATE)
+    const activeCount = await countActiveBotsByUserId(data.user_id, client);
+    const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
+    logger.info({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Checking bot limit');
+    if (activeCount >= BOT_LIMITS.MAX_BOTS_PER_USER) {
+      await client.query('ROLLBACK');
+      logger.warn({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Bot limit reached');
+      throw new Error(`Bot limit reached: ${activeCount}/${BOT_LIMITS.MAX_BOTS_PER_USER}`);
+    }
+    
     const result = await client.query<Bot>(
-      `INSERT INTO bots (user_id, token, name, webhook_set, schema, schema_version, webhook_secret)
-       VALUES ($1, $2, $3, false, NULL, 0, $4)
-       RETURNING id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at`,
+      `INSERT INTO bots (user_id, token, name, webhook_set, schema, schema_version, webhook_secret, is_active)
+       VALUES ($1, $2, $3, false, NULL, 0, $4, true)
+       RETURNING id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, is_active, deleted_at, created_at, updated_at`,
       [data.user_id, data.token, data.name, webhookSecret]
     );
     
@@ -113,9 +128,10 @@ export async function getBotsByUserId(userId: number): Promise<Bot[]> {
     
     try {
       const result = await client.query<Bot>(
-        `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at
+        `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, 
+                is_active, deleted_at, created_at, updated_at
          FROM bots
-         WHERE user_id = $1
+         WHERE user_id = $1 AND is_active = true
          ORDER BY created_at DESC`,
         [userId]
       );
@@ -182,9 +198,10 @@ export async function getBotsByUserIdPaginated(
     }
 
     const result = await client.query<Bot>(
-      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at
+      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, 
+              is_active, deleted_at, created_at, updated_at
        FROM bots
-       ${where}
+       ${where} AND is_active = true
        ORDER BY created_at DESC, id DESC
        LIMIT $2`,
       values
@@ -214,9 +231,10 @@ export async function getBotById(botId: string, userId: number): Promise<Bot | n
   
   try {
     const result = await client.query<Bot>(
-      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at
+      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, 
+              is_active, deleted_at, created_at, updated_at
        FROM bots
-       WHERE id = $1 AND user_id = $2`,
+       WHERE id = $1 AND user_id = $2 AND is_active = true`,
       [botId, userId]
     );
     
@@ -252,9 +270,10 @@ export async function getBotByWebhookSecret(webhookSecret: string): Promise<Bot 
   
   try {
     const result = await client.query<Bot>(
-      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at
+      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, 
+              is_active, deleted_at, created_at, updated_at
        FROM bots
-       WHERE webhook_secret = $1`,
+       WHERE webhook_secret = $1 AND is_active = true`,
       [webhookSecret]
     );
     
@@ -272,7 +291,8 @@ export async function getBotByIdAnyUser(botId: string): Promise<Bot | null> {
 
   try {
     const result = await client.query<Bot>(
-      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, created_at, updated_at
+      `SELECT id, user_id, token, name, webhook_set, schema, schema_version, webhook_secret, 
+              is_active, deleted_at, created_at, updated_at
        FROM bots
        WHERE id = $1`,
       [botId]
@@ -308,12 +328,44 @@ export async function setBotWebhookSecret(
 /**
  * Удалить бота
  */
+/**
+ * Подсчитать количество активных ботов пользователя (для проверки лимита)
+ * Использует FOR UPDATE для защиты от race condition
+ */
+export async function countActiveBotsByUserId(userId: number, client?: PoolClient): Promise<number> {
+  const dbClient = client || await getPostgresClient();
+  const shouldRelease = !client;
+  
+  try {
+    const result = await dbClient.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM bots
+       WHERE user_id = $1 AND is_active = true
+       FOR UPDATE`,
+      [userId]
+    );
+    
+    return parseInt(result.rows[0]?.count || '0', 10);
+  } finally {
+    if (shouldRelease) {
+      dbClient.release();
+    }
+  }
+}
+
 export async function deleteBot(botId: string, userId: number, context?: AuditContext): Promise<boolean> {
   const client = await getPostgresClient();
   
   try {
+    // Soft delete: устанавливаем is_active = false, deleted_at = NOW(), webhook_set = false
     const result = await client.query(
-      `DELETE FROM bots WHERE id = $1 AND user_id = $2`,
+      `UPDATE bots 
+       SET is_active = false, 
+           deleted_at = NOW(), 
+           webhook_set = false,
+           updated_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND is_active = true
+       RETURNING id`,
       [botId, userId]
     );
     
@@ -962,6 +1014,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_usage_daily_unique
 CREATE INDEX IF NOT EXISTS idx_bot_usage_daily_bot_date
   ON bot_usage_daily(bot_id, date DESC);
 `,
+  '021_add_bot_soft_delete': `
+-- Добавление полей для soft delete ботов
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+
+-- Комментарии к полям
+COMMENT ON COLUMN bots.is_active IS 'Флаг активности бота (false = удален)';
+COMMENT ON COLUMN bots.deleted_at IS 'Время удаления бота (soft delete)';
+
+-- Индекс для быстрого подсчета активных ботов пользователя
+CREATE INDEX IF NOT EXISTS idx_bots_user_id_active
+  ON bots(user_id)
+  WHERE is_active = true;
+
+-- Обновление существующих записей: все существующие боты считаются активными
+UPDATE bots SET is_active = true, deleted_at = NULL WHERE is_active IS NULL OR deleted_at IS NOT NULL;
+`,
 };
 
 /**
@@ -995,6 +1064,7 @@ export async function initializeBotsTable(): Promise<void> {
     '018_create_owner_operational_tables',
     '019_create_owner_events_and_audit',
     '020_create_bot_usage_daily',
+    '021_add_bot_soft_delete',
   ];
   
   for (const migrationKey of migrationKeys) {
