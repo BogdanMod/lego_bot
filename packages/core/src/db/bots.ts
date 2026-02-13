@@ -387,8 +387,49 @@ export async function setBotWebhookSecret(
 }
 
 /**
- * Удалить бота
+ * Сбросить всех активных ботов пользователя (soft delete)
+ * Используется для админских операций и отладки
  */
+export async function resetUserBots(userId: number, context?: AuditContext): Promise<number> {
+  const client = await getPostgresClient();
+  
+  try {
+    const result = await client.query<{ id: string }>(
+      `UPDATE bots 
+       SET is_active = false, 
+           deleted_at = NOW(), 
+           webhook_set = false,
+           updated_at = NOW()
+       WHERE user_id = $1 AND is_active = true
+       RETURNING id`,
+      [userId]
+    );
+    
+    const deletedCount = result.rowCount || 0;
+    if (deletedCount > 0) {
+      logger.info({ userId, deletedCount, requestId: context?.requestId }, 'User bots reset (soft delete)');
+      
+      try {
+        await logAuditEvent({
+          userId,
+          requestId: context?.requestId,
+          action: 'reset_user_bots',
+          resourceType: 'bot',
+          resourceId: null,
+          metadata: { deletedCount },
+          ipAddress: context?.ipAddress,
+          userAgent: context?.userAgent,
+        });
+      } catch (error) {
+        logger.error({ error }, 'Audit log failed');
+      }
+    }
+    return deletedCount;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Подсчитать количество активных ботов пользователя
  * Примечание: для защиты от race condition используйте pg_advisory_xact_lock в транзакции перед вызовом
