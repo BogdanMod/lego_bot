@@ -15,10 +15,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "baseUrl": ".",
-    "paths": {
-      "@dialogue-constructor/shared/*": ["../shared/src/*"]
-    }
+  "baseUrl": ".",
+  "paths": {
+    "@dialogue-constructor/shared": ["../shared/src/index.ts"],
+    "@dialogue-constructor/shared/*": ["../shared/src/*"]
+  }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
