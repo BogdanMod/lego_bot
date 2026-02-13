@@ -415,7 +415,7 @@ export async function resetUserBots(userId: number, context?: AuditContext): Pro
           requestId: context?.requestId,
           action: 'reset_user_bots',
           resourceType: 'bot',
-          resourceId: null,
+          resourceId: undefined,
           metadata: { deletedCount },
           ipAddress: context?.ipAddress,
           userAgent: context?.userAgent,
