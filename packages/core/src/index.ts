@@ -15,7 +15,7 @@ import { createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcas
 import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
-import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError } from './db/bots';
+import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError, resetUserBots } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';

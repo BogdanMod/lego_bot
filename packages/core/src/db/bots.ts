@@ -95,7 +95,21 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     
     logger.info({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Checking bot limit');
     if (activeCount >= BOT_LIMITS.MAX_BOTS_PER_USER) {
-      logger.warn({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Bot limit reached');
+      // Получаем список последних 10 активных ботов для диагностики
+      const botIdsResult = await client.query<{ id: string }>(
+        `SELECT id FROM bots WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 10`,
+        [data.user_id]
+      );
+      const botIds = botIdsResult.rows.map(row => row.id);
+      
+      logger.warn({ 
+        userId: data.user_id, 
+        activeCount, 
+        limit: BOT_LIMITS.MAX_BOTS_PER_USER, 
+        botIds,
+        requestId: context?.requestId 
+      }, 'Bot limit reached - active bots in DB');
+      
       // Не делаем ROLLBACK здесь - он будет в catch
       throw new BotLimitError(data.user_id, activeCount, BOT_LIMITS.MAX_BOTS_PER_USER);
     }
@@ -148,8 +162,12 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     try {
       await client.query('ROLLBACK');
     } catch (rollbackError: any) {
-      // Игнорируем ошибки типа "нет активной транзакции" (код 25xxx в PostgreSQL)
-      if (!rollbackError?.message?.includes('no transaction') && !rollbackError?.code?.includes('25')) {
+      // Строго игнорируем только 25P01 (no_active_sql_transaction) и сообщение /no transaction/i
+      const isNoTransactionError = 
+        rollbackError?.code === '25P01' ||
+        /no transaction/i.test(rollbackError?.message || '');
+      
+      if (!isNoTransactionError) {
         logger.error({ error: rollbackError, originalError: error }, 'Failed to rollback transaction');
       }
     }
