@@ -2719,6 +2719,44 @@ app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, async (r
   });
 });
 
+// Admin endpoint для сброса ботов пользователя (только dev или admin)
+app.post('/api/admin/bots/reset-user', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const userId = (req as any).user.id;
+  const isAdmin = isAdminUser(userId);
+  
+  if (!isDev && !isAdmin) {
+    return res.status(403).json({ error: 'Forbidden: admin or dev only' });
+  }
+  
+  const body = req.body as { userId: number };
+  if (!body.userId || typeof body.userId !== 'number') {
+    return res.status(400).json({ error: 'Invalid userId' });
+  }
+  
+  try {
+    const deletedCount = await resetUserBots(body.userId, {
+      requestId: getRequestId() ?? (req as any)?.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    
+    logger.info({ adminUserId: userId, targetUserId: body.userId, deletedCount }, 'Admin reset user bots');
+    return res.json({ 
+      success: true, 
+      userId: body.userId, 
+      deletedCount,
+      message: `Soft deleted ${deletedCount} active bot(s) for user ${body.userId}`,
+    });
+  } catch (error) {
+    logger.error({ error, targetUserId: body.userId }, 'Failed to reset user bots');
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
   const bots = await getOwnerAccessibleBots(owner.sub);
