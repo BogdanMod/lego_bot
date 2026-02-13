@@ -2167,9 +2167,10 @@ function requireAdminSecret(req: Request, res: Response, next: NextFunction) {
  * Strict admin middleware: requires userId (from requireUserId), admin check, and secret header
  */
 function requireStrictAdmin(req: Request, res: Response, next: NextFunction) {
-  requireAdmin(req, res, () => {
+  requireAdmin(req, res, ((err?: any) => {
+    if (err) return next(err);
     requireAdminSecret(req, res, next);
-  });
+  }) as NextFunction);
 }
 
 /**
