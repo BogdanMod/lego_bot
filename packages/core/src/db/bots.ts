@@ -144,7 +144,15 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     await client.query('COMMIT');
     return bot;
   } catch (error) {
-    await client.query('ROLLBACK');
+    // Safe rollback: если транзакция уже не активна, не падаем
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError: any) {
+      // Игнорируем ошибки типа "нет активной транзакции" (код 25xxx в PostgreSQL)
+      if (!rollbackError?.message?.includes('no transaction') && !rollbackError?.code?.includes('25')) {
+        logger.error({ error: rollbackError, originalError: error }, 'Failed to rollback transaction');
+      }
+    }
     throw error;
   } finally {
     client.release();
