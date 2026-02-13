@@ -24,9 +24,22 @@ export default defineConfig({
   server: {
     port: 5174,
     host: true,
+    allowedHosts: [
+      'miniapp-production-aa17.up.railway.app',
+      // Support Railway dynamic domains
+      '.up.railway.app',
+    ],
     fs: {
       allow: ['..'],
     },
+  },
+  preview: {
+    host: true,
+    allowedHosts: [
+      'miniapp-production-aa17.up.railway.app',
+      // Support Railway dynamic domains
+      '.up.railway.app',
+    ],
   },
 });
 
