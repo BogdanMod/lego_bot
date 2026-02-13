@@ -8,14 +8,37 @@ export * from './constants/limits-browser';
 
 // Validation schemas (Zod - browser-safe)
 // validateBotSchema is server-only and intentionally not exported here.
-export * from './validation/schemas';
+// Import first, then re-export explicitly for Rollup/Vite compatibility
+import {
+  UpdateBotSchemaSchema,
+  CreateBotSchema,
+  BotIdSchema,
+  UserIdSchema,
+  PaginationSchema,
+  CreateBroadcastSchema,
+  BroadcastIdSchema,
+  UpdateBroadcastStatusSchema,
+  TelegramUpdateSchema,
+} from './validation/schemas';
+
+// Re-export explicitly to ensure Rollup can resolve exports
+export {
+  UpdateBotSchemaSchema,
+  CreateBotSchema,
+  BotIdSchema,
+  UserIdSchema,
+  PaginationSchema,
+  CreateBroadcastSchema,
+  BroadcastIdSchema,
+  UpdateBroadcastStatusSchema,
+  TelegramUpdateSchema,
+};
 
 // Browser-safe utilities
 export { sanitizeHtml, sanitizeText, sanitizeBotSchema } from './utils/sanitize';
 
 // Explicit re-exports for better type visibility
 export type { BotSchema, BotButton, NavigationButton, RequestContactButton, RequestEmailButton, UrlButton, MediaContent, MediaGroupItem, WebhookConfig, IntegrationTemplate } from './types/bot-schema-browser';
-export { UpdateBotSchemaSchema, CreateBotSchema, BotIdSchema, UserIdSchema, PaginationSchema, CreateBroadcastSchema, BroadcastIdSchema, UpdateBroadcastStatusSchema, TelegramUpdateSchema } from './validation/schemas';
 
 // Shared interfaces
 export interface User {
