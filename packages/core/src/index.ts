@@ -3012,6 +3012,55 @@ app.post('/api/admin/bots/reset-user', ensureDatabasesInitialized as any, requir
   }
 });
 
+// DEV endpoint: reset current user's bots (only in non-production)
+app.post('/api/dev/bots/reset-me', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
+  // Only allow in non-production environments
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const currentUserId = (req as any)?.user?.id as number | undefined;
+
+  if (!currentUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const deletedCount = await resetUserBots(currentUserId, {
+      requestId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    logger.info({
+      requestId,
+      userId: currentUserId,
+      deletedCount,
+      action: 'dev_reset_my_bots',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    }, 'DEV: User reset their own bots');
+
+    return res.json({
+      success: true,
+      deletedCount,
+    });
+  } catch (error) {
+    logger.error({
+      requestId,
+      userId: currentUserId,
+      error,
+      action: 'dev_reset_my_bots_failed',
+    }, 'DEV: Failed to reset user bots');
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
   const bots = await getOwnerAccessibleBots(owner.sub);
