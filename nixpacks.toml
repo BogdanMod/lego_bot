@@ -15,5 +15,5 @@ cmds = [
 ]
 
 [start]
-cmd = "pnpm --filter @dialogue-constructor/owner-web start"
+cmd = "cd packages/owner-web && PORT=${PORT:-8080} pnpm start"
 
