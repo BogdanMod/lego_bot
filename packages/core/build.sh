@@ -6,11 +6,10 @@ echo "🔨 Building @dialogue-constructor/core with dependencies..."
 # Navigate to monorepo root
 cd "$(dirname "$0")/../.."
 
-# Vercel already installs dependencies.
-# Safety net: only run npm ci if we're on Vercel/CI AND node_modules is unexpectedly missing.
+# Safety net: only run npm ci if we're on CI AND node_modules is unexpectedly missing.
 # (Avoids wasted time + potential conflicts with pnpm/yarn on local machines.)
-if { [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; } && [ ! -d "node_modules" ]; then
-  echo "📦 Installing dependencies (unexpected missing node_modules on CI/Vercel)..."
+if [ "${CI:-}" = "1" ] && [ ! -d "node_modules" ]; then
+  echo "📦 Installing dependencies (unexpected missing node_modules on CI)..."
   npm ci || true
 fi
 
@@ -71,10 +70,10 @@ fi
 # Ensure core's node_modules exists
 mkdir -p packages/core/node_modules/@dialogue-constructor
 
-# PATCH (CI/Vercel only):
-# We copy built artifacts into core/node_modules so the serverless runtime can resolve
+# PATCH (CI only):
+# We copy built artifacts into core/node_modules so the runtime can resolve
 # @dialogue-constructor/shared/dist* files. Doing this locally can break workspace/pnpm symlinks.
-if [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; then
+if [ "${CI:-}" = "1" ]; then
   # Remove old shared package if exists
   rm -rf packages/core/node_modules/@dialogue-constructor/shared
 
@@ -84,7 +83,7 @@ if [ "${VERCEL:-}" = "1" ] || [ "${CI:-}" = "1" ]; then
   # Copy built artifacts and package.json
   # If shared starts shipping additional runtime assets (types, schemas, wasm, json, templates, etc.),
   # extend the copy list below accordingly.
-  echo "📋 (CI/Vercel) Copying built shared package to core/node_modules..."
+  echo "📋 (CI) Copying built shared package to core/node_modules..."
   cp -r packages/shared/dist packages/core/node_modules/@dialogue-constructor/shared/
   cp -r packages/shared/dist-cjs packages/core/node_modules/@dialogue-constructor/shared/
   cp packages/shared/package.json packages/core/node_modules/@dialogue-constructor/shared/

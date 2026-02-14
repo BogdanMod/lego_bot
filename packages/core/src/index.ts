@@ -133,7 +133,7 @@ let appInitialized = false;
 const PORT = process.env.PORT || 3000;
 let botInstance: Telegraf<Scenes.SceneContext> | null = null;
 
-// Global cache for Vercel serverless (процесс переиспользуется между запросами)
+// Global cache for bot instance (процесс переиспользуется между запросами)
 declare global {
   var __CACHED_BOT_INSTANCE__: Telegraf<Scenes.SceneContext> | undefined;
   var __BOT_INITIALIZED__: boolean | undefined;
@@ -188,9 +188,9 @@ async function getMaintenanceStateCached(force = false): Promise<MaintenanceStat
 }
 
 async function initBot(): Promise<void> {
-  // Проверка глобального кеша (Vercel warm start)
+  // Проверка глобального кеша
   if (global.__CACHED_BOT_INSTANCE__) {
-    logger.info('♻️ Reusing cached bot instance (Vercel warm start)');
+    logger.info('♻️ Reusing cached bot instance');
     botInstance = global.__CACHED_BOT_INSTANCE__;
     botInitialized = global.__BOT_INITIALIZED__ || false;
     return;
@@ -493,7 +493,7 @@ async function initBot(): Promise<void> {
         return;
       }
 
-      const apiUrl = process.env.API_URL || 'https://lego-bot-core.vercel.app';
+      const apiUrl = process.env.API_URL || 'https://your-core.railway.app';
       const webhookUrl = `${apiUrl}/api/webhook`;
       const secretToken = process.env.TELEGRAM_SECRET_TOKEN;
       
@@ -508,7 +508,7 @@ async function initBot(): Promise<void> {
           `✅ <b>Webhook для основного бота настроен!</b>\n\n` +
           `🔗 URL: <code>${webhookUrl}</code>\n` +
           `🔒 Secret Token: ${secretToken ? '✅ Установлен' : '⚠️ Не установлен'}\n\n` +
-          `Теперь бот будет работать на Vercel.\n\n` +
+          `Теперь бот будет работать на Railway.\n\n` +
           (secretToken ? '' : '⚠️ Рекомендуется установить TELEGRAM_SECRET_TOKEN для безопасности.'),
           { parse_mode: 'HTML' }
         );
@@ -669,36 +669,10 @@ async function initBot(): Promise<void> {
   global.__BOT_INITIALIZED__ = true;
   logger.info('✅ Bot initialized successfully');
 
-  // Запуск бота через long polling (только локально, не на Vercel)
-  if (process.env.VERCEL !== '1') {
-    botInstance.launch({
-      allowedUpdates: ['message', 'callback_query'],
-      dropPendingUpdates: false,
-    }).then(() => {
-      logger.info('✅ Telegram bot started successfully (long polling)');
-      logger.info('✅ Бот готов к работе');
-      botInstance?.telegram.getMe().then((botInfo) => {
-        logger.info(
-          { id: botInfo.id, username: botInfo.username, firstName: botInfo.first_name },
-          '🤖 Bot info:'
-        );
-        logger.info('💡 Отправьте боту /start для проверки');
-      }).catch((error) => {
-        logger.error({ error }, 'Failed to fetch bot info');
-      });
-    }).catch((error) => {
-      logger.error({ error }, '❌ Failed to launch bot:');
-      logger.error('Проверьте:');
-      logger.error('1. Правильность токена в .env файле');
-      logger.error('2. Подключение к интернету');
-      logger.error('3. Доступность Telegram API');
-    });
-  } else {
-    logger.info('🔗 Bot configured for webhook mode (Vercel serverless)');
-    logger.info('📡 Webhook endpoint: /api/webhook');
-    logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
-    logger.info('💡 Используйте: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://lego-bot-core.vercel.app/api/webhook');
-  }
+  // Запуск бота через webhook (Railway production)
+  logger.info('🔗 Bot configured for webhook mode');
+  logger.info('📡 Webhook endpoint: /api/webhook');
+  logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
 }
 
 declare global {
@@ -740,7 +714,7 @@ let dbInitialized = false;
 let dbInitializationPromise: Promise<void> | null = null;
 let redisAvailable = true;
 let redisSkipped = false; // true if intentionally skipped
-let redisSkipReason: 'missing_url' | 'localhost_on_vercel' | null = null;
+let redisSkipReason: 'missing_url' | 'localhost' | null = null;
 let webhookSecurityEnabled = true;
 let botEnabled = true;
 let encryptionAvailable = true;
@@ -899,13 +873,9 @@ type EnvValidationResult = {
 
 function validateRequiredEnvVars(): EnvValidationResult {
   const isSet = (key: string) => String(process.env[key] ?? '').trim().length > 0;
-  const isVercel = process.env.VERCEL === '1';
-  const infraRequired = isVercel
-    ? ['DATABASE_URL', 'ENCRYPTION_KEY', 'TELEGRAM_BOT_TOKEN']
-    : ['DATABASE_URL'];
+  const infraRequired = ['DATABASE_URL'];
   const featureRequired = ['TELEGRAM_BOT_TOKEN', 'ENCRYPTION_KEY'];
-  const vercelRecommended = ['TELEGRAM_SECRET_TOKEN'];
-  const optional = ['REDIS_URL'];
+  const optional = ['REDIS_URL', 'TELEGRAM_SECRET_TOKEN'];
 
   const buildGroup = (keys: string[]): EnvGroupStatus => ({
     present: keys.filter((key) => isSet(key)),
@@ -914,22 +884,20 @@ function validateRequiredEnvVars(): EnvValidationResult {
 
   const infraStatus = buildGroup(infraRequired);
   const featureStatus = buildGroup(featureRequired);
-  const vercelRecommendedStatus = buildGroup(vercelRecommended);
   const optionalStatus = buildGroup(optional);
 
   return {
     infraRequired: infraStatus,
     featureRequired: featureStatus,
-    vercelRecommended: vercelRecommendedStatus,
+    vercelRecommended: { present: [], missing: [] },
     optional: optionalStatus,
     allInfraPresent: infraStatus.missing.length === 0,
-    isVercel,
+    isVercel: false,
   };
 }
 
 async function initializeDatabases() {
-  const isVercel = process.env.VERCEL === '1';
-  const initializationTimeoutMs = isVercel ? getPostgresConnectRetryBudgetMs() + 2000 : 0;
+  const initializationTimeoutMs = 0;
 
   if (dbInitialized) {
     logger.info('✅ Databases already initialized');
@@ -951,8 +919,6 @@ async function initializeDatabases() {
   logger.info('🔧 Environment variables:');
   logger.info({ value: process.env.DATABASE_URL ? 'SET' : 'NOT SET' }, '  DATABASE_URL:');
   logger.info({ value: process.env.REDIS_URL ? 'SET' : 'NOT SET' }, '  REDIS_URL:');
-  logger.info({ value: process.env.VERCEL }, '  VERCEL:');
-  logger.info({ value: process.env.VERCEL_ENV }, '  VERCEL_ENV:');
 
   logger.info('🔍 Environment Variables Validation:');
   const envCheck = validateRequiredEnvVars();
@@ -983,11 +949,7 @@ async function initializeDatabases() {
     logger.warn(`⚠️ Optional missing: ${optionalMissing.join(', ')}`);
   }
   if (!secretTokenPresent) {
-    if (isVercel) {
-      logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN. Generate with: openssl rand -hex 32');
-    } else {
-      logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
-    }
+    logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
   }
 
   botEnabled = botTokenPresent;
@@ -1004,9 +966,6 @@ async function initializeDatabases() {
     }`
   );
   logger.info(`  REDIS_URL: ${process.env.REDIS_URL ? '✅ SET' : '⚠️ MISSING (optional)'}`);
-  if (isVercel) {
-    logger.info('🔧 Vercel deployment detected - strict validation enabled');
-  }
 
   if (!botEnabled) {
     logger.error('❌ TELEGRAM_BOT_TOKEN is missing; bot features are disabled');
@@ -1016,27 +975,9 @@ async function initializeDatabases() {
   }
 
   if (!envCheck.allInfraPresent) {
-    if (
-      isVercel &&
-      (envCheck.infraRequired.missing.includes('ENCRYPTION_KEY') ||
-        envCheck.infraRequired.missing.includes('TELEGRAM_BOT_TOKEN'))
-    ) {
-      const error = new Error(
-        `Missing critical environment variables for Vercel deployment: ${envCheck.infraRequired.missing.join(', ')}. ` +
-          'Configure them in Vercel Dashboard → [Project Name] → Settings → Environment Variables → Add. ' +
-          'Required: DATABASE_URL, ENCRYPTION_KEY, TELEGRAM_BOT_TOKEN. ' +
-          'Recommended: TELEGRAM_SECRET_TOKEN. ' +
-          'See .env.example for generation instructions. ' +
-          'https://vercel.com/docs/projects/environment-variables'
-      );
-      (error as any).missingVars = envCheck.infraRequired.missing;
-      throw error;
-    }
-
     const error = new Error(
       `Missing required environment variables: ${envCheck.infraRequired.missing.join(', ')}. ` +
-        `Present: ${envCheck.infraRequired.present.join(', ') || 'none'}. ` +
-        'Check Vercel Dashboard → Project Settings → Environment Variables.'
+        `Present: ${envCheck.infraRequired.present.join(', ') || 'none'}.`
     );
     (error as any).missingVars = envCheck.infraRequired.missing;
     throw error;
@@ -1055,7 +996,7 @@ async function initializeDatabases() {
   dbInitializationPromise = (async () => {
     try {
       const connection = getSafePostgresConnectionInfo(process.env.DATABASE_URL);
-      const environment = isVercel ? 'Vercel serverless' : 'Local/traditional';
+      const environment = 'Railway production';
       logger.info({ connection, environment }, 'PostgreSQL connection state: connecting');
       logger.info('🐘 Initializing PostgreSQL...');
       const postgresStart = Date.now();
@@ -1197,7 +1138,6 @@ async function initializeDatabases() {
         logger.error(
           {
             missingVars: (error as any).missingVars,
-            vercelDashboard: 'https://vercel.com/dashboard',
             action: 'Add missing variables in Project Settings → Environment Variables',
           },
           'Environment configuration required'
@@ -1225,11 +1165,7 @@ let databasesInitialized = false;
 let ensureDbInitPromise: Promise<void> | null = null;
 
 async function prewarmConnections() {
-  const isVercel = process.env.VERCEL === '1';
-  if (!isVercel) {
-    return;
-  }
-
+  // Prewarm connections on startup (Railway)
   try {
     const client = await getPostgresClient();
     await client.query('SELECT 1');
@@ -1320,7 +1256,6 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
       { requestId, value: process.env.REDIS_URL ? 'SET' : 'NOT SET' },
       '  REDIS_URL:'
     );
-    logger.warn({ requestId, value: process.env.VERCEL }, '  VERCEL:');
     logger.warn({ requestId, value: process.env.NODE_ENV }, '  NODE_ENV:');
     logger.warn({ requestId, poolState }, '🔍 PostgreSQL pool state:');
     logger.warn({ requestId, postgresConnectionInfo }, '🔍 PostgreSQL connection info:');
@@ -1369,10 +1304,7 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
     }
     if (allowEnvDetails || requiresEncryption || requiresBot) {
       responsePayload.troubleshooting = {
-        recommendation:
-          'Check Vercel Dashboard → Project Settings → Environment Variables',
-        vercelEnv: process.env.VERCEL_ENV,
-        isVercel: process.env.VERCEL === '1',
+        recommendation: 'Check environment variables',
         missingRequired: envCheck.infraRequired.missing,
       };
     }
@@ -1382,14 +1314,10 @@ async function ensureDatabasesInitialized(req: Request, res: Response, next: Fun
 }
 
 // Инициализация БД при запуске (не блокирующая)
-if (process.env.VERCEL !== '1' && process.env.NODE_ENV !== 'test') {
-  // Локально инициализируем сразу
+if (process.env.NODE_ENV !== 'test') {
   initializeDatabases().catch((error) => {
     logger.error({ error }, 'Failed to initialize databases on startup:');
   });
-} else {
-  // На Vercel инициализируем лениво при первом запросе
-  logger.info('📦 Vercel environment detected - databases will be initialized on first request');
 }
 
 let apiGeneralLimiter: ReturnType<typeof createRateLimiter> | null = null;
@@ -1457,7 +1385,7 @@ export function setRedisAvailableForTests(available: boolean): void {
 
 export function setRedisSkippedForTests(
   skipped: boolean,
-  reason: 'missing_url' | 'localhost_on_vercel' | null = null,
+  reason: 'missing_url' | 'localhost' | null = null,
 ): void {
   if (process.env.NODE_ENV !== 'test') {
     return;
@@ -1568,7 +1496,7 @@ const allowedOriginsFromEnv = corsOriginsEnv
 
 // Legacy env vars (for backward compatibility)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const MINI_APP_URL = process.env.MINI_APP_URL || 'https://lego-bot-miniapp.vercel.app';
+const MINI_APP_URL = process.env.MINI_APP_URL || 'https://your-miniapp.railway.app';
 const OWNER_WEB_BASE_URL = process.env.OWNER_WEB_BASE_URL || 'http://localhost:5175';
 
 // Telegram Mini App origins (always allowed for Mini App embedding)
@@ -1904,7 +1832,6 @@ app.use(logRateLimitMetrics(logger));
 // Health check
 app.get('/health', async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
-  const isVercel = process.env.VERCEL === '1';
   const allowEnvDetails =
     process.env.NODE_ENV !== 'production' ||
     (process.env.HEALTH_TOKEN &&
@@ -2000,7 +1927,6 @@ app.get('/health', async (req: Request, res: Response) => {
   const statusCode = status === 'error' ? 503 : 200;
   const timestamp = new Date().toISOString();
   const minimalConnectionInfo = (() => {
-    if (process.env.VERCEL !== '1') return null;
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) return null;
     const info = getPostgresConnectionInfo(dbUrl);
@@ -2058,8 +1984,6 @@ app.get('/health', async (req: Request, res: Response) => {
     status,
     timestamp,
     environment: {
-      vercel: isVercel,
-      vercelEnv: process.env.VERCEL_ENV,
       nodeEnv: process.env.NODE_ENV,
     },
     environmentVariables: {
@@ -4625,18 +4549,14 @@ app.use((err: any, req: Request, res: Response, next: Function) => {
 });
 }
 
-// Start server (only in non-serverless environment)
+// Start server
 async function startServer() {
-  if (process.env.VERCEL === '1') {
-    return;
-  }
-
   // Вызываем ensureBotInitialized вместо отдельных init
   await ensureBotInitialized();
   await initializeRateLimiters();
 
   const appInstance = createApp();
-  appInstance.listen(PORT, () => {
+  appInstance.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server is running on port ${PORT}`);
   });
 }
@@ -4647,11 +4567,7 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-// Export app for Vercel serverless functions
-import type { Express } from 'express';
-const appInstance: Express = createApp();
-export default appInstance;
-module.exports = appInstance; // Also export as CommonJS for compatibility
+// Export botInstance for webhook endpoint
 
 // Export botInstance for webhook endpoint
 export { botInstance, botInitialized, ensureBotInitialized, initBot };

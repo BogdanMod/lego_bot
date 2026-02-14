@@ -16,7 +16,7 @@ const redisRetryStats = { success: 0, failure: 0 };
 
 let forceRedisUnavailable = false;
 let lastRedisInitOutcome: 'ready' | 'skipped' | 'failed' = 'failed';
-let lastRedisSkipReason: 'missing_url' | 'localhost_on_vercel' | null = null;
+let lastRedisSkipReason: 'missing_url' | 'localhost' | null = null;
 type RedisDiagnosticsCategory = 'timeout' | 'auth' | 'refused' | 'dns' | 'unknown';
 
 function redactSecrets(input: string): string {
@@ -54,27 +54,16 @@ function diagnoseRedisError(
 let lastRedisDiagnostics: { category: RedisDiagnosticsCategory; hint: string } | null = null;
 let lastRedisErrorMessage: string | null = null; // Текст ошибки (sanitized)
 
-const isVercel = process.env.VERCEL === '1';
-
 export function getRedisInitOutcome(): 'ready' | 'skipped' | 'failed' {
   return lastRedisInitOutcome;
 }
 
-export function getRedisSkipReason(): 'missing_url' | 'localhost_on_vercel' | null {
+export function getRedisSkipReason(): 'missing_url' | 'localhost' | null {
   return lastRedisSkipReason;
 }
 
-const REDIS_RETRY_CONFIG = isVercel
-  ? {
-      maxRetries: 7,
-      initialDelayMs: 500,
-      maxDelayMs: 10000,
-      connectTimeoutMs: 5000,
-      readyTimeoutMs: 10000,
-      jitterMs: 1000,
-    }
-  : {
-      maxRetries: 5,
+const REDIS_RETRY_CONFIG = {
+  maxRetries: 5,
       initialDelayMs: 1000,
       maxDelayMs: 10000,
       connectTimeoutMs: 5000,
@@ -357,9 +346,7 @@ export async function initRedis(loggerInstance: Logger): Promise<AnyRedisClient 
 
   logger?.info({
     service: 'redis',
-    vercel: process.env.VERCEL,
-    vercelEnv: process.env.VERCEL_ENV,
-    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
+    environment: 'Railway production',
     retryConfig: {
       maxRetries: REDIS_RETRY_CONFIG.maxRetries,
       initialDelayMs: REDIS_RETRY_CONFIG.initialDelayMs,
@@ -371,22 +358,22 @@ export async function initRedis(loggerInstance: Logger): Promise<AnyRedisClient 
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
   const connectionInfo = getRedisConnectionInfo(redisUrl);
 
-  // Early exit for Vercel with localhost/missing Redis
-  if (isVercel) {
+  // Early exit for localhost/missing Redis
+  if (false) {
     const isLocalhost = connectionInfo.host === 'localhost' || connectionInfo.host === '127.0.0.1';
     const noRedisUrl = !process.env.REDIS_URL;
 
     if (noRedisUrl || isLocalhost) {
       lastRedisInitOutcome = 'skipped';
-      lastRedisSkipReason = noRedisUrl ? 'missing_url' : 'localhost_on_vercel';
+      lastRedisSkipReason = noRedisUrl ? 'missing_url' : 'localhost';
       lastRedisDiagnostics = null;
       lastRedisErrorMessage = null; // Не ошибка, а skip
       logger?.info({
         service: 'redis',
-        reason: noRedisUrl ? 'missing_url' : 'localhost_on_vercel',
+        reason: noRedisUrl ? 'missing_url' : 'localhost',
         host: connectionInfo.host,
-        environment: 'Vercel serverless',
-      }, '⏭️ Redis skipped on Vercel (localhost or missing URL)');
+        environment: 'Railway production',
+      }, '⏭️ Redis skipped (localhost or missing URL)');
       return null;
     }
   }

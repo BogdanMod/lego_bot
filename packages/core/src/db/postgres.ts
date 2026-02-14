@@ -1,5 +1,4 @@
 import { Pool, PoolClient } from 'pg';
-import * as vercelFunctions from '@vercel/functions';
 import { CircuitBreaker, CircuitBreakerOpenError } from '@dialogue-constructor/shared';
 import type { Logger } from '@dialogue-constructor/shared';
 
@@ -22,9 +21,6 @@ const postgresRetryStats = { success: 0, failure: 0 };
 type PostgresDiagnostics = ReturnType<typeof diagnoseConnectionError>;
 let lastPostgresDiagnostics: PostgresDiagnostics | null = null;
 
-const isVercel = process.env.VERCEL === '1';
-const attachDatabasePoolAvailable =
-  isVercel && typeof (vercelFunctions as any).attachDatabasePool === 'function';
 
 export type PostgresRetryConfig = {
   maxRetries: number;
@@ -40,24 +36,11 @@ export type PostgresPoolConfig = {
 };
 
 export function getPostgresPoolConfig(): PostgresPoolConfig {
-  if (isVercel) {
-    const vercelMaxRaw = Number(process.env.PG_POOL_MAX_VERCEL ?? 1);
-    const vercelMax =
-      Number.isFinite(vercelMaxRaw) && vercelMaxRaw > 0 ? vercelMaxRaw : 1;
-    return { max: vercelMax, idleTimeoutMillis: 15000, connectionTimeoutMillis: 3000 };
-  }
   return { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000 };
 }
 
-export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = isVercel
-  ? {
-      maxRetries: 2,
-      initialDelayMs: 3000,
-      maxDelayMs: 3000,
-      jitterMs: 500,
-    }
-  : {
-      maxRetries: 5,
+export const POSTGRES_RETRY_CONFIG: PostgresRetryConfig = {
+  maxRetries: 5,
       initialDelayMs: 1000,
       maxDelayMs: 10000,
       jitterMs: 2000,
@@ -210,7 +193,7 @@ function diagnoseConnectionError(error: unknown): { category: string; hint: stri
     return { category: 'dns', hint: 'Database host could not be resolved (check hostname/DNS)' };
   }
   if (combined.includes('etimedout') || combined.includes('timeout')) {
-    return { category: 'timeout', hint: 'Connection timed out (check network, Vercel access, firewall)' };
+    return { category: 'timeout', hint: 'Connection timed out (check network, firewall)' };
   }
   if (combined.includes('econnrefused')) {
     return { category: 'refused', hint: 'Connection refused (database not reachable or not running)' };
@@ -250,7 +233,7 @@ async function connectWithRetry(
   logger?.info({
     service: 'postgres',
     connection: connectionInfo,
-    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
+    environment: 'Railway production',
     maxRetries: POSTGRES_RETRY_CONFIG.maxRetries,
     initialDelayMs: POSTGRES_RETRY_CONFIG.initialDelayMs,
     maxDelayMs: POSTGRES_RETRY_CONFIG.maxDelayMs,
@@ -306,10 +289,7 @@ async function connectWithRetry(
           urlValid,
           diagnostics,
         }, 'PostgreSQL connection state: error');
-        const localhostHint =
-          isVercel && connectionInfo && isLocalhostHost(connectionInfo.host)
-            ? ' Check DATABASE_URL: localhost is unreachable on Vercel.'
-            : '';
+        const localhostHint = '';
         throw new Error(
           `PostgreSQL connection failed after ${attempt} attempts ` +
             `(${formatPostgresConnectionInfo(connectionInfo)}). ` +
@@ -343,43 +323,26 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
   if (!connectionString) {
     logger?.error({
       service: 'postgres',
-      environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
-      vercelEnv: process.env.VERCEL_ENV,
+      environment: 'Railway production',
       availableEnvVars: Object.keys(process.env).filter(
-        (key) => key.startsWith('DATABASE') || key.startsWith('VERCEL')
+        (key) => key.startsWith('DATABASE')
       ),
     }, '❌ DATABASE_URL not found');
     throw new Error(
-      'DATABASE_URL is not set in environment variables. ' +
-        'Check Vercel Dashboard → Project Settings → Environment Variables, ' +
-        'ensure it is set for the correct environment, and redeploy.'
+      'DATABASE_URL is not set in environment variables.'
     );
   }
 
   const poolConfig = getPostgresPoolConfig();
   const connectionInfo = getPostgresConnectionInfo(connectionString);
 
-  if (isVercel && connectionInfo && isLocalhostHost(connectionInfo.host)) {
-    logger?.error({
-      service: 'postgres',
-      environment: 'Vercel serverless',
-      detectedHost: connectionInfo.host,
-      vercelEnv: process.env.VERCEL_ENV,
-      hint: 'Use Neon (neon.tech) or Supabase (supabase.com) for serverless PostgreSQL',
-    }, '❌ Invalid DATABASE_URL: localhost detected on Vercel');
-    throw new Error(
-      `DATABASE_URL points to localhost (${connectionInfo.host}) on Vercel. ` +
-        'Use a production PostgreSQL service (Neon, Supabase, AWS RDS) with public endpoint. ' +
-        'Update DATABASE_URL in Vercel Dashboard → Settings → Environment Variables.'
-    );
-  }
 
   let finalConnectionString = connectionString;
   let finalPoolConfig = poolConfig;
   let poolOverridesActive = false;
   let urlMutation: 'none' | 'added_params' | 'failed_safe' = 'none';
 
-  if (isVercel && isSupabasePooler(connectionInfo)) {
+  if (isSupabasePooler(connectionInfo)) {
     let diag = getSupabasePoolerDiagnostics(finalConnectionString);
 
     if (diag.isUrlParsable && !diag.hasPgbouncerParam) {
@@ -402,7 +365,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       urlMutation = 'failed_safe';
       logger?.warn({
         service: 'postgres',
-        environment: 'Vercel serverless',
+        environment: 'Railway production',
         host: connectionInfo?.host,
         port: connectionInfo?.port,
         urlMutation,
@@ -417,18 +380,18 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
 
     logger?.info({
       service: 'postgres',
-      environment: 'Vercel serverless',
+      environment: 'Railway production',
       host: connectionInfo?.host,
       urlMutation,
       usesOriginalConnectionString,
       connectionStringHasProtocol,
       connectionStringPotentialMisparse,
-    }, 'ℹ️ Supabase pooler detected on Vercel');
+    }, 'ℹ️ Supabase pooler detected');
 
     if (connectionStringPotentialMisparse) {
       logger?.warn({
         service: 'postgres',
-        environment: 'Vercel serverless',
+        environment: 'Railway production',
         host: connectionInfo?.host,
         urlMutation,
         connectionStringHasProtocol,
@@ -441,7 +404,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     if (connectionInfo?.host.endsWith('pooler.supabase.com') && connectionInfo?.port === '5432') {
       logger?.warn({
         service: 'postgres',
-        environment: 'Vercel serverless',
+        environment: 'Railway production',
         host: connectionInfo?.host,
         port: connectionInfo?.port,
         effectiveHost: connectionInfo?.host,
@@ -453,7 +416,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     if (!diag.isUrlParsable) {
       logger?.warn({
         service: 'postgres',
-        environment: 'Vercel serverless',
+        environment: 'Railway production',
         host: connectionInfo?.host,
         warning: 'DATABASE_URL is not parsable by URL(); skipping URL-based diagnostics',
       }, '⚠️ DATABASE_URL выглядит не как валидный URL; пропускаю URL-диагностику');
@@ -461,7 +424,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       if (diag.hasFragment) {
         logger?.warn({
           service: 'postgres',
-          environment: 'Vercel serverless',
+          environment: 'Railway production',
           host: connectionInfo?.host,
           warning: 'DATABASE_URL contains #fragment; it will be ignored by URL() and can be misleading',
         }, '⚠️ DATABASE_URL содержит #fragment; это может путать при отладке');
@@ -472,7 +435,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
       if (!diag.hasPgbouncerParam || !diag.hasPrepareThresholdParam) {
         logger?.info({
           service: 'postgres',
-          environment: 'Vercel serverless',
+          environment: 'Railway production',
           host: connectionInfo?.host,
           hint: 'If you use an ORM that relies on prepared statements (e.g., Prisma), add pgbouncer=true&prepare_threshold=0 to DATABASE_URL manually. Also keep pool size limited on serverless.',
           missingParams: {
@@ -484,18 +447,18 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     }
 
     // 3) Реальные ограничения держим на уровне Pool config (и/или через env), без модификации URL
-    const envMax = process.env.PG_POOL_MAX_VERCEL ? Number(process.env.PG_POOL_MAX_VERCEL) : undefined;
+    const envMax = process.env.PG_POOL_MAX ? Number(process.env.PG_POOL_MAX) : undefined;
     const envIdleTimeoutRaw =
-      process.env.PG_IDLE_TIMEOUT_MILLIS_VERCEL ?? process.env.PG_POOL_IDLE_TIMEOUT_MILLIS_VERCEL;
+      process.env.PG_IDLE_TIMEOUT_MILLIS ?? process.env.PG_POOL_IDLE_TIMEOUT_MILLIS;
     const envIdleTimeout =
       envIdleTimeoutRaw !== undefined ? Number(envIdleTimeoutRaw) : undefined;
     const envConnectionTimeoutRaw =
-      process.env.PG_CONNECTION_TIMEOUT_MILLIS_VERCEL ??
-      process.env.PG_POOL_CONNECTION_TIMEOUT_MILLIS_VERCEL;
+      process.env.PG_CONNECTION_TIMEOUT_MILLIS ??
+      process.env.PG_POOL_CONNECTION_TIMEOUT_MILLIS;
     const envConnectionTimeout =
       envConnectionTimeoutRaw !== undefined ? Number(envConnectionTimeoutRaw) : undefined;
-    const envAcquireTimeout = process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS_VERCEL
-      ? Number(process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS_VERCEL)
+    const envAcquireTimeout = process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS
+      ? Number(process.env.PG_POOL_ACQUIRE_TIMEOUT_MILLIS)
       : undefined;
     const resolvedConnectionTimeout = Number.isFinite(envAcquireTimeout)
       ? envAcquireTimeout
@@ -518,7 +481,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     if (hasOverrides) {
       logger?.info({
         service: 'postgres',
-        environment: 'Vercel serverless',
+        environment: 'Railway production',
         host: connectionInfo?.host,
         appliedPoolOverrides: {
           max: (finalPoolConfig as any).max,
@@ -536,9 +499,7 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     service: 'postgres',
     connection: finalConnectionInfo,
     hasDatabaseUrl: Boolean(finalConnectionString),
-    vercel: process.env.VERCEL,
-    environment: isVercel ? 'Vercel serverless' : 'Local/traditional',
-    vercelEnv: process.env.VERCEL_ENV,
+    environment: 'Railway production',
     poolConfig: { max, idleTimeoutMillis, connectionTimeoutMillis },
     attachDatabasePool: attachDatabasePoolAvailable,
     retryBudgetMs: getPostgresConnectRetryBudgetMs(),
@@ -601,9 +562,6 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
 
   pool = candidatePool;
 
-  if (attachDatabasePoolAvailable) {
-    (vercelFunctions as any).attachDatabasePool(pool);
-  }
 
   lastPostgresDiagnostics = null; // Сброс при реальном успехе
   return pool;
