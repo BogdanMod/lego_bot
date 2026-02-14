@@ -345,7 +345,7 @@ async function apiRequest<T>(
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       status: (error as any).status,
-      apiUrl,
+      apiUrl: baseUrl,
       endpoint,
       url,
     });
