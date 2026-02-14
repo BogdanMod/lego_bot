@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
-    "prepare": "command -v husky >/dev/null 2>&1 && husky install || true"
+    "prepare": "command -v husky >/dev/null 2>&1 && husky install || true",
+    "railway:start": "node scripts/railway-start.js"
   },
   "devDependencies": {
     "@types/supertest": "^2.0.16",
