@@ -1,0 +1,19 @@
+# Nixpacks configuration for Railway
+# This ensures pnpm-lock.yaml is found in the root directory
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = [
+  "pnpm install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "pnpm --filter @dialogue-constructor/owner-web build"
+]
+
+[start]
+cmd = "pnpm --filter @dialogue-constructor/owner-web start"
+
