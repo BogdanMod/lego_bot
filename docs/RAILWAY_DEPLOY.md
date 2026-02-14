@@ -139,9 +139,9 @@ PORT=5174  # Railway установит автоматически
 - ✅ Workspace dependency `@dialogue-constructor/shared` линкуется автоматически
 
 ### Примечания
-- Vite preview сервер для production (статический hosting)
-- Для production лучше использовать nginx или другой статический сервер
-- Railway может использовать статический hosting для Vite build
+- Production сервер: Express.js (`server.js`) с правильными security headers для Telegram embedding
+- `server.js` устанавливает `Content-Security-Policy: frame-ancestors` для разрешения встраивания в Telegram
+- `X-Frame-Options` не устанавливается (конфликтует с CSP frame-ancestors)
 
 ## 5. Frontend (Vite)
 
