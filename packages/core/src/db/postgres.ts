@@ -501,7 +501,6 @@ export async function initPostgres(loggerInstance: Logger): Promise<Pool> {
     hasDatabaseUrl: Boolean(finalConnectionString),
     environment: 'Railway production',
     poolConfig: { max, idleTimeoutMillis, connectionTimeoutMillis },
-    attachDatabasePool: attachDatabasePoolAvailable,
     retryBudgetMs: getPostgresConnectRetryBudgetMs(),
     retryConfig: POSTGRES_RETRY_CONFIG,
   }, '🔧 PostgreSQL pool configuration:');

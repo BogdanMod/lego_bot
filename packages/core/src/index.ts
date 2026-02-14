@@ -130,7 +130,7 @@ if (process.env.SENTRY_DSN && !isTestEnv) {
 
 let app: ReturnType<typeof express> | null = null;
 let appInitialized = false;
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 let botInstance: Telegraf<Scenes.SceneContext> | null = null;
 
 // Global cache for bot instance (процесс переиспользуется между запросами)
