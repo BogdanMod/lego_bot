@@ -671,8 +671,8 @@ async function initBot(): Promise<void> {
 
   // Запуск бота через webhook (Railway production)
   logger.info('🔗 Bot configured for webhook mode');
-  logger.info('📡 Webhook endpoint: /api/webhook');
-  logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
+    logger.info('📡 Webhook endpoint: /api/webhook');
+    logger.info('⚠️  Не забудьте настроить webhook через Telegram API');
 }
 
 declare global {
@@ -949,7 +949,7 @@ async function initializeDatabases() {
     logger.warn(`⚠️ Optional missing: ${optionalMissing.join(', ')}`);
   }
   if (!secretTokenPresent) {
-    logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
+      logger.warn('⚠️ Missing: TELEGRAM_SECRET_TOKEN');
   }
 
   botEnabled = botTokenPresent;
@@ -1536,7 +1536,7 @@ const telegramOriginPatterns = telegramOrigins.map((origin) => {
 // CORS origin validation function
 function isOriginAllowed(origin: string | undefined, _path?: string): boolean {
   // No origin: don't set CORS headers (non-browser requests)
-  if (!origin) {
+    if (!origin) {
     return false; // Don't set CORS headers for non-browser requests
   }
 
@@ -1583,7 +1583,7 @@ const corsOptions: CorsOptions = {
         action: 'cors_denied',
         origin: origin || 'none',
       }, '❌ CORS: Origin not allowed');
-      return callback(null, false);
+    return callback(null, false);
     }
   },
   credentials: process.env.CORS_ALLOW_CREDENTIALS !== 'false', // Default: true, can be disabled via env

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "functions": {
-    "/api/core/[...path]": {},
-    "/api/health": {}
+    "/api/health": {},
+    "/api/core/[...path]": {}
   }
 }
