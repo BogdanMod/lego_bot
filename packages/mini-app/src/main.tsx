@@ -1,10 +1,21 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import App from './App';
 import './index.css';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 30 * 1000, // 30 seconds
+    },
+  },
+});
 
 function getLaunchTheme(): 'light' | 'dark' {
   const telegramTheme = window.Telegram?.WebApp?.colorScheme;
@@ -126,21 +137,23 @@ async function initApp() {
     ReactDOM.createRoot(rootElement).render(
       <React.StrictMode>
         <ErrorBoundary>
-          {manifestUrl ? (
-            <TonConnectUIProvider manifestUrl={manifestUrl}>
+          <QueryClientProvider client={queryClient}>
+            {manifestUrl ? (
+              <TonConnectUIProvider manifestUrl={manifestUrl}>
+                <ThemeProvider>
+                  <BrowserRouter>
+                    <App />
+                  </BrowserRouter>
+                </ThemeProvider>
+              </TonConnectUIProvider>
+            ) : (
               <ThemeProvider>
                 <BrowserRouter>
                   <App />
                 </BrowserRouter>
               </ThemeProvider>
-            </TonConnectUIProvider>
-          ) : (
-            <ThemeProvider>
-              <BrowserRouter>
-                <App />
-              </BrowserRouter>
-            </ThemeProvider>
-          )}
+            )}
+          </QueryClientProvider>
         </ErrorBoundary>
       </React.StrictMode>,
     );

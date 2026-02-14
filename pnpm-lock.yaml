@@ -185,6 +185,9 @@ importers:
       '@dialogue-constructor/shared':
         specifier: workspace:*
         version: link:../shared
+      '@tanstack/react-query':
+        specifier: ^5.62.7
+        version: 5.90.21(react@18.3.1)
       '@tonconnect/ui-react':
         specifier: ^2.1.0
         version: 2.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

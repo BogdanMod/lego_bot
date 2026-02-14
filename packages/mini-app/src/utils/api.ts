@@ -20,7 +20,7 @@
  *     -d '{"version":1,"initialState":"start","states":{"start":{"message":"Test"}}}'
  */
 import { BotSummary, ApiError, BotUser, AnalyticsEvent, AnalyticsStats, PopularPath, FunnelStep, TimeSeriesData, Broadcast, BroadcastStats, CreateBroadcastData, BotProject, AdminStats, PromoCode, MaintenanceState, PromoRedeemResult, AdminSubscriptionGrantResult } from '../types';
-import { BotSchema } from '@dialogue-constructor/shared/browser';
+import { BotSchema, BOT_LIMITS } from '@dialogue-constructor/shared/browser';
 import { schemaToProject, projectToSchema } from './brick-adapters';
 import { delay } from './debounce';
 
@@ -419,6 +419,22 @@ export const api = {
     return apiRequest<{ bots: BotSummary[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(endpoint);
   },
 
+  // Получить summary (активное количество ботов и лимит)
+  getBotSummary: async (): Promise<{ active: number; total: number; limit: number }> => {
+    try {
+      // Используем /api/bots для получения активных ботов (backend возвращает только is_active=true)
+      const { bots, pagination } = await api.getBots({ limit: 100 });
+      const active = bots.length;
+      const total = pagination.total || active;
+      const limit = BOT_LIMITS.MAX_BOTS_PER_USER;
+      return { active, total, limit };
+    } catch (error) {
+      console.error('Failed to get bot summary:', error);
+      // Fallback: возвращаем лимит, но активных ботов = 0
+      return { active: 0, total: 0, limit: BOT_LIMITS.MAX_BOTS_PER_USER };
+    }
+  },
+
   // Получить схему бота
   getBotSchema: (botId: string): Promise<{ schema: BotSchema; schema_version: number; name?: string }> => {
     return apiRequest(`/api/bot/${botId}/schema`);
@@ -490,6 +506,17 @@ export const api = {
       } else if (status === 409) {
         message = 'Токен бота уже существует.';
       } else if (status === 429) {
+        // Обработка BOT_LIMIT_REACHED с деталями
+        const errorData = data as { error?: string; activeBots?: number; limit?: number } | undefined;
+        if (errorData?.error === 'BOT_LIMIT_REACHED' || errorData?.error === 'Bot limit reached') {
+          const activeBots = errorData?.activeBots ?? 0;
+          const limit = errorData?.limit ?? BOT_LIMITS.MAX_BOTS_PER_USER;
+          message = `Достигнут лимит ботов: ${activeBots}/${limit}. Удалите один из ботов и попробуйте снова.`;
+          const wrapped = new Error(message);
+          (wrapped as any).status = status;
+          (wrapped as any).data = { ...errorData, activeBots, limit };
+          throw wrapped;
+        }
         message = 'Достигнут лимит ботов. Удалите один из ботов и попробуйте снова.';
       } else if (status === 503) {
         message = 'Сервис временно недоступен. Попробуйте позже.';

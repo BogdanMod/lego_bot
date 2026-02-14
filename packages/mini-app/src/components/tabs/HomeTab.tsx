@@ -1,5 +1,6 @@
 import React from 'react';
 import { Layers, Plus, Search, Smartphone, Trash2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Input } from '../ui/Input';
@@ -9,6 +10,9 @@ import { PROJECT_THEMES } from '../../constants/brick-config';
 import type { BotProject } from '../../types';
 import { useProjects } from '../../contexts/ProjectsContext';
 import { useLanguage } from '../../hooks/useLanguage';
+import { useBotSummary } from '../../hooks/use-bot-summary';
+import { api } from '../../utils/api';
+import { projectToSchema } from '../../utils/brick-adapters';
 
 export interface HomeTabProps {
   onProjectClick: (project: BotProject) => void;
@@ -180,8 +184,13 @@ function buildStarterBricks(form: NewBotForm) {
 export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: HomeTabProps) {
   const { projects, createProjectFromTemplate, deleteProject } = useProjects();
   const { t } = useLanguage();
+  const { data: summary, isLoading: summaryLoading } = useBotSummary();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [isCreateWizardOpen, setIsCreateWizardOpen] = React.useState(false);
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [limitError, setLimitError] = React.useState<{ activeBots: number; limit: number } | null>(null);
+  const [showLimitModal, setShowLimitModal] = React.useState(false);
   const [newBotForm, setNewBotForm] = React.useState<NewBotForm>({
     botName: '',
     businessName: '',
@@ -198,28 +207,107 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
     setIsCreateWizardOpen(true);
   };
 
-  const handleCreateFromWizard = () => {
-    const safeName = newBotForm.botName.trim() || t.home.projectNameDefault;
-    const starterBricks = buildStarterBricks(newBotForm);
-    const created = createProjectFromTemplate(safeName, starterBricks, pickThemeColor());
-    if (!created) {
-      onLimitReached();
+  const handleCreateFromWizard = async () => {
+    if (isCreating) return;
+
+    // Проверяем лимит по серверным данным
+    const active = summary?.active ?? 0;
+    const limit = summary?.limit ?? 3;
+    if (active >= limit) {
+      setLimitError({ activeBots: active, limit });
+      setShowLimitModal(true);
       setIsCreateWizardOpen(false);
+      onLimitReached();
       return;
     }
-    setIsCreateWizardOpen(false);
-    setNewBotForm({
-      botName: '',
-      businessName: '',
-      contactHint: '',
-      notes: '',
-      goal: 'sales',
-    });
-    onProjectClick(created);
+
+    setIsCreating(true);
+    try {
+      const safeName = newBotForm.botName.trim() || t.home.projectNameDefault;
+      const starterBricks = buildStarterBricks(newBotForm);
+      const themeColor = pickThemeColor();
+      const schema = projectToSchema({
+        id: 'temp',
+        name: safeName,
+        bricks: starterBricks,
+        lastModified: Date.now(),
+        status: 'draft',
+        themeColor,
+      });
+
+      // Создаем бота через API
+      const bot = await api.createBot(safeName, schema);
+      
+      // Инвалидируем кеш после успешного создания
+      queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['bots'] });
+      
+      // Создаем локальный проект для немедленного отображения
+      const created = createProjectFromTemplate(safeName, starterBricks, themeColor);
+      if (created) {
+        created.serverId = bot.id;
+        created.status = bot.webhook_set ? 'live' : 'draft';
+      }
+
+      setIsCreateWizardOpen(false);
+      setNewBotForm({
+        botName: '',
+        businessName: '',
+        contactHint: '',
+        notes: '',
+        goal: 'sales',
+      });
+
+      if (created) {
+        onProjectClick(created);
+      }
+    } catch (error: any) {
+      console.error('Failed to create bot:', error);
+      
+      // Обработка BOT_LIMIT_REACHED ошибки
+      if (error?.data?.error === 'BOT_LIMIT_REACHED' || error?.status === 429) {
+        const activeBots = error?.data?.activeBots ?? summary?.active ?? 0;
+        const limit = error?.data?.limit ?? summary?.limit ?? 3;
+        setLimitError({ activeBots, limit });
+        setShowLimitModal(true);
+        onLimitReached();
+        // Инвалидируем кеш после ошибки для синхронизации
+        queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['bots'] });
+      } else {
+        window.Telegram?.WebApp?.showAlert?.(
+          error?.message || 'Не удалось создать бота. Попробуйте позже.'
+        );
+      }
+    } finally {
+      setIsCreating(false);
+    }
   };
+
+  const active = summary?.active ?? 0;
+  const limit = summary?.limit ?? 3;
+  const isLimitReached = active >= limit;
 
   return (
     <div className="px-4 pt-6">
+      {/* Модал для ошибки лимита */}
+      <Modal isOpen={showLimitModal} onClose={() => setShowLimitModal(false)}>
+        <Card className="rounded-3xl p-6">
+          <div className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
+            Лимит ботов достигнут
+          </div>
+          <div className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+            У вас уже {limitError?.activeBots ?? active} активных ботов из {limitError?.limit ?? limit} доступных.
+            Удалите один из ботов или обновите план.
+          </div>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => setShowLimitModal(false)} className="flex-1">
+              Закрыть
+            </Button>
+          </div>
+        </Card>
+      </Modal>
+
       <Modal isOpen={isCreateWizardOpen} onClose={() => setIsCreateWizardOpen(false)}>
         <Card className="rounded-3xl p-0 overflow-hidden">
           <div className="p-4 border-b border-slate-200 dark:border-slate-800">
@@ -286,18 +374,30 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
           </div>
 
           <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
-            <Button variant="secondary" onClick={() => setIsCreateWizardOpen(false)}>
+            <Button variant="secondary" onClick={() => setIsCreateWizardOpen(false)} disabled={isCreating}>
               Отмена
             </Button>
-            <Button variant="primary" onClick={handleCreateFromWizard}>
-              Создать понятного бота
+            <Button variant="primary" onClick={handleCreateFromWizard} disabled={isCreating || isLimitReached}>
+              {isCreating ? 'Создание...' : 'Создать понятного бота'}
             </Button>
           </div>
         </Card>
       </Modal>
 
       <div className="flex items-center justify-between gap-3">
-        <div className="text-2xl font-semibold text-slate-900 dark:text-white">{t.home.title}</div>
+        <div>
+          <div className="text-2xl font-semibold text-slate-900 dark:text-white">{t.home.title}</div>
+          {!summaryLoading && (
+            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Боты: <span className="font-medium">{active}/{limit}</span>
+              {isLimitReached && (
+                <span className="ml-2 text-amber-600 dark:text-amber-400">
+                  • Лимит достигнут
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="secondary"
@@ -312,6 +412,7 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
             size="sm"
             icon={<Plus size={16} />}
             onClick={handleCreate}
+            disabled={isLimitReached || isCreating}
           >
             {t.home.create}
           </Button>

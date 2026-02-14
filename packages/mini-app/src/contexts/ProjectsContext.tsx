@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { BotProject, Brick, SubscriptionType } from '../types';
 import { BRICK_LIMITS, PROJECT_THEMES } from '../constants/brick-config';
 import { getLanguage, getProjects, getSubscription, saveProjects, saveSubscription } from '../utils/storage';
@@ -6,6 +7,7 @@ import { translations } from '../utils/translations';
 import { regenerateBrickIds } from '../utils/brick-helpers';
 import { api, isTelegramWebApp } from '../utils/api';
 import { schemaToProject } from '../utils/brick-adapters';
+import { useBotSummary } from '../hooks/use-bot-summary';
 
 export interface ProjectsContextType {
   projects: BotProject[];
@@ -51,6 +53,8 @@ function mergeProjects(local: BotProject[], apiProjects: BotProject[]): BotProje
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useState<BotProject[]>(() => getProjects());
   const [subscription, setSubscriptionState] = useState<SubscriptionType>(() => getSubscription());
+  const { data: summary } = useBotSummary();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     saveProjects(projects);
@@ -85,6 +89,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         const merged = mergeProjects(getProjects(), apiProjects);
         setProjects(merged);
         saveProjects(merged);
+        
+        // Инвалидируем кеш summary после синхронизации
+        queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
       } catch (err) {
         console.error('Initial sync failed:', err);
       }
@@ -93,11 +100,15 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     if (isTelegramWebApp()) {
       syncFromApi();
     }
-  }, []);
+  }, [queryClient]);
 
   const createProject = () => {
-    const limit = BRICK_LIMITS[subscription].bots;
-    if (projects.length >= limit) {
+    // Используем серверный summary для проверки лимита
+    const serverLimit = summary?.limit ?? BRICK_LIMITS[subscription].bots;
+    const serverActive = summary?.active ?? 0;
+    
+    // Проверяем лимит по серверным данным
+    if (serverActive >= serverLimit) {
       return null;
     }
 
@@ -117,8 +128,12 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createProjectFromTemplate = (name: string, bricks: Brick[], themeColor: string) => {
-    const limit = BRICK_LIMITS[subscription].bots;
-    if (projects.length >= limit) {
+    // Используем серверный summary для проверки лимита
+    const serverLimit = summary?.limit ?? BRICK_LIMITS[subscription].bots;
+    const serverActive = summary?.active ?? 0;
+    
+    // Проверяем лимит по серверным данным
+    if (serverActive >= serverLimit) {
       return null;
     }
 
@@ -151,6 +166,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
   const deleteProject = (id: string) => {
     setProjects((prev) => prev.filter((p) => p.id !== id));
+    // Инвалидируем кеш после удаления
+    queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['bots'] });
   };
 
   const setSubscription = (type: SubscriptionType) => {
@@ -168,7 +186,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       setSubscription,
     }),
-    [projects, subscription],
+    [projects, subscription, summary],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
