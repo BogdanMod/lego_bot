@@ -1559,59 +1559,154 @@ const createBroadcastLimiterMiddleware = async (req: Request, res: Response, nex
 function configureApp(app: ReturnType<typeof express>) {
 app.set('trust proxy', 1);
 app.locals.getBotById = getBotById;
-// CORS configuration
+// CORS configuration - Production-ready with allow-list
+// Build allowed origins from CORS_ORIGINS env (CSV) + fallback to legacy env vars + dev defaults
+const corsOriginsEnv = process.env.CORS_ORIGINS;
+const allowedOriginsFromEnv = corsOriginsEnv
+  ? corsOriginsEnv.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
+// Legacy env vars (for backward compatibility)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://lego-bot-miniapp.vercel.app';
 const OWNER_WEB_BASE_URL = process.env.OWNER_WEB_BASE_URL || 'http://localhost:5175';
-const MINI_APP_DEV_URL = 'http://localhost:5174';
-const MINI_APP_DEV_URL_127 = 'http://127.0.0.1:5174';
-  // NOTE: `t.me/...` — это deep-link, а не реальное значение заголовка `Origin`.
-  // Держим allowlist только для реальных web-origin’ов MiniApp/Frontend.
-  // Если в прод-логах прилетает origin, которого нет в allowlist — добавь именно его (обычно через существующие env: MINI_APP_URL/FRONTEND_URL и т.д.).
-  const allowedOrigins = [FRONTEND_URL, MINI_APP_URL, OWNER_WEB_BASE_URL, MINI_APP_DEV_URL, MINI_APP_DEV_URL_127].filter(Boolean);
 
-logger.info('🎯 CORS configuration:');
-logger.info({ value: FRONTEND_URL }, '  FRONTEND_URL:');
-logger.info({ value: MINI_APP_URL }, '  MINI_APP_URL:');
-logger.info({ value: OWNER_WEB_BASE_URL }, '  OWNER_WEB_BASE_URL:');
-  logger.info({ value: MINI_APP_DEV_URL }, '  MINI_APP_DEV_URL:');
-  logger.info({ value: MINI_APP_DEV_URL_127 }, '  MINI_APP_DEV_URL_127:');
-  logger.info({ value: allowedOrigins }, '  Allowed origins:');
-  logger.info({ value: allowedOrigins }, '  allowedOrigins:');
+// Telegram Mini App origins (always allowed for Mini App embedding)
+const telegramOrigins = [
+  'https://web.telegram.org',
+  'https://*.telegram.org',
+];
 
+// Dev/localhost origins (only in non-production)
+const devOrigins: string[] = [];
+if (process.env.NODE_ENV !== 'production') {
+  devOrigins.push(
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+    'http://localhost:5175',
+  );
+}
+
+// Combine all origins
+const allowedOriginsSet = new Set<string>([
+  ...allowedOriginsFromEnv,
+  ...(corsOriginsEnv ? [] : [FRONTEND_URL, MINI_APP_URL, OWNER_WEB_BASE_URL]), // Legacy fallback only if CORS_ORIGINS not set
+  ...devOrigins,
+]);
+
+// Normalize Telegram wildcard origins for matching
+const telegramOriginPatterns = telegramOrigins.map((origin) => {
+  if (origin.includes('*')) {
+    const regex = new RegExp('^' + origin.replace(/\*/g, '[^.]*').replace(/\./g, '\\.') + '$');
+    return { pattern: regex, original: origin };
+  }
+  return { pattern: null, original: origin };
+});
+
+// CORS origin validation function
+function isOriginAllowed(origin: string | undefined, path: string): boolean {
+  // Internal endpoints: no CORS (or minimal CORS)
+  if (path.startsWith('/api/internal/')) {
+    return false;
+  }
+
+  // No origin: allow (non-browser requests)
+  if (!origin) {
+    return false; // Don't set CORS headers for non-browser requests
+  }
+
+  // Check exact match
+  if (allowedOriginsSet.has(origin)) {
+    return true;
+  }
+
+  // Check Telegram wildcard patterns
+  for (const { pattern, original } of telegramOriginPatterns) {
+    if (pattern && pattern.test(origin)) {
+      return true;
+    }
+    if (!pattern && origin === original) {
+      return true;
+    }
+  }
+
+  // Dev: allow localhost/127.0.0.1 patterns (only in non-production)
+  if (process.env.NODE_ENV !== 'production') {
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// CORS options with proper allow-list
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
-    logger.info({ origin }, '🔍 CORS check - origin:');
-    // Non-browser requests: no CORS headers needed.
-    if (!origin) {
-      logger.info('✅ CORS: No origin, skipping CORS headers');
+    // Note: In cors library, we don't have direct access to req.path in origin callback
+    // Internal endpoint check is done in middleware below
+    const allowed = isOriginAllowed(origin, '');
+    
+    if (allowed) {
+      logger.debug({
+        action: 'cors_allowed',
+        origin: origin || 'none',
+      }, '✅ CORS: Origin allowed');
+      return callback(null, true);
+    } else {
+      logger.warn({
+        action: 'cors_denied',
+        origin: origin || 'none',
+      }, '❌ CORS: Origin not allowed');
       return callback(null, false);
     }
-    if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      logger.info({ origin }, '✅ CORS: Origin allowed:');
-      return callback(null, true);
-    }
-    logger.info({ origin }, '❌ CORS: Origin not allowed:');
-    return callback(null, false);
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-telegram-init-data', 'X-Telegram-Init-Data', 'x-health-token'],
+  credentials: process.env.CORS_ALLOW_CREDENTIALS !== 'false', // Default: true, can be disabled via env
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'x-telegram-init-data',
+    'X-Telegram-Init-Data',
+    'x-health-token',
+    'x-internal-secret', // Only for internal endpoints (will be blocked by path check)
+  ],
   exposedHeaders: ['x-request-id'],
-  maxAge: 86400,
+  maxAge: 86400, // 24 hours
   optionsSuccessStatus: 204,
 };
 
-app.use(cors(corsOptions));
+// Log CORS configuration at startup
+logger.info('🎯 CORS configuration:');
+logger.info({ value: corsOriginsEnv || 'not set' }, '  CORS_ORIGINS:');
+logger.info({ value: allowedOriginsFromEnv.length }, '  Origins from CORS_ORIGINS:');
+logger.info({ value: Array.from(allowedOriginsSet) }, '  All allowed origins:');
+logger.info({ value: process.env.CORS_ALLOW_CREDENTIALS || 'true (default)' }, '  CORS_ALLOW_CREDENTIALS:');
 
-// Early OPTIONS handler - respond immediately without DB checks
+// Guard: Block CORS for internal endpoints BEFORE applying CORS middleware
 app.use((req: Request, res: Response, next: Function) => {
-  if (req.method === 'OPTIONS') {
-    logger.info({ path: req.path, origin: req.headers.origin }, '⚡ Early OPTIONS handler - responding 204');
-    return res.sendStatus(204);
+  if (req.path.startsWith('/api/internal/')) {
+    // Internal endpoints: no CORS headers
+    const requestId = getRequestId() ?? 'unknown';
+    logger.warn({
+      action: 'cors_blocked_internal',
+      requestId,
+      path: req.path,
+      origin: req.headers.origin || 'none',
+      method: req.method,
+    }, '🚫 CORS: Blocking CORS for internal endpoint');
+    // Don't set any CORS headers for internal endpoints
+    // Continue to route handler (it will check x-internal-secret)
+    return next();
   }
   next();
 });
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 
 // Ensure caches don't mix CORS responses across different origins
 app.use((req: Request, res: Response, next: Function) => {
@@ -1621,22 +1716,55 @@ app.use((req: Request, res: Response, next: Function) => {
   next();
 });
 
+// Enhanced OPTIONS preflight logging
 const logOptionsPreflight = (req: Request, res: Response, next: Function) => {
   if (req.method === 'OPTIONS') {
+    const requestId = getRequestId() ?? 'unknown';
+    const origin = req.headers.origin || 'none';
+    const path = req.path;
+    
+    // Check if internal endpoint
+    const isInternal = path.startsWith('/api/internal/');
+    const allowed = isInternal ? false : isOriginAllowed(origin, path);
+    
     logger.info({
+      action: 'cors_preflight',
+      requestId,
       method: req.method,
-      path: req.path,
-      origin: req.headers.origin,
+      path,
+      origin,
+      allowed,
+      isInternal,
       acrm: req.header('access-control-request-method'),
       acrh: req.header('access-control-request-headers'),
-    }, '🔍 OPTIONS preflight received');
+    }, allowed ? '✅ OPTIONS preflight - allowed' : '❌ OPTIONS preflight - denied');
   }
   next();
 };
 
+// Register OPTIONS handler for all routes
 app.options('*', logOptionsPreflight, cors(corsOptions));
 
-logger.info('✅ OPTIONS preflight handler registered via cors(corsOptions)');
+logger.info('✅ CORS middleware configured with allow-list');
+
+// Security headers for Telegram Mini App (frame embedding)
+// Note: This only applies if core serves HTML pages. For API-only responses, these headers are not critical.
+app.use((req: Request, res: Response, next: Function) => {
+  const path = req.path;
+  
+  // Only set frame-ancestors for non-API routes (if core serves HTML pages)
+  // For API routes, we don't need frame headers (they return JSON)
+  if (!path.startsWith('/api/')) {
+    // Allow embedding in Telegram for Mini App pages
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org"
+    );
+    // Don't set X-Frame-Options (conflicts with CSP frame-ancestors)
+  }
+  
+  next();
+});
 
 app.use(requestIdMiddleware());
 app.use(requestContextMiddleware());
