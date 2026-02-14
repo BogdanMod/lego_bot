@@ -33,16 +33,8 @@
       "source": "/(.*)",
       "headers": [
         {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org"
-        },
-        {
-          "key": "X-XSS-Protection",
-          "value": "1; mode=block"
+          "value": "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org;"
         }
       ]
     },
