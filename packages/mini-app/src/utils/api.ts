@@ -138,6 +138,38 @@ function getApiUrl(): string {
   return prodUrl;
 }
 
+// Helper functions for URL normalization
+function normalizeBase(base: string): string {
+  return base.replace(/\/+$/, '');
+}
+
+function normalizePath(path: string): string {
+  return '/' + path.replace(/^\/+/, '');
+}
+
+// Build API URL with proper normalization
+function buildApiUrl(path: string): string {
+  const base = getApiUrl();
+  const normalizedBase = normalizeBase(base);
+  const normalizedPath = normalizePath(path);
+  const fullUrl = `${normalizedBase}${normalizedPath}`;
+  
+  // Dev-only debug log
+  if (import.meta.env.DEV) {
+    console.debug('🔗 API URL builder:', {
+      VITE_API_URL: import.meta.env.VITE_API_URL,
+      VITE_API_URL_LOCAL: import.meta.env.VITE_API_URL_LOCAL,
+      normalizedBase,
+      path,
+      normalizedPath,
+      fullUrl,
+      example: buildApiUrl('/api/bots'),
+    });
+  }
+  
+  return fullUrl;
+}
+
 // Получить user_id из Telegram WebApp
 function getUserId(): number | null {
   // Проверяем, что мы в Telegram WebApp
@@ -195,16 +227,16 @@ async function apiRequest<T>(
     throw new Error('Telegram initData not found. Make sure you are running in Telegram WebApp.');
   }
 
-  const apiUrl = getApiUrl();
   const hostname = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
-  const url = `${apiUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}user_id=${userId}`;
+  // Build URL with proper normalization
+  const baseUrl = buildApiUrl(endpoint);
+  const url = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}user_id=${userId}`;
   
   console.log('📡 API Request:', {
     timestamp: new Date().toISOString(),
     method: options?.method || 'GET',
     url,
     userId,
-    apiUrl,
     hostname,
     isLocalhost: hostname === 'localhost',
   });
@@ -828,7 +860,6 @@ export const api = {
       throw new Error('Telegram initData not found. Make sure you are running in Telegram WebApp.');
     }
 
-    const apiUrl = getApiUrl();
     const query = new URLSearchParams();
     query.set('user_id', String(userId));
     if (dateFrom) {
@@ -837,7 +868,7 @@ export const api = {
     if (dateTo) {
       query.set('date_to', dateTo);
     }
-    const url = `${apiUrl}/api/bot/${botId}/analytics/export?${query.toString()}`;
+    const url = `${buildApiUrl(`/api/bot/${botId}/analytics/export`)}?${query.toString()}`;
     try {
       const response = await fetch(url, {
         headers: {
@@ -877,8 +908,7 @@ export const api = {
       throw new Error('Telegram initData not found. Make sure you are running in Telegram WebApp.');
     }
 
-    const apiUrl = getApiUrl();
-    const url = `${apiUrl}/api/bot/${botId}/users/export?user_id=${userId}`;
+    const url = `${buildApiUrl(`/api/bot/${botId}/users/export`)}?user_id=${userId}`;
     try {
       const response = await fetch(url, {
         headers: {
