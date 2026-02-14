@@ -30,26 +30,47 @@ const OwnerMeSchema = z.object({
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = path;
-  const response = await fetch(url, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-    cache: 'no-store',
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const err: ApiError = {
-      code: data?.code || 'request_failed',
-      message: data?.message || 'Ошибка запроса',
-      request_id: data?.request_id,
-      details: data?.details,
-    };
-    throw err;
+  
+  // Add timeout for server-side fetch (3000ms)
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 3000) : null;
+  
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller?.signal,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers || {}),
+      },
+      cache: 'no-store',
+    });
+    
+    if (timeoutId) clearTimeout(timeoutId);
+    
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err: ApiError = {
+        code: data?.code || 'request_failed',
+        message: data?.message || 'Ошибка запроса',
+        request_id: data?.request_id,
+        details: data?.details,
+      };
+      throw err;
+    }
+    return data as T;
+  } catch (error: any) {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (error?.name === 'AbortError') {
+      const err: ApiError = {
+        code: 'timeout',
+        message: 'Request timeout (3000ms)',
+      };
+      throw err;
+    }
+    throw error;
   }
-  return data as T;
 }
 
 function normalizeOwnerPath(path: string): string {

@@ -101,14 +101,31 @@ async function proxy(req: NextRequest, pathParts: string[]) {
     
     let upstream: Response;
     try {
-      upstream = await fetch(targetUrl, {
-        method: req.method,
-        headers: forwardRequestHeaders(req),
-        body: hasBody ? req.body : undefined,
-        redirect: 'manual',
-        // @ts-expect-error Next runtime supports duplex in node; harmless in edge runtime.
-        duplex: hasBody ? 'half' : undefined,
-      });
+      // Add timeout for proxy fetch (3000ms)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      try {
+        upstream = await fetch(targetUrl, {
+          method: req.method,
+          headers: forwardRequestHeaders(req),
+          body: hasBody ? req.body : undefined,
+          redirect: 'manual',
+          signal: controller.signal,
+          // @ts-expect-error Next runtime supports duplex in node; harmless in edge runtime.
+          duplex: hasBody ? 'half' : undefined,
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError?.name === 'AbortError') {
+          return NextResponse.json(
+            { ok: false, code: 'proxy_timeout', message: 'Upstream request timeout (3000ms)' },
+            { status: 504 }
+          );
+        }
+        throw fetchError;
+      }
     } catch (error: any) {
       return NextResponse.json(
         { ok: false, code: 'proxy_fetch_failed', message: String(error) },
