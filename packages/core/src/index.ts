@@ -3061,6 +3061,69 @@ app.post('/api/dev/bots/reset-me', ensureDatabasesInitialized as any, requireUse
   }
 });
 
+// Debug endpoint - returns current user info (dev/staging only)
+app.get('/api/debug/me', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
+  // Only allow in non-production environments
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const requestId = getRequestId() ?? crypto.randomUUID();
+  const userId = (req as any)?.user?.id as number | undefined;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    // Check if user is admin
+    const adminUser = await getAdminUserByTelegramId(userId);
+    const isAdmin = Boolean(adminUser && adminUser.is_active);
+
+    // Check if user is owner (has any bots)
+    const bots = await getBotsByUserId(userId);
+    const isOwner = bots.length > 0;
+
+    logger.info({
+      action: 'debug_me',
+      requestId,
+      userId,
+      ip: req.ip || null,
+      userAgent: req.headers['user-agent'] || null,
+    }, 'Debug me endpoint accessed');
+
+    return res.json({
+      ok: true,
+      user: {
+        userId,
+        isAdmin,
+        isOwner,
+      },
+      env: {
+        nodeEnv: process.env.NODE_ENV || 'unknown',
+        service: 'core',
+      },
+      request: {
+        requestId,
+        ip: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+  } catch (error) {
+    logger.error({
+      requestId,
+      userId,
+      error,
+      action: 'debug_me_failed',
+    }, 'Failed to get debug info');
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // Owner summary endpoint
 app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';

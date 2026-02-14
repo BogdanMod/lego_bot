@@ -11,6 +11,7 @@ import type { BotProject } from '../../types';
 import { useProjects } from '../../contexts/ProjectsContext';
 import { useLanguage } from '../../hooks/useLanguage';
 import { useBotSummary } from '../../hooks/use-bot-summary';
+import { useDebugMe } from '../../hooks/use-debug-me';
 import { api } from '../../utils/api';
 import { projectToSchema } from '../../utils/brick-adapters';
 
@@ -185,6 +186,7 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
   const { projects, createProjectFromTemplate, deleteProject } = useProjects();
   const { t } = useLanguage();
   const { data: summary, isLoading: summaryLoading } = useBotSummary();
+  const { data: debugMe } = useDebugMe();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [isCreateWizardOpen, setIsCreateWizardOpen] = React.useState(false);
@@ -522,6 +524,13 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
           })
         )}
       </div>
+
+      {/* Debug info - только в dev */}
+      {import.meta.env.DEV && debugMe?.userId && (
+        <div className="mt-4 pb-4 text-xs text-slate-400 dark:text-slate-500 text-center">
+          Debug: userId={debugMe.userId}
+        </div>
+      )}
     </div>
   );
 }

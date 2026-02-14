@@ -435,6 +435,31 @@ export const api = {
     }
   },
 
+  // Debug endpoint - dev only
+  getDebugMe: async (): Promise<{ userId: number } | null> => {
+    // Only call in dev environment
+    if (import.meta.env.PROD) {
+      return null;
+    }
+
+    try {
+      const response = await apiRequest<{ ok: boolean; user: { userId: number; isAdmin: boolean; isOwner: boolean } }>(
+        '/api/debug/me',
+        {
+          method: 'GET',
+        }
+      );
+      return { userId: response.user.userId };
+    } catch (error) {
+      // Silently fail - endpoint may not be available in production
+      if ((error as any)?.status === 404) {
+        return null;
+      }
+      console.warn('Failed to get debug info:', error);
+      return null;
+    }
+  },
+
   // Получить схему бота
   getBotSchema: (botId: string): Promise<{ schema: BotSchema; schema_version: number; name?: string }> => {
     return apiRequest(`/api/bot/${botId}/schema`);
