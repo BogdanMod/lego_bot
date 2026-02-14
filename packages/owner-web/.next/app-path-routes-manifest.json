@@ -1,0 +1,19 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/health/route": "/api/health",
+  "/api/core/[...path]/route": "/api/core/[...path]",
+  "/login/page": "/login",
+  "/auth/bot/page": "/auth/bot",
+  "/page": "/",
+  "/cabinet/[botId]/[section]/page": "/cabinet/[botId]/[section]",
+  "/cabinet/[botId]/customers/page": "/cabinet/[botId]/customers",
+  "/cabinet/[botId]/calendar/page": "/cabinet/[botId]/calendar",
+  "/cabinet/[botId]/leads/page": "/cabinet/[botId]/leads",
+  "/cabinet/[botId]/orders/page": "/cabinet/[botId]/orders",
+  "/cabinet/[botId]/audit/page": "/cabinet/[botId]/audit",
+  "/cabinet/[botId]/inbox/page": "/cabinet/[botId]/inbox",
+  "/cabinet/page": "/cabinet",
+  "/cabinet/[botId]/settings/page": "/cabinet/[botId]/settings",
+  "/cabinet/[botId]/team/page": "/cabinet/[botId]/team",
+  "/cabinet/[botId]/overview/page": "/cabinet/[botId]/overview"
+}

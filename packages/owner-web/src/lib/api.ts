@@ -131,3 +131,30 @@ export async function ownerFetch<T>(
   });
 }
 
+export async function ownerSummary() {
+  return request<{
+    user: {
+      userId: number;
+      plan: string;
+      botLimit: number;
+    };
+    bots: {
+      active: number;
+      total: number;
+    };
+  }>(normalizeOwnerPath('/api/owner/summary'));
+}
+
+export async function ownerBots() {
+  return request<{ items: Array<{ botId: string; name: string; role: string }> }>(
+    normalizeOwnerPath('/api/owner/bots')
+  );
+}
+
+export async function ownerDeactivateBot(botId: string) {
+  return request<{ success: boolean; message: string }>(
+    normalizeOwnerPath(`/api/owner/bots/${botId}`),
+    { method: 'DELETE' }
+  );
+}
+

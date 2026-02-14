@@ -2,34 +2,180 @@
 
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ownerSummary, ownerBots, ownerDeactivateBot, type ApiError } from '@/lib/api';
 
 export default function CabinetIndexPage() {
   const router = useRouter();
-  const { data } = useOwnerAuth();
+  const queryClient = useQueryClient();
+  const { data: authData } = useOwnerAuth();
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitError, setLimitError] = useState<{ activeBots: number; limit: number } | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ['owner-summary'],
+    queryFn: ownerSummary,
+    enabled: !!authData,
+  });
+
+  const { data: botsData, isLoading: botsLoading } = useQuery({
+    queryKey: ['owner-bots'],
+    queryFn: ownerBots,
+    enabled: !!authData,
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: ownerDeactivateBot,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-me'] });
+    },
+  });
 
   useEffect(() => {
-    if (!data?.bots || data.bots.length === 0) return;
+    if (!authData?.bots || authData.bots.length === 0) return;
+    if (botsData?.items && botsData.items.length > 0) return;
 
     // Try to restore lastBotId from localStorage
     let targetBotId: string | undefined;
     if (typeof window !== 'undefined') {
       const lastBotId = localStorage.getItem('owner_lastBotId');
-      if (lastBotId && data.bots.some((b) => b.botId === lastBotId)) {
+      if (lastBotId && authData.bots.some((b) => b.botId === lastBotId)) {
         targetBotId = lastBotId;
       }
     }
 
     // Fallback to first available bot
     if (!targetBotId) {
-      targetBotId = data.bots[0]?.botId;
+      targetBotId = authData.bots[0]?.botId;
     }
 
     if (targetBotId) {
       router.replace(`/cabinet/${targetBotId}/overview`);
     }
-  }, [data, router]);
+  }, [authData, botsData, router]);
 
-  return <div className="panel p-8">Подготовка кабинета...</div>;
+  const handleDeactivate = async (botId: string) => {
+    if (!confirm('Вы уверены, что хотите деактивировать этого бота?')) return;
+    try {
+      await deactivateMutation.mutateAsync(botId);
+    } catch (error) {
+      console.error('Failed to deactivate bot:', error);
+    }
+  };
+
+  if (summaryLoading || botsLoading) {
+    return <div className="panel p-8">Загрузка...</div>;
+  }
+
+  const active = summary?.bots.active ?? 0;
+  const limit = summary?.user.botLimit ?? 3;
+  const isLimitReached = active >= limit;
+  const bots = botsData?.items ?? [];
+
+  return (
+    <div className="panel p-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold mb-2">Мои боты</h1>
+        <div className="flex items-center gap-4 mb-4">
+          <div className="text-sm text-muted-foreground">
+            Боты: <span className="font-medium">{active}/{limit}</span>
+          </div>
+          {isLimitReached && (
+            <div className="text-sm text-amber-600 dark:text-amber-400">
+              Лимит достигнут. Удалите бота или обновите план.
+            </div>
+          )}
+        </div>
+        <button
+          onClick={async () => {
+            if (isCreating || isLimitReached) return;
+            setIsCreating(true);
+            try {
+              // TODO: Implement bot creation flow
+              // For now, redirect to mini-app or show creation modal
+              // If creation fails with BOT_LIMIT_REACHED, show modal
+              router.push('/cabinet/create');
+            } catch (error: any) {
+              if (error?.code === 'BOT_LIMIT_REACHED' || error?.error === 'BOT_LIMIT_REACHED') {
+                setLimitError({
+                  activeBots: error?.activeBots ?? active,
+                  limit: error?.limit ?? limit,
+                });
+                setShowLimitModal(true);
+              } else {
+                console.error('Failed to create bot:', error);
+                alert('Ошибка при создании бота: ' + (error?.message || 'Неизвестная ошибка'));
+              }
+            } finally {
+              setIsCreating(false);
+            }
+          }}
+          disabled={isLimitReached || isCreating}
+          className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
+        >
+          {isCreating ? 'Создание...' : 'Создать бота'}
+        </button>
+      </div>
+
+      {bots.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          У вас пока нет ботов. Создайте первого бота, чтобы начать.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {bots.map((bot) => (
+            <div
+              key={bot.botId}
+              className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              <div>
+                <div className="font-medium">{bot.name}</div>
+                <div className="text-sm text-muted-foreground">ID: {bot.botId}</div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => router.push(`/cabinet/${bot.botId}/overview`)}
+                  className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90"
+                >
+                  Открыть
+                </button>
+                <button
+                  onClick={() => handleDeactivate(bot.botId)}
+                  disabled={deactivateMutation.isPending}
+                  className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
+                >
+                  Деактивировать
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showLimitModal && limitError && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-lg max-w-md w-full mx-4">
+            <h2 className="text-xl font-semibold mb-4">Лимит ботов достигнут</h2>
+            <p className="text-muted-foreground mb-4">
+              У вас уже {limitError.activeBots} активных ботов из {limitError.limit} доступных.
+            </p>
+            <button
+              onClick={() => {
+                setShowLimitModal(false);
+                setLimitError(null);
+              }}
+              className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 

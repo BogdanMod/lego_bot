@@ -454,6 +454,31 @@ export async function countActiveBotsByUserId(userId: number, client?: PoolClien
   }
 }
 
+/**
+ * Получить статистику ботов пользователя
+ */
+export async function getBotStatsByUserId(userId: number): Promise<{ active: number; total: number }> {
+  const client = await getPostgresClient();
+  
+  try {
+    const result = await client.query<{ active: string; total: string }>(
+      `SELECT 
+         COUNT(*) FILTER (WHERE is_active = true)::text as active,
+         COUNT(*)::text as total
+       FROM bots
+       WHERE user_id = $1`,
+      [userId]
+    );
+    
+    return {
+      active: parseInt(result.rows[0]?.active || '0', 10),
+      total: parseInt(result.rows[0]?.total || '0', 10),
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function deleteBot(botId: string, userId: number, context?: AuditContext): Promise<boolean> {
   const client = await getPostgresClient();
   

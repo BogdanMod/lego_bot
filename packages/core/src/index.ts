@@ -15,7 +15,7 @@ import { createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcas
 import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
-import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError, resetUserBots } from './db/bots';
+import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError, resetUserBots, getBotStatsByUserId } from './db/bots';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
@@ -305,7 +305,7 @@ async function initBot(): Promise<void> {
       logger.error({ userId, command, error }, 'Failed to send legacy command message');
     });
   });
-
+  
   botInstance.command('my_bots', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/my_bots';
@@ -318,7 +318,7 @@ async function initBot(): Promise<void> {
       logger.error({ userId, command, error }, 'Failed to send legacy command message');
     });
   });
-
+  
   botInstance.command('help', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/help';
@@ -2133,14 +2133,14 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
     
     if (!adminUser || !adminUser.is_active) {
       logger.warn({ requestId, userId, path: req.path, method: req.method }, 'Admin check failed: user is not admin or inactive');
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    return res.status(403).json({ error: 'Forbidden' });
+  }
     
     // Store admin user in request for permission checks
     (req as any).adminUser = adminUser;
     (req as any).adminRole = adminUser.role;
     
-    next();
+  next();
   } catch (error) {
     logger.error({ requestId, userId, error }, 'Failed to check admin status');
     return res.status(500).json({ error: 'Internal server error' });
@@ -2636,9 +2636,9 @@ app.get('/api/admin/stats', ensureDatabasesInitialized as any, requireUserId as 
   const actorUserId = (req as any)?.user?.id;
   
   try {
-    const stats = await getAdminStats();
+  const stats = await getAdminStats();
     logger.info({ requestId, actorUserId, action: 'get_admin_stats' }, 'Admin stats retrieved');
-    res.json(stats);
+  res.json(stats);
   } catch (error) {
     logger.error({ requestId, actorUserId, error }, 'Failed to get admin stats');
     res.status(500).json({ error: 'Internal server error' });
@@ -2650,9 +2650,9 @@ app.get('/api/admin/promo-codes', ensureDatabasesInitialized as any, requireUser
   const actorUserId = (req as any)?.user?.id;
   
   try {
-    const codes = await listPromoCodes();
+  const codes = await listPromoCodes();
     logger.info({ requestId, actorUserId, action: 'list_promo_codes', count: codes.length }, 'Admin promo codes listed');
-    res.json({ items: codes });
+  res.json({ items: codes });
   } catch (error) {
     logger.error({ requestId, actorUserId, error }, 'Failed to list promo codes');
     res.status(500).json({ error: 'Internal server error' });
@@ -2704,9 +2704,9 @@ app.get('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUser
   const actorUserId = (req as any)?.user?.id;
   
   try {
-    const state = await getMaintenanceStateCached();
+  const state = await getMaintenanceStateCached();
     logger.info({ requestId, actorUserId, action: 'get_maintenance_state' }, 'Admin maintenance state retrieved');
-    res.json(state);
+  res.json(state);
   } catch (error) {
     logger.error({ requestId, actorUserId, error }, 'Failed to get maintenance state');
     res.status(500).json({ error: 'Internal server error' });
@@ -2719,13 +2719,13 @@ app.post('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUse
   const body = req.body as z.infer<typeof AdminMaintenanceSchema>;
   
   try {
-    const updated = await setMaintenanceState(
-      body.enabled,
-      body.message ?? null,
+  const updated = await setMaintenanceState(
+    body.enabled,
+    body.message ?? null,
       actorUserId ?? null
-    );
-    maintenanceCache = updated;
-    maintenanceCacheLoadedAt = Date.now();
+  );
+  maintenanceCache = updated;
+  maintenanceCacheLoadedAt = Date.now();
     
     adminActionLogger('set_maintenance', actorUserId, {
       enabled: body.enabled,
@@ -2733,7 +2733,7 @@ app.post('/api/admin/maintenance', ensureDatabasesInitialized as any, requireUse
       requestId,
     });
     
-    res.json(updated);
+  res.json(updated);
   } catch (error) {
     logger.error({ requestId, actorUserId, error }, 'Failed to set maintenance state');
     res.status(500).json({ error: 'Internal server error' });
@@ -3061,6 +3061,38 @@ app.post('/api/dev/bots/reset-me', ensureDatabasesInitialized as any, requireUse
   }
 });
 
+// Owner summary endpoint
+app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+
+  try {
+    const botStats = await getBotStatsByUserId(userId);
+    // TODO: Get plan from subscriptions table when implemented
+    const plan = 'free';
+    const botLimit = BOT_LIMITS.MAX_BOTS_PER_USER;
+
+    return res.json({
+      user: {
+        userId,
+        plan,
+        botLimit,
+      },
+      bots: {
+        active: botStats.active,
+        total: botStats.total,
+      },
+    });
+  } catch (error) {
+    logger.error({ requestId, userId, error }, 'Failed to get owner summary');
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
   const bots = await getOwnerAccessibleBots(owner.sub);
@@ -3099,6 +3131,50 @@ app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireO
       name: bot.name,
     },
   });
+});
+
+// Deactivate bot (soft delete)
+app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const actorUserId = owner.sub as number;
+
+  try {
+    const deleted = await deleteBot(botId, actorUserId, {
+      requestId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    if (!deleted) {
+      return ownerError(res, 404, 'not_found', 'Бот не найден или уже деактивирован');
+    }
+
+    logger.info({
+      action: 'bot_deactivate',
+      requestId,
+      actorUserId,
+      botId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    }, 'Bot deactivated');
+
+    return res.json({ success: true, message: 'Бот деактивирован' });
+  } catch (error) {
+    logger.error({
+      action: 'bot_deactivate_failed',
+      requestId,
+      actorUserId,
+      botId,
+      error,
+    }, 'Failed to deactivate bot');
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 app.patch('/api/owner/bots/:botId/settings', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerBotSettingsPatchSchema) as any, async (req: Request, res: Response) => {
@@ -3510,18 +3586,6 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
       });
     }
 
-    // Проверка количества ботов пользователя
-    const userBots = await getBotsByUserId(userId);
-    if (userBots.length >= BOT_LIMITS.MAX_BOTS_PER_USER) {
-      logger.warn({ userId, currentCount: userBots.length, requestId }, 'Bot creation limit reached');
-      return res.status(429).json({
-        error: 'Bot limit reached',
-        message: `You can create maximum ${BOT_LIMITS.MAX_BOTS_PER_USER} bots`,
-        currentCount: userBots.length,
-        maxAllowed: BOT_LIMITS.MAX_BOTS_PER_USER,
-      });
-    }
-
     if (!encryptionAvailable) {
       return res.status(503).json({
         error: 'Service temporarily unavailable',
@@ -3537,6 +3601,8 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
       });
     }
 
+    // Проверка дубликата токена (проверяем только активные боты)
+    const userBots = await getBotsByUserId(userId);
     const duplicateToken = userBots.some((bot) => {
       try {
         return decryptToken(bot.token, encryptionKey) === token;
@@ -3549,19 +3615,30 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
     }
 
     const encryptedToken = encryptToken(token, encryptionKey);
-    const context = (req as any).context;
+    const context = {
+      requestId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    };
     let bot;
     try {
       bot = await createBot({ user_id: userId, token: encryptedToken, name }, context);
     } catch (error) {
       if (error instanceof BotLimitError) {
-        logger.warn({ userId: error.userId, activeCount: error.activeCount, limit: error.limit, requestId }, 'Bot creation limit reached');
+        logger.warn({
+          action: 'bot_create_limit_reached',
+          requestId,
+          userId: error.userId,
+          limit: error.limit,
+          activeBots: error.activeCount,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        }, 'Bot creation limit reached');
         return res.status(429).json({
-          error: 'Bot limit reached',
-          code: error.code,
-          message: `You can create maximum ${error.limit} bots`,
-          currentCount: error.activeCount,
-          maxAllowed: error.limit,
+          error: 'BOT_LIMIT_REACHED',
+          message: 'Bot limit reached',
+          limit: error.limit,
+          activeBots: error.activeCount,
         });
       }
       throw error;
