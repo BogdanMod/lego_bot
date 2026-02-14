@@ -1606,13 +1606,8 @@ const telegramOriginPatterns = telegramOrigins.map((origin) => {
 });
 
 // CORS origin validation function
-function isOriginAllowed(origin: string | undefined, path: string): boolean {
-  // Internal endpoints: no CORS (or minimal CORS)
-  if (path.startsWith('/api/internal/')) {
-    return false;
-  }
-
-  // No origin: allow (non-browser requests)
+function isOriginAllowed(origin: string | undefined, _path?: string): boolean {
+  // No origin: don't set CORS headers (non-browser requests)
   if (!origin) {
     return false; // Don't set CORS headers for non-browser requests
   }
