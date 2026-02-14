@@ -496,35 +496,59 @@ export const api = {
 
       return bot;
     } catch (error) {
+      // Парсим структурированную ошибку из ответа
       const status = (error as any)?.status;
-      const data = (error as any)?.data as ValidationErrorResponse | ApiError | undefined;
-
-      let message = 'Не удалось создать бота. Попробуйте позже.';
-      if (status === 400) {
-        const validationMessage = data ? formatValidationErrorForUser(data as ValidationErrorResponse) : null;
-        message = validationMessage || 'Невалидные данные. Проверьте имя и токен бота.';
-      } else if (status === 409) {
-        message = 'Токен бота уже существует.';
-      } else if (status === 429) {
-        // Обработка BOT_LIMIT_REACHED с деталями
-        const errorData = data as { error?: string; activeBots?: number; limit?: number } | undefined;
-        if (errorData?.error === 'BOT_LIMIT_REACHED' || errorData?.error === 'Bot limit reached') {
-          const activeBots = errorData?.activeBots ?? 0;
-          const limit = errorData?.limit ?? BOT_LIMITS.MAX_BOTS_PER_USER;
-          message = `Достигнут лимит ботов: ${activeBots}/${limit}. Удалите один из ботов и попробуйте снова.`;
-          const wrapped = new Error(message);
-          (wrapped as any).status = status;
-          (wrapped as any).data = { ...errorData, activeBots, limit };
-          throw wrapped;
+      let errorData: { error?: string; message?: string; limit?: number; activeBots?: number } | undefined;
+      
+      // Пытаемся извлечь данные из error.data или error напрямую
+      const rawData = (error as any)?.data;
+      if (rawData && typeof rawData === 'object') {
+        errorData = rawData as { error?: string; message?: string; limit?: number; activeBots?: number };
+      } else if (error instanceof Error && error.message) {
+        // Если data нет, пытаемся парсить message
+        try {
+          const parsed = JSON.parse(error.message);
+          if (parsed && typeof parsed === 'object') {
+            errorData = parsed;
+          }
+        } catch {
+          // Не JSON, игнорируем
         }
-        message = 'Достигнут лимит ботов. Удалите один из ботов и попробуйте снова.';
-      } else if (status === 503) {
-        message = 'Сервис временно недоступен. Попробуйте позже.';
       }
 
-      const wrapped = new Error(message);
-      (wrapped as any).status = status;
-      (wrapped as any).data = data;
+      // Формируем структурированную ошибку
+      const structuredError: {
+        status: number;
+        error?: string;
+        message?: string;
+        limit?: number;
+        activeBots?: number;
+      } = {
+        status: status || 500,
+        ...(errorData?.error && { error: errorData.error }),
+        ...(errorData?.message && { message: errorData.message }),
+        ...(errorData?.limit !== undefined && { limit: errorData.limit }),
+        ...(errorData?.activeBots !== undefined && { activeBots: errorData.activeBots }),
+      };
+
+      // Логируем ошибку для диагностики
+      console.error('❌ createBot error:', {
+        status: structuredError.status,
+        error: structuredError.error,
+        message: structuredError.message,
+        limit: structuredError.limit,
+        activeBots: structuredError.activeBots,
+        originalError: error,
+      });
+
+      // Прокидываем структурированную ошибку
+      const wrapped = new Error(structuredError.message || structuredError.error || 'Не удалось создать бота');
+      (wrapped as any).status = structuredError.status;
+      (wrapped as any).error = structuredError.error;
+      (wrapped as any).message = structuredError.message;
+      (wrapped as any).limit = structuredError.limit;
+      (wrapped as any).activeBots = structuredError.activeBots;
+      (wrapped as any).data = structuredError;
       throw wrapped;
     }
   },

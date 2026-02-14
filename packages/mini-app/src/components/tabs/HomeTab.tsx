@@ -262,23 +262,51 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
         onProjectClick(created);
       }
     } catch (error: any) {
-      console.error('Failed to create bot:', error);
-      
+      // Логируем полный payload ошибки для диагностики
+      console.error('❌ createBot failed:', {
+        status: error?.status,
+        error: error?.error,
+        message: error?.message,
+        limit: error?.limit,
+        activeBots: error?.activeBots,
+        fullError: error,
+      });
+
+      const status = error?.status || 500;
+      const errorCode = error?.error;
+      const errorMessage = error?.message || error?.error || 'Неизвестная ошибка';
+
       // Обработка BOT_LIMIT_REACHED ошибки
-      if (error?.data?.error === 'BOT_LIMIT_REACHED' || error?.status === 429) {
-        const activeBots = error?.data?.activeBots ?? summary?.active ?? 0;
-        const limit = error?.data?.limit ?? summary?.limit ?? 3;
+      if (errorCode === 'BOT_LIMIT_REACHED' || status === 429) {
+        const activeBots = error?.activeBots ?? error?.data?.activeBots ?? summary?.active ?? 0;
+        const limit = error?.limit ?? error?.data?.limit ?? summary?.limit ?? 3;
         setLimitError({ activeBots, limit });
         setShowLimitModal(true);
         onLimitReached();
         // Инвалидируем кеш после ошибки для синхронизации
         queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
         queryClient.invalidateQueries({ queryKey: ['bots'] });
-      } else {
-        window.Telegram?.WebApp?.showAlert?.(
-          error?.message || 'Не удалось создать бота. Попробуйте позже.'
-        );
+        return;
       }
+
+      // Формируем понятное сообщение об ошибке
+      let userMessage = '';
+      if (status === 401 || status === 403) {
+        userMessage = 'Сессия Telegram устарела. Закрой Mini App и открой заново.';
+      } else if (status >= 500) {
+        userMessage = `Сервис временно недоступен (${status}).`;
+      } else if (errorCode) {
+        userMessage = `Ошибка создания (${status}): ${errorCode}${errorMessage && errorMessage !== errorCode ? ` - ${errorMessage}` : ''}`;
+      } else {
+        userMessage = `Ошибка создания (${status}): ${errorMessage}`;
+      }
+
+      // Показываем сообщение пользователю
+      window.Telegram?.WebApp?.showAlert?.(userMessage);
+      
+      // Инвалидируем кеш после ошибки для синхронизации
+      queryClient.invalidateQueries({ queryKey: ['bot-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['bots'] });
     } finally {
       setIsCreating(false);
     }
@@ -288,8 +316,17 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
   const limit = summary?.limit ?? 3;
   const isLimitReached = active >= limit;
 
+  // Debug info: UserId и InitData статус
+  const telegramUserId = typeof window !== 'undefined' && window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  const initDataOk = typeof window !== 'undefined' && Boolean(window.Telegram?.WebApp?.initData);
+
   return (
     <div className="px-4 pt-6">
+      {/* Debug строка */}
+      <div className="mb-2 text-xs text-slate-400 dark:text-slate-500">
+        UserId: {telegramUserId || 'missing'} • InitData: {initDataOk ? 'ok' : 'missing'}
+      </div>
+
       {/* Модал для ошибки лимита */}
       <Modal isOpen={showLimitModal} onClose={() => setShowLimitModal(false)}>
         <Card className="rounded-3xl p-6">
