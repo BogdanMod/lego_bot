@@ -1,8 +1,28 @@
 import { Scenes, Context } from 'telegraf';
-import { createBot, botExistsByToken, updateWebhookStatus } from '../db/bots';
-import { getCancelButtonKeyboard, getMainMenuKeyboard } from './keyboards';
+import { createBot, botExistsByToken, updateWebhookStatus, BotLimitError } from '../db/bots';
+import { getCancelButtonKeyboard, getMainMenuKeyboard, getMiniAppKeyboard } from './keyboards';
 import { encryptToken } from '../utils/encryption';
 import { setWebhook } from '../services/telegram-webhook';
+import { createLogger } from '@dialogue-constructor/shared';
+import * as crypto from 'crypto';
+
+const logger = createLogger('bot-scenes');
+
+function generateRequestId(): string {
+  return crypto.randomUUID();
+}
+
+function resolveMiniAppUrl(): string {
+  const explicitUrl = process.env.MINI_APP_URL;
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+  const defaultUrl = process.env.DEFAULT_MINI_APP_URL;
+  if (defaultUrl) {
+    return defaultUrl;
+  }
+  return 'https://lego-bot-miniapp.vercel.app';
+}
 
 // Интерфейс для данных сессии
 interface BotCreationSession {
@@ -221,8 +241,87 @@ export const createBotScene = new Scenes.WizardScene<BotWizardContext>(
         reply_markup: getMainMenuKeyboard(),
       });
     } catch (error) {
-      console.error('Error creating bot:', error);
-      await ctx.reply('❌ Произошла ошибка при создании бота. Попробуйте позже.');
+      const userId = ctx.from?.id;
+      const requestId = generateRequestId();
+      
+      // Обработка BotLimitError
+      if (error instanceof BotLimitError) {
+        const { activeCount, limit } = error;
+        const miniAppUrl = resolveMiniAppUrl();
+        
+        logger.warn({
+          action: 'tg_bot_limit_reached',
+          requestId,
+          userId,
+          status: 429,
+          error: 'BOT_LIMIT_REACHED',
+          limit,
+          activeBots: activeCount,
+        }, 'Bot creation limit reached in Telegram bot');
+        
+        const limitMessage = `❌ <b>Лимит ботов достигнут</b>\n\n` +
+          `У вас уже <b>${activeCount}</b> активных ботов из <b>${limit}</b> доступных.\n\n` +
+          `Деактивируйте бота или обновите план.\n\n` +
+          `💡 <b>Совет:</b> Откройте Mini App для управления ботами.`;
+        
+        await ctx.reply(limitMessage, {
+          parse_mode: 'HTML',
+          reply_markup: getMiniAppKeyboard(miniAppUrl),
+        });
+        return ctx.scene.leave();
+      }
+      
+      // Обработка других ошибок
+      const errorAny = error as any;
+      const status = errorAny?.status || errorAny?.code || 'unknown';
+      const errorMessage = errorAny?.message || String(error);
+      
+      // Обработка 401/403
+      if (status === 401 || status === 403 || errorMessage.includes('Unauthorized') || errorMessage.includes('Forbidden')) {
+        logger.warn({
+          action: 'tg_bot_create_failed',
+          requestId,
+          userId,
+          status: status === 401 ? 401 : 403,
+          error: errorMessage,
+        }, 'Bot creation failed: auth error');
+        
+        await ctx.reply('❌ <b>Сессия устарела</b>\n\nОткройте Mini App заново и повторите.', {
+          parse_mode: 'HTML',
+          reply_markup: getMiniAppKeyboard(resolveMiniAppUrl()),
+        });
+        return ctx.scene.leave();
+      }
+      
+      // Обработка 5xx ошибок
+      if (status >= 500 || errorMessage.includes('Service temporarily unavailable') || errorMessage.includes('Internal server error')) {
+        logger.error({
+          action: 'tg_bot_create_failed',
+          requestId,
+          userId,
+          status: status >= 500 ? status : 500,
+          error: errorMessage,
+        }, 'Bot creation failed: server error');
+        
+        await ctx.reply('❌ <b>Сервис временно недоступен</b>\n\nПопробуйте через пару минут.', {
+          parse_mode: 'HTML',
+          reply_markup: getMainMenuKeyboard(),
+        });
+        return ctx.scene.leave();
+      }
+      
+      // Общая обработка ошибок
+      logger.error({
+        action: 'tg_bot_create_failed',
+        requestId,
+        userId,
+        status,
+        error: errorMessage,
+      }, 'Bot creation failed: unknown error');
+      
+      await ctx.reply('❌ Произошла ошибка при создании бота. Попробуйте позже.', {
+        reply_markup: getMainMenuKeyboard(),
+      });
     }
 
     return ctx.scene.leave();
