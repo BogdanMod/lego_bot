@@ -134,7 +134,7 @@ PORT=5174  # Railway установит автоматически
 
 ### Проверка
 - ✅ Build: `vite build` (собирает в `dist/`)
-- ✅ Start: `vite preview --host 0.0.0.0 --port ${PORT:-5174}`
+- ✅ Start: `vite preview --host 0.0.0.0 --port $PORT`
 - ✅ Dev: `vite` (для локальной разработки)
 - ✅ Workspace dependency `@dialogue-constructor/shared` линкуется автоматически
 
@@ -159,7 +159,7 @@ PORT=5173  # Railway установит автоматически
 
 ### Проверка
 - ✅ Build: `vite build` (собирает в `dist/`)
-- ✅ Start: `vite preview --host 0.0.0.0 --port ${PORT:-5173}`
+- ✅ Start: `vite preview --host 0.0.0.0 --port $PORT`
 - ✅ Dev: `vite` (для локальной разработки)
 
 ## Порядок деплоя
@@ -261,7 +261,7 @@ curl https://your-owner-web.railway.app/api/health
 - Railway автоматически устанавливает `PORT`
 - Убедитесь, что сервисы используют `process.env.PORT`
 - Next.js автоматически использует `PORT`
-- Vite preview использует `${PORT:-default}`
+- Vite preview использует `$PORT` (Railway устанавливает автоматически)
 
 ### Worker не обрабатывает события
 - Проверьте Redis connection
