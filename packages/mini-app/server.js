@@ -6,6 +6,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { existsSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,6 +39,11 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check endpoint (for Railway) - MUST be before SPA fallback
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'mini-app', port: PORT, timestamp: Date.now() });
+});
+
 // Serve static files
 app.use(express.static(DIST_DIR, {
   maxAge: '1y',
@@ -45,7 +51,7 @@ app.use(express.static(DIST_DIR, {
   etag: true,
 }));
 
-// SPA fallback: serve index.html for all routes
+// SPA fallback: serve index.html for all routes (must be last)
 app.get('*', (req, res) => {
   res.sendFile(path.join(DIST_DIR, 'index.html'), {
     maxAge: '0',
@@ -53,16 +59,20 @@ app.get('*', (req, res) => {
   });
 });
 
-// Health check endpoint (for Railway)
-app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'mini-app', port: PORT, timestamp: Date.now() });
-});
+// Verify dist directory exists
+if (!existsSync(DIST_DIR)) {
+  console.error(`❌ Dist directory not found: ${DIST_DIR}`);
+  console.error(`   Current working directory: ${process.cwd()}`);
+  console.error(`   __dirname: ${__dirname}`);
+  process.exit(1);
+}
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Mini App server running on http://0.0.0.0:${PORT}`);
   console.log(`📁 Serving static files from: ${DIST_DIR}`);
   console.log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT || 'default'})`);
   console.log(`🌐 Health check available at http://0.0.0.0:${PORT}/health`);
+  console.log(`📦 Dist directory exists: ${existsSync(DIST_DIR)}`);
 });
 
 // Handle errors
