@@ -1829,7 +1829,6 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), ensureDataba
 app.use('/api', apiGeneralLimiterMiddleware as any);
 app.use(logRateLimitMetrics(logger));
 
-// Health check
 // Root endpoint for Railway health checks
 app.get('/', async (req: Request, res: Response) => {
   res.json({ 
