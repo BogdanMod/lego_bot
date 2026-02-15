@@ -11,8 +11,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 5174;
+// Railway provides PORT via environment variable, must use it
+// PORT is required by Railway, don't use fallback
+const PORT = Number(process.env.PORT) || 8080;
 const DIST_DIR = path.join(__dirname, 'dist');
+
+// Validate PORT
+if (!PORT || PORT < 1 || PORT > 65535) {
+  console.error(`❌ Invalid PORT: ${process.env.PORT}`);
+  process.exit(1);
+}
 
 // Security headers for Telegram Mini App embedding
 app.use((req, res, next) => {
@@ -45,8 +53,25 @@ app.get('*', (req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Health check endpoint (for Railway)
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'mini-app', port: PORT, timestamp: Date.now() });
+});
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Mini App server running on http://0.0.0.0:${PORT}`);
   console.log(`📁 Serving static files from: ${DIST_DIR}`);
+  console.log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT || 'default'})`);
+  console.log(`🌐 Health check available at http://0.0.0.0:${PORT}/health`);
+});
+
+// Handle errors
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use`);
+  } else {
+    console.error('❌ Server error:', error);
+  }
+  process.exit(1);
 });
 
