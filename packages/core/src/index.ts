@@ -3722,6 +3722,18 @@ app.get('/api/owner/bots/:botId/audit', ensureDatabasesInitialized as any, requi
 // POST /api/bots - создать бота
 app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotSchema) as any, requireUserId as any, createBotLimiterMiddleware as any, async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  
+  // Явное логирование начала запроса
+  logger.info({
+    action: 'create_bot_request_start',
+    requestId,
+    userId: (req as any)?.user?.id,
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+  }, '📝 POST /api/bots - Create bot request received');
+  
   try {
     const userId = (req as any).user.id;
 
