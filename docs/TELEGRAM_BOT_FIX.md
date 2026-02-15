@@ -161,7 +161,25 @@ const client = createClient({
 - Парсинг update (updateId, type, messageText)
 - Длительность обработки
 
-## 6. Инструкция для Railway
+## 6. Список найденных причин
+
+### Где было указано запускать owner-web вместо core:
+1. **Удален `railway.json`** из корня - содержал `"startCommand": "cd packages/owner-web && PORT=$PORT pnpm start"` (применялся ко всем сервисам)
+2. **Удален `nixpacks.toml`** из корня - содержал `cmd = "cd packages/owner-web && PORT=${PORT:-8080} pnpm start"` (применялся ко всем сервисам)
+3. **Создан `scripts/railway-start.js`** - универсальный start script, который выбирает пакет по `RAILWAY_SERVICE_NAME`
+4. **Создан новый `railway.json`** - использует `pnpm railway:start` (config-as-code)
+
+### Проблемы с Redis:
+- **packages/core/src/db/redis.ts:249** - не было TLS конфигурации для `rediss://`
+- **packages/router/src/db/redis.ts:300** - не было TLS конфигурации для `rediss://`
+- **Исправлено**: Добавлена автоматическая TLS конфигурация для `rediss://` URL
+
+### Проблемы с webhook:
+- Webhook может быть не настроен (нужно вызвать `/setup_webhook` или установить вручную)
+- Нет проверки, что webhook реально работает
+- **Исправлено**: Добавлено улучшенное логирование входящих webhook запросов
+
+## 7. Инструкция для Railway
 
 ### Шаг 1: Проверка Environment Variables
 
