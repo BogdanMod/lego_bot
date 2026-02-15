@@ -246,10 +246,17 @@ async function connectRedisWithRetry(
 
   for (let attempt = 1; attempt <= REDIS_RETRY_CONFIG.maxRetries; attempt++) {
     const attemptStart = Date.now();
+    // Configure TLS for rediss:// (Upstash Redis)
+    const isTls = redisUrl.startsWith('rediss://');
     const client = createClient({
       url: redisUrl,
       socket: {
         connectTimeout: REDIS_RETRY_CONFIG.connectTimeoutMs,
+        ...(isTls ? {
+          tls: true,
+          rejectUnauthorized: true,
+          keepAlive: 30000,
+        } : {}),
       },
     });
     attachRedisEventHandlers(client, connectionInfo);

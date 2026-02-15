@@ -1830,6 +1830,20 @@ app.use('/api', apiGeneralLimiterMiddleware as any);
 app.use(logRateLimitMetrics(logger));
 
 // Health check
+// Root endpoint for Railway health checks
+app.get('/', async (req: Request, res: Response) => {
+  res.json({ 
+    service: 'core',
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      webhook: '/api/webhook',
+    },
+  });
+});
+
 app.get('/health', async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const allowEnvDetails =
