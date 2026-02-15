@@ -23,6 +23,19 @@ if (!PORT || PORT < 1 || PORT > 65535) {
   process.exit(1);
 }
 
+// Request logging middleware (for debugging)
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  console.log(`[REQUEST] ${req.method} ${req.path} from ${req.ip || 'unknown'}`);
+  
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    console.log(`[RESPONSE] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms)`);
+  });
+  
+  next();
+});
+
 // Security headers for Telegram Mini App embedding
 app.use((req, res, next) => {
   // Allow embedding in Telegram
@@ -41,7 +54,23 @@ app.use((req, res, next) => {
 
 // Health check endpoint (for Railway) - MUST be before SPA fallback
 app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'mini-app', port: PORT, timestamp: Date.now() });
+  console.log(`[HEALTH] Health check requested from ${req.ip || 'unknown'}`);
+  res.json({ 
+    ok: true, 
+    service: 'mini-app', 
+    port: PORT,
+    envPort: process.env.PORT,
+    timestamp: Date.now() 
+  });
+});
+
+// Root endpoint for Railway health checks
+app.get('/', (req, res, next) => {
+  // If it's a health check request (Railway sometimes checks root), redirect to /health
+  if (req.headers['user-agent']?.includes('Railway') || req.query.health === 'true') {
+    return res.redirect('/health');
+  }
+  next(); // Continue to SPA fallback
 });
 
 // Serve static files
