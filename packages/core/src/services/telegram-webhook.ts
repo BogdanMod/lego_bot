@@ -17,6 +17,11 @@ export async function setWebhook(
   secretToken?: string,
   allowedUpdates?: string[]
 ): Promise<SetWebhookResponse> {
+  // Validate bot token format
+  if (!botToken || !/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) {
+    throw new Error('Invalid bot token format. Expected format: <bot_id>:<token>');
+  }
+
   try {
     const url = `${TELEGRAM_API_BASE_URL}${botToken}/setWebhook`;
 
@@ -41,11 +46,26 @@ export async function setWebhook(
       requestBody,
       {
         timeout: 10000,
+        validateStatus: (status) => status < 500, // Don't throw on 4xx
       }
     );
 
+    if (response.status === 404) {
+      throw new Error('Bot token not found. Check TELEGRAM_BOT_TOKEN environment variable.');
+    }
+
     if (!response.data.ok) {
-      throw new Error(response.data.description || 'Failed to set webhook');
+      const errorCode = response.data.error_code;
+      const description = response.data.description || 'Failed to set webhook';
+      
+      if (errorCode === 401) {
+        throw new Error('Unauthorized: Invalid bot token');
+      }
+      if (errorCode === 404) {
+        throw new Error('Bot not found: Token may be invalid or bot was deleted');
+      }
+      
+      throw new Error(`Telegram API error (${errorCode}): ${description}`);
     }
 
     return {
@@ -55,8 +75,12 @@ export async function setWebhook(
     };
   } catch (error) {
     if (axios.isAxiosError(error)) {
+      if (error.response?.status === 404) {
+        throw new Error('Bot token not found. Check TELEGRAM_BOT_TOKEN environment variable.');
+      }
       const errorMessage = error.response?.data?.description || error.message;
-      throw new Error(`Failed to set webhook: ${errorMessage}`);
+      const errorCode = error.response?.data?.error_code;
+      throw new Error(`Failed to set webhook${errorCode ? ` (${errorCode})` : ''}: ${errorMessage}`);
     }
     throw error;
   }
@@ -101,22 +125,46 @@ export async function deleteWebhook(botToken: string): Promise<SetWebhookRespons
  * Получить информацию о webhook
  */
 export async function getWebhookInfo(botToken: string): Promise<any> {
+  // Validate bot token format
+  if (!botToken || !/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) {
+    throw new Error('Invalid bot token format. Expected format: <bot_id>:<token>');
+  }
+
   try {
     const url = `${TELEGRAM_API_BASE_URL}${botToken}/getWebhookInfo`;
     
     const response = await axios.get(url, {
       timeout: 10000,
+      validateStatus: (status) => status < 500, // Don't throw on 4xx
     });
 
+    if (response.status === 404) {
+      throw new Error('Bot token not found. Check TELEGRAM_BOT_TOKEN environment variable.');
+    }
+
     if (!response.data.ok) {
-      throw new Error(response.data.description || 'Failed to get webhook info');
+      const errorCode = response.data.error_code;
+      const description = response.data.description || 'Failed to get webhook info';
+      
+      if (errorCode === 401) {
+        throw new Error('Unauthorized: Invalid bot token');
+      }
+      if (errorCode === 404) {
+        throw new Error('Bot not found: Token may be invalid or bot was deleted');
+      }
+      
+      throw new Error(`Telegram API error (${errorCode}): ${description}`);
     }
 
     return response.data.result;
   } catch (error) {
     if (axios.isAxiosError(error)) {
+      if (error.response?.status === 404) {
+        throw new Error('Bot token not found. Check TELEGRAM_BOT_TOKEN environment variable.');
+      }
       const errorMessage = error.response?.data?.description || error.message;
-      throw new Error(`Failed to get webhook info: ${errorMessage}`);
+      const errorCode = error.response?.data?.error_code;
+      throw new Error(`Failed to get webhook info${errorCode ? ` (${errorCode})` : ''}: ${errorMessage}`);
     }
     throw error;
   }
