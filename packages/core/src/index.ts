@@ -3226,6 +3226,68 @@ app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAut
   }
 });
 
+// Diagnostic endpoint for bot limit issues (dev/staging only)
+app.get('/api/owner/bots/diagnostic', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+
+  // Only allow in non-production
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  try {
+    const client = await getPostgresClient();
+    try {
+      const result = await client.query<{ 
+        id: string; 
+        name: string; 
+        is_active: boolean; 
+        deleted_at: Date | null; 
+        created_at: Date;
+        webhook_set: boolean;
+      }>(
+        `SELECT id, name, is_active, deleted_at, created_at, webhook_set
+         FROM bots 
+         WHERE user_id = $1 
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+
+      const botStats = await getBotStatsByUserId(userId);
+      const activeCount = await countActiveBotsByUserId(userId);
+
+      return res.json({
+        userId,
+        stats: {
+          active: botStats.active,
+          total: botStats.total,
+          activeCountFromFunction: activeCount,
+        },
+        bots: result.rows.map(b => ({
+          id: b.id,
+          name: b.name,
+          is_active: b.is_active,
+          deleted_at: b.deleted_at,
+          created_at: b.created_at,
+          webhook_set: b.webhook_set,
+        })),
+        limit: BOT_LIMITS.MAX_BOTS_PER_USER,
+        canCreate: activeCount < BOT_LIMITS.MAX_BOTS_PER_USER,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    logger.error({ requestId, userId, error }, 'Failed to get bot diagnostic');
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
   const bots = await getOwnerAccessibleBots(owner.sub);

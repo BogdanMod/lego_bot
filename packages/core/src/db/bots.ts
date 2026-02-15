@@ -85,28 +85,53 @@ export async function createBot(data: CreateBotData, context?: AuditContext): Pr
     
     // Проверка лимита после получения lock (без FOR UPDATE, т.к. advisory lock уже защищает)
     const { BOT_LIMITS } = await import('@dialogue-constructor/shared');
-    const countResult = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text as count
+    
+    // Получаем детальную информацию для диагностики
+    const countResult = await client.query<{ count: string; total: string }>(
+      `SELECT 
+         COUNT(*) FILTER (WHERE is_active = true)::text as count,
+         COUNT(*)::text as total
        FROM bots
-       WHERE user_id = $1 AND is_active = true`,
+       WHERE user_id = $1`,
       [data.user_id]
     );
     const activeCount = parseInt(countResult.rows[0]?.count || '0', 10);
+    const totalCount = parseInt(countResult.rows[0]?.total || '0', 10);
     
-    logger.info({ userId: data.user_id, activeCount, limit: BOT_LIMITS.MAX_BOTS_PER_USER, requestId: context?.requestId }, 'Checking bot limit');
+    // Получаем список всех ботов (активных и неактивных) для диагностики
+    const allBotsResult = await client.query<{ id: string; name: string; is_active: boolean; deleted_at: Date | null }>(
+      `SELECT id, name, is_active, deleted_at 
+       FROM bots 
+       WHERE user_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 20`,
+      [data.user_id]
+    );
+    
+    logger.info({ 
+      userId: data.user_id, 
+      activeCount, 
+      totalCount,
+      limit: BOT_LIMITS.MAX_BOTS_PER_USER, 
+      requestId: context?.requestId,
+      bots: allBotsResult.rows.map(b => ({ id: b.id, name: b.name, is_active: b.is_active, deleted_at: b.deleted_at }))
+    }, 'Checking bot limit');
+    
     if (activeCount >= BOT_LIMITS.MAX_BOTS_PER_USER) {
       // Получаем список последних 10 активных ботов для диагностики
-      const botIdsResult = await client.query<{ id: string }>(
-        `SELECT id FROM bots WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 10`,
+      const botIdsResult = await client.query<{ id: string; name: string }>(
+        `SELECT id, name FROM bots WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 10`,
         [data.user_id]
       );
-      const botIds = botIdsResult.rows.map(row => row.id);
+      const botIds = botIdsResult.rows.map(row => ({ id: row.id, name: row.name }));
       
       logger.warn({ 
         userId: data.user_id, 
         activeCount, 
+        totalCount,
         limit: BOT_LIMITS.MAX_BOTS_PER_USER, 
-        botIds,
+        activeBotIds: botIds,
+        allBots: allBotsResult.rows.map(b => ({ id: b.id, name: b.name, is_active: b.is_active, deleted_at: b.deleted_at })),
         requestId: context?.requestId 
       }, 'Bot limit reached - active bots in DB');
       
@@ -439,14 +464,34 @@ export async function countActiveBotsByUserId(userId: number, client?: PoolClien
   const shouldRelease = !client;
   
   try {
+    // Используем FILTER для явного подсчета только активных ботов
     const result = await dbClient.query<{ count: string }>(
-      `SELECT COUNT(*)::text as count
+      `SELECT COUNT(*) FILTER (WHERE is_active = true)::text as count
        FROM bots
-       WHERE user_id = $1 AND is_active = true`,
+       WHERE user_id = $1`,
       [userId]
     );
     
-    return parseInt(result.rows[0]?.count || '0', 10);
+    const count = parseInt(result.rows[0]?.count || '0', 10);
+    
+    // Диагностика: логируем, если count > 0 (только в dev/test)
+    if (process.env.NODE_ENV !== 'production' && count > 0) {
+      const debugResult = await dbClient.query<{ id: string; name: string; is_active: boolean; deleted_at: Date | null }>(
+        `SELECT id, name, is_active, deleted_at 
+         FROM bots 
+         WHERE user_id = $1 
+         ORDER BY created_at DESC 
+         LIMIT 10`,
+        [userId]
+      );
+      logger.debug({ 
+        userId, 
+        activeCount: count,
+        bots: debugResult.rows.map(b => ({ id: b.id, name: b.name, is_active: b.is_active, deleted_at: b.deleted_at }))
+      }, 'countActiveBotsByUserId result');
+    }
+    
+    return count;
   } finally {
     if (shouldRelease) {
       dbClient.release();
@@ -483,6 +528,25 @@ export async function deleteBot(botId: string, userId: number, context?: AuditCo
   const client = await getPostgresClient();
   
   try {
+    // Сначала проверяем текущее состояние бота для диагностики
+    const checkResult = await client.query<{ id: string; is_active: boolean; deleted_at: Date | null }>(
+      `SELECT id, is_active, deleted_at 
+       FROM bots 
+       WHERE id = $1 AND user_id = $2`,
+      [botId, userId]
+    );
+    
+    if (checkResult.rows.length === 0) {
+      logger.warn({ botId, userId, requestId: context?.requestId }, 'Bot not found for deletion');
+      return false;
+    }
+    
+    const bot = checkResult.rows[0];
+    if (!bot.is_active) {
+      logger.info({ botId, userId, deleted_at: bot.deleted_at, requestId: context?.requestId }, 'Bot already deleted (soft delete)');
+      return true; // Уже удален, считаем успехом
+    }
+    
     // Soft delete: устанавливаем is_active = false, deleted_at = NOW(), webhook_set = false
     const result = await client.query(
       `UPDATE bots 
@@ -496,7 +560,22 @@ export async function deleteBot(botId: string, userId: number, context?: AuditCo
     );
     
     const deleted = result.rowCount ? result.rowCount > 0 : false;
+    
     if (deleted) {
+      // Проверяем, что бот действительно стал неактивным
+      const verifyResult = await client.query<{ is_active: boolean }>(
+        `SELECT is_active FROM bots WHERE id = $1`,
+        [botId]
+      );
+      
+      logger.info({ 
+        botId, 
+        userId, 
+        wasActive: bot.is_active,
+        nowActive: verifyResult.rows[0]?.is_active ?? null,
+        requestId: context?.requestId 
+      }, 'Bot soft deleted successfully');
+      
       try {
         await logAuditEvent({
           userId,
@@ -509,9 +588,12 @@ export async function deleteBot(botId: string, userId: number, context?: AuditCo
           userAgent: context?.userAgent,
         });
       } catch (error) {
-        console.error('Audit log failed:', error);
+        logger.error({ error, botId, userId }, 'Audit log failed');
       }
+    } else {
+      logger.warn({ botId, userId, requestId: context?.requestId }, 'Failed to delete bot - no rows updated');
     }
+    
     return deleted;
   } finally {
     client.release();
