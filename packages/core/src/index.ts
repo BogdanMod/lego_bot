@@ -1579,11 +1579,21 @@ const corsOptions: CorsOptions = {
       }, '✅ CORS: Origin allowed');
       return callback(null, true);
     } else {
-      logger.warn({
-        action: 'cors_denied',
-        origin: origin || 'none',
-      }, '❌ CORS: Origin not allowed');
-    return callback(null, false);
+      // Don't log as error if origin is 'none' (direct HTTP requests, health checks, curl, etc.)
+      // These are normal and don't indicate a security issue
+      if (origin) {
+        logger.warn({
+          action: 'cors_denied',
+          origin: origin,
+        }, '❌ CORS: Origin not allowed');
+      } else {
+        // origin === undefined/null - this is normal for non-browser requests
+        logger.debug({
+          action: 'cors_no_origin',
+          note: 'Request without Origin header (normal for direct HTTP requests, health checks, etc.)',
+        }, 'ℹ️ CORS: Request without Origin header');
+      }
+      return callback(null, false);
     }
   },
   credentials: process.env.CORS_ALLOW_CREDENTIALS !== 'false', // Default: true, can be disabled via env
