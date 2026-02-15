@@ -3827,11 +3827,31 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     };
+    
+    // Логируем перед вызовом createBot
+    logger.info({
+      action: 'create_bot_calling_db',
+      requestId,
+      userId,
+      name,
+      tokenLength: encryptedToken.length,
+    }, '📝 Calling createBot() - checking limit and creating bot');
+    
     let bot;
     try {
       bot = await createBot({ user_id: userId, token: encryptedToken, name }, context);
+      
+      // Логируем успешное создание
+      logger.info({
+        action: 'create_bot_success',
+        requestId,
+        userId,
+        botId: bot.id,
+        botName: bot.name,
+      }, '✅ Bot created successfully');
     } catch (error) {
       if (error instanceof BotLimitError) {
+        // Явное логирование ошибки лимита с деталями
         logger.warn({
           action: 'bot_create_limit_reached',
           requestId,
@@ -3840,7 +3860,18 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
           activeBots: error.activeCount,
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
-        }, 'Bot creation limit reached');
+          errorCode: error.code,
+        }, '❌ Bot creation limit reached - DETAILED LOG');
+        
+        // Также логируем в консоль для Railway (stdout)
+        console.error('[BOT_LIMIT_REACHED]', JSON.stringify({
+          requestId,
+          userId: error.userId,
+          limit: error.limit,
+          activeBots: error.activeCount,
+          timestamp: new Date().toISOString(),
+        }));
+        
         return res.status(429).json({
           error: 'BOT_LIMIT_REACHED',
           message: 'Bot limit reached',
@@ -3848,6 +3879,16 @@ app.post('/api/bots', ensureDatabasesInitialized as any, validateBody(CreateBotS
           activeBots: error.activeCount,
         });
       }
+      
+      // Логируем другие ошибки
+      logger.error({
+        action: 'create_bot_error',
+        requestId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+      }, '❌ Bot creation failed');
+      
       throw error;
     }
 
