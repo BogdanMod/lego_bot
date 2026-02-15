@@ -53,15 +53,30 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint (for Railway) - MUST be before SPA fallback
+// Railway uses this to verify the service is ready
 app.get('/health', (req, res) => {
-  console.log(`[HEALTH] Health check requested from ${req.ip || 'unknown'}`);
-  res.json({ 
+  console.log(`[HEALTH] Health check requested from ${req.ip || 'unknown'}, User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
+  res.status(200).json({ 
     ok: true, 
     service: 'mini-app', 
     port: PORT,
     envPort: process.env.PORT,
-    timestamp: Date.now() 
+    timestamp: Date.now(),
+    uptime: process.uptime(),
   });
+});
+
+// Root endpoint - Railway sometimes checks this
+app.get('/', (req, res, next) => {
+  // Log root requests for debugging
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  if (userAgent.includes('Railway') || req.query.health === 'true') {
+    console.log(`[ROOT] Railway health check on root from ${req.ip || 'unknown'}`);
+    return res.status(200).json({ ok: true, service: 'mini-app', health: 'ok' });
+  }
+  console.log(`[ROOT] Root request from ${req.ip || 'unknown'}, User-Agent: ${userAgent}`);
+  // Continue to SPA fallback (will serve index.html)
+  next();
 });
 
 // Root endpoint for Railway health checks
