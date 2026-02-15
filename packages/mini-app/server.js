@@ -66,26 +66,20 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint - Railway sometimes checks this
+// Root endpoint - Railway sometimes checks this for health
 app.get('/', (req, res, next) => {
   // Log root requests for debugging
   const userAgent = req.headers['user-agent'] || 'unknown';
-  if (userAgent.includes('Railway') || req.query.health === 'true') {
+  const isRailwayHealthCheck = userAgent.includes('Railway') || req.query.health === 'true';
+  
+  if (isRailwayHealthCheck) {
     console.log(`[ROOT] Railway health check on root from ${req.ip || 'unknown'}`);
-    return res.status(200).json({ ok: true, service: 'mini-app', health: 'ok' });
+    return res.status(200).json({ ok: true, service: 'mini-app', health: 'ok', port: PORT });
   }
+  
   console.log(`[ROOT] Root request from ${req.ip || 'unknown'}, User-Agent: ${userAgent}`);
   // Continue to SPA fallback (will serve index.html)
   next();
-});
-
-// Root endpoint for Railway health checks
-app.get('/', (req, res, next) => {
-  // If it's a health check request (Railway sometimes checks root), redirect to /health
-  if (req.headers['user-agent']?.includes('Railway') || req.query.health === 'true') {
-    return res.redirect('/health');
-  }
-  next(); // Continue to SPA fallback
 });
 
 // Serve static files
@@ -96,10 +90,25 @@ app.use(express.static(DIST_DIR, {
 }));
 
 // SPA fallback: serve index.html for all routes (must be last)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(DIST_DIR, 'index.html'), {
+app.get('*', (req, res, next) => {
+  const filePath = path.join(DIST_DIR, 'index.html');
+  
+  // Check if file exists before sending
+  if (!existsSync(filePath)) {
+    console.error(`[SPA] index.html not found at ${filePath}`);
+    return res.status(404).json({ error: 'Not found', path: req.path });
+  }
+  
+  res.sendFile(filePath, {
     maxAge: '0',
     etag: false,
+  }, (err) => {
+    if (err) {
+      console.error(`[SPA] Error sending index.html:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    }
   });
 });
 
@@ -110,6 +119,14 @@ if (!existsSync(DIST_DIR)) {
   console.error(`   __dirname: ${__dirname}`);
   process.exit(1);
 }
+
+// Error handling middleware (must be after all routes)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(`[ERROR] Unhandled error for ${req.method} ${req.path}:`, err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error', message: err.message });
+  }
+});
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   const address = server.address();
@@ -125,6 +142,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   if (address && typeof address === 'object') {
     console.log(`✅ Verified: Server bound to ${address.address}:${address.port}`);
   }
+  
+  // Log that we're ready for Railway
+  console.log(`✅ Railway: Service is ready on port ${PORT}`);
 });
 
 // Handle errors
