@@ -81,6 +81,7 @@ async function proxy(req: NextRequest, pathParts: string[]) {
   try {
     // Explicit CORE_API_ORIGIN validation at the very top
     if (!process.env.CORE_API_ORIGIN) {
+      console.error('[Proxy] CORE_API_ORIGIN is not set');
       return NextResponse.json(
         { ok: false, code: 'proxy_misconfigured', message: 'CORE_API_ORIGIN is not set' },
         { status: 500 }

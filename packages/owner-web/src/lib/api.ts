@@ -51,9 +51,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      // Improve error messages for specific cases
+      let message = data?.message || 'Ошибка запроса';
+      const code = data?.code || 'request_failed';
+      
+      // Handle proxy misconfiguration
+      if (code === 'proxy_misconfigured' || message.includes('CORE_API_ORIGIN')) {
+        message = 'CORE_API_ORIGIN не настроен. Проверьте переменные окружения в Railway.';
+      }
+      // Handle core auth misconfiguration
+      else if (code === 'misconfigured' && message.includes('Owner auth is not configured')) {
+        // Extract missing vars from message if available
+        const missingMatch = message.match(/missing ([^,]+(?:, [^,]+)*)/);
+        if (missingMatch) {
+          message = `Owner auth не настроен: отсутствуют ${missingMatch[1]}. Проверьте переменные окружения в сервисе core.`;
+        } else {
+          message = 'Owner auth не настроен. Проверьте JWT_SECRET и TELEGRAM_BOT_TOKEN в сервисе core.';
+        }
+      }
+      // Handle 401/403 auth errors
+      else if (response.status === 401 || response.status === 403) {
+        if (code === 'unauthorized' || code === 'invalid_telegram_auth') {
+          message = message || 'Требуется авторизация. Войдите через Telegram.';
+        }
+      }
+      
       const err: ApiError = {
-        code: data?.code || 'request_failed',
-        message: data?.message || 'Ошибка запроса',
+        code,
+        message,
         request_id: data?.request_id,
         details: data?.details,
       };

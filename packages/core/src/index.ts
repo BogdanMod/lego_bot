@@ -2854,7 +2854,16 @@ app.post('/api/owner/auth/botlink', ensureDatabasesInitialized as any, ownerAuth
   const jwtSecret = getOwnerJwtSecret();
   const botlinkSecret = getOwnerBotlinkSecret();
   if (!jwtSecret || !botlinkSecret) {
-    return ownerError(res, 500, 'misconfigured', 'Owner auth is not configured');
+    const missing: string[] = [];
+    if (!jwtSecret) missing.push('JWT_SECRET');
+    if (!botlinkSecret) {
+      if (!process.env.OWNER_BOTLINK_SECRET?.trim() && !jwtSecret && !process.env.ENCRYPTION_KEY?.trim()) {
+        missing.push('OWNER_BOTLINK_SECRET (or JWT_SECRET, or ENCRYPTION_KEY as fallback)');
+      }
+    }
+    const message = `Owner auth is not configured: missing ${missing.join(', ')}`;
+    logger.error({ requestId: getRequestId() ?? (req as any)?.id ?? 'unknown', missing }, message);
+    return ownerError(res, 500, 'misconfigured', message);
   }
 
   const body = req.body as z.infer<typeof OwnerBotlinkAuthSchema>;
@@ -2942,7 +2951,13 @@ app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAut
   const botToken = getTelegramBotToken();
   const jwtSecret = getOwnerJwtSecret();
   if (!botToken || !jwtSecret) {
-    return ownerError(res, 500, 'misconfigured', 'Owner auth is not configured');
+    const missing: string[] = [];
+    if (!botToken) missing.push('TELEGRAM_BOT_TOKEN');
+    if (!jwtSecret) missing.push('JWT_SECRET');
+    const message = `Owner auth is not configured: missing ${missing.join(', ')}`;
+    const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+    logger.error({ requestId, missing }, message);
+    return ownerError(res, 500, 'misconfigured', message);
   }
   const payload = req.body as z.infer<typeof OwnerTelegramAuthSchema>;
   const verified = verifyTelegramLoginPayload(payload as any, botToken, Math.floor(Date.now() / 1000), 60);

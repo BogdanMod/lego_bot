@@ -58,11 +58,60 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isLoading && (isError || !data)) {
+      // Log error details for debugging
+      if (isError) {
+        const error = (data as any)?.error || (data as any);
+        console.error('[OwnerAuth] Auth check failed:', {
+          code: error?.code,
+          message: error?.message,
+          request_id: error?.request_id,
+        });
+      }
       router.replace('/login');
     }
   }, [isError, isLoading, data, router]);
 
   if (isLoading || !data) {
+    // Show error message if auth failed with specific reason
+    if (isError && !isLoading) {
+      const error = (data as any)?.error || (data as any);
+      const errorMessage = error?.message || 'Ошибка авторизации';
+      return (
+        <div className="min-h-screen p-8">
+          <div className="panel p-6 max-w-2xl mx-auto">
+            <h2 className="text-xl font-semibold text-red-500 mb-2">Ошибка авторизации</h2>
+            <p className="text-sm text-muted-foreground mb-4">{errorMessage}</p>
+            {error?.code === 'misconfigured' || error?.code === 'proxy_misconfigured' ? (
+              <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                <p className="text-sm font-medium mb-2">Проверьте настройки:</p>
+                <ul className="text-xs space-y-1 list-disc list-inside">
+                  {errorMessage.includes('CORE_API_ORIGIN') && (
+                    <li>В сервисе <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">owner-web</code> должна быть переменная <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">CORE_API_ORIGIN</code></li>
+                  )}
+                  {errorMessage.includes('JWT_SECRET') && (
+                    <li>В сервисе <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">core</code> должна быть переменная <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">JWT_SECRET</code></li>
+                  )}
+                  {errorMessage.includes('TELEGRAM_BOT_TOKEN') && (
+                    <li>В сервисе <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">core</code> должна быть переменная <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">TELEGRAM_BOT_TOKEN</code></li>
+                  )}
+                </ul>
+                <p className="text-xs mt-3 text-muted-foreground">
+                  <a href="/api/_debug/env" target="_blank" className="text-blue-500 hover:underline">
+                    Проверить env переменные (dev only)
+                  </a>
+                </p>
+              </div>
+            ) : null}
+            <button
+              onClick={() => router.push('/login')}
+              className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
+            >
+              Вернуться к входу
+            </button>
+          </div>
+        </div>
+      );
+    }
     return <div className="min-h-screen p-8">{i18n.common.loading}</div>;
   }
 
