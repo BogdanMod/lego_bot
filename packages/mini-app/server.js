@@ -166,10 +166,18 @@ process.stdout.setEncoding('utf8');
 process.stderr.setEncoding('utf8');
 
 // Log startup immediately
+const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? null;
 console.log('[MINI-APP] Starting server...');
-console.log(`[MINI-APP] PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || 'not set'}`);
+console.log(`[MINI-APP] PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || 'not set'}, gitSha=${gitSha || 'not set'}`);
 console.log(`[MINI-APP] DIST_DIR=${DIST_DIR}`);
 console.log(`[MINI-APP] CWD=${process.cwd()}`);
+console.log(JSON.stringify({
+  action: 'startup',
+  service: 'mini-app',
+  gitSha,
+  port: PORT,
+  timestamp: new Date().toISOString(),
+}));
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   const address = server.address();
