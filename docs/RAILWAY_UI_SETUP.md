@@ -92,7 +92,7 @@ pnpm --filter @dialogue-constructor/owner-web start
 
 2. **HTTP Logs** → `GET /api/health` должен вернуть:
    ```json
-   {"ok":true,"ts":<timestamp>}
+   {"ok":true,"service":"owner-web","ts":<timestamp>}
    ```
 
 3. **HTTP Logs** → `GET /` должен вернуть HTML (Next.js app).
