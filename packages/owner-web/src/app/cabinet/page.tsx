@@ -4,6 +4,7 @@ import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ownerSummary, ownerBots, ownerDeactivateBot, type ApiError } from '@/lib/api';
 
 export default function CabinetIndexPage() {
@@ -32,6 +33,10 @@ export default function CabinetIndexPage() {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       queryClient.invalidateQueries({ queryKey: ['owner-me'] });
+      toast.success('Бот успешно деактивирован');
+    },
+    onError: (error: ApiError) => {
+      toast.error(error?.message || 'Ошибка при деактивации бота');
     },
   });
 
@@ -71,12 +76,49 @@ export default function CabinetIndexPage() {
     }
   }, [authData, botsData, router]);
 
-  const handleDeactivate = async (botId: string) => {
-    if (!confirm('Вы уверены, что хотите деактивировать этого бота?')) return;
+  const handleDeactivate = async (botId: string, botName: string) => {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      toast(
+        <div className="flex flex-col gap-3">
+          <div className="font-medium">Деактивировать бота?</div>
+          <div className="text-sm text-muted-foreground">
+            Бот "{botName}" будет деактивирован. Это действие можно отменить позже.
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => {
+                toast.dismiss();
+                resolve(true);
+              }}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
+            >
+              Деактивировать
+            </button>
+            <button
+              onClick={() => {
+                toast.dismiss();
+                resolve(false);
+              }}
+              className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>,
+        {
+          duration: Infinity,
+          id: `deactivate-${botId}`,
+        }
+      );
+    });
+
+    if (!confirmed) return;
+
     try {
       await deactivateMutation.mutateAsync(botId);
     } catch (error) {
       console.error('Failed to deactivate bot:', error);
+      // Error is already shown via toast in onError
     }
   };
 
@@ -157,11 +199,11 @@ export default function CabinetIndexPage() {
                   Открыть
                 </button>
                 <button
-                  onClick={() => handleDeactivate(bot.botId)}
+                  onClick={() => handleDeactivate(bot.botId, bot.name)}
                   disabled={deactivateMutation.isPending}
                   className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
                 >
-                  Деактивировать
+                  {deactivateMutation.isPending ? 'Деактивация...' : 'Удалить'}
                 </button>
               </div>
             </div>
