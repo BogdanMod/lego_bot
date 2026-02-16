@@ -232,14 +232,17 @@ async function apiRequest<T>(
   const baseUrl = buildApiUrl(endpoint);
   const url = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}user_id=${userId}`;
   
-  console.log('📡 API Request:', {
-    timestamp: new Date().toISOString(),
-    method: options?.method || 'GET',
-    url,
-    userId,
-    hostname,
-    isLocalhost: hostname === 'localhost',
-  });
+  // Only log in dev mode to reduce noise
+  if (import.meta.env.DEV) {
+    console.log('📡 API Request:', {
+      timestamp: new Date().toISOString(),
+      method: options?.method || 'GET',
+      url,
+      userId,
+      hostname,
+      isLocalhost: hostname === 'localhost',
+    });
+  }
 
   try {
     const response = await fetch(url, {
@@ -251,19 +254,15 @@ async function apiRequest<T>(
       },
     });
 
-    console.log('📥 API Response:', {
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok,
-    });
-
-    console.log('📥 Response:', {
-      url: response.url,
-      status: response.status,
-      type: response.type,
-      redirected: response.redirected,
-      contentType: response.headers.get('content-type'),
-    });
+    // Only log in dev mode or on errors
+    if (import.meta.env.DEV || !response.ok) {
+      console.log('📥 API Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url,
+      });
+    }
 
     if (!response.ok) {
       let errorData: ApiError | ValidationErrorResponse;

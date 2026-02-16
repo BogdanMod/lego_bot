@@ -71,8 +71,16 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         const { bots } = await api.getBots();
         const apiProjects: BotProject[] = [];
 
-        for (const bot of bots) {
+        // Load bot schemas sequentially with delay to avoid rate limiting (429)
+        // Rate limit is typically 60 requests per minute, so we add 1.2s delay between requests
+        for (let i = 0; i < bots.length; i++) {
+          const bot = bots[i];
           try {
+            // Add delay between requests (except for the first one)
+            if (i > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1200)); // 1.2s delay
+            }
+            
             const { schema, name } = await api.getBotSchema(bot.id);
             if (schema) {
               const project = schemaToProject(bot.id, name || bot.name, schema);
@@ -80,7 +88,13 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
               project.serverId = bot.id;
               apiProjects.push(project);
             }
-          } catch (err) {
+          } catch (err: any) {
+            // Log 429 errors specifically
+            if (err?.response?.status === 429 || (err as Error)?.message?.includes('429') || (err as Error)?.message?.includes('Too many requests')) {
+              console.warn(`Rate limited while loading bot ${bot.id}, skipping remaining bots. Will retry on next sync.`);
+              // Stop loading remaining bots if we hit rate limit
+              break;
+            }
             console.error(`Failed to load bot ${bot.id}:`, err);
           }
         }
