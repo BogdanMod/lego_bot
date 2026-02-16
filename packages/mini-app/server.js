@@ -13,13 +13,17 @@ const __dirname = dirname(__filename);
 
 const app = express();
 // Railway provides PORT via environment variable, must use it
-// PORT is required by Railway, don't use fallback
-const PORT = Number(process.env.PORT) || 8080;
+// PORT is required by Railway (always injected), no fallback for production
+// For local dev: set PORT=3000 in .env or export PORT=3000
+const PORT = process.env.PORT ? Number(process.env.PORT) : null;
 const DIST_DIR = path.join(__dirname, 'dist');
 
-// Validate PORT
+// Validate PORT - Railway always sets it, so it must be present
 if (!PORT || PORT < 1 || PORT > 65535) {
-  console.error(`❌ Invalid PORT: ${process.env.PORT}`);
+  console.error(`❌ PORT environment variable is required but not set or invalid`);
+  console.error(`   Railway automatically sets PORT, but it's missing.`);
+  console.error(`   For local dev, set PORT=3000 in .env or export PORT=3000`);
+  console.error(`   Current PORT value: ${process.env.PORT || '(not set)'}`);
   process.exit(1);
 }
 
@@ -132,7 +136,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   const address = server.address();
   console.log(`🚀 Mini App server running on http://0.0.0.0:${PORT}`);
   console.log(`📁 Serving static files from: ${DIST_DIR}`);
-  console.log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT || 'default'})`);
+  console.log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT})`);
   console.log(`🌐 Health check available at http://0.0.0.0:${PORT}/health`);
   console.log(`📦 Dist directory exists: ${existsSync(DIST_DIR)}`);
   console.log(`🔍 Server address: ${JSON.stringify(address)}`);
