@@ -121,10 +121,10 @@ if (!existsSync(DIST_DIR)) {
 }
 
 // Error handling middleware (must be after all routes)
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err, req, res, next) => {
   console.error(`[ERROR] Unhandled error for ${req.method} ${req.path}:`, err);
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Internal server error', message: err.message });
+    res.status(500).json({ error: 'Internal server error', message: err?.message || String(err) });
   }
 });
 
