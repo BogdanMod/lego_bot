@@ -86,11 +86,25 @@ app.get('/', (req, res, next) => {
   next();
 });
 
-// Serve static files
+// Serve static files with proper caching
+// Vite generates files with content hashes (e.g., index-abc123.js)
+// These files can be cached forever since hash changes on content change
+// But we need to ensure index.html is never cached
 app.use(express.static(DIST_DIR, {
-  maxAge: '1y',
-  immutable: true,
+  maxAge: (req) => {
+    // Assets with hashes (JS/CSS from Vite) can be cached for 1 year
+    if (req.path.match(/\/assets\/.*-[a-f0-9]+\.(js|css|woff2?|png|jpg|svg)$/i)) {
+      return '1y';
+    }
+    // All other files (including index.html) should not be cached
+    return '0';
+  },
+  immutable: (req) => {
+    // Only mark hashed assets as immutable
+    return !!req.path.match(/\/assets\/.*-[a-f0-9]+\.(js|css)$/i);
+  },
   etag: true,
+  lastModified: true,
 }));
 
 // SPA fallback: serve index.html for all routes (must be last)
@@ -103,10 +117,13 @@ app.get('*', (req, res, next) => {
     return res.status(404).json({ error: 'Not found', path: req.path });
   }
   
-  res.sendFile(filePath, {
-    maxAge: '0',
-    etag: false,
-  }, (err) => {
+  // Force no-cache for index.html to ensure fresh JS/CSS references
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('ETag', '');
+  
+  res.sendFile(filePath, (err) => {
     if (err) {
       console.error(`[SPA] Error sending index.html:`, err);
       if (!res.headersSent) {
