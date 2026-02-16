@@ -231,8 +231,29 @@ pnpm --filter @dialogue-constructor/frontend start
 
 **Healthcheck Port:**
 ```
-(оставьте пустым)
+(оставьте пустым, Railway использует автоматический PORT)
 ```
+
+### Проверка после деплоя:
+
+1. **Deploy Logs** должны содержать:
+   ```
+   ✅ Server listening on port <динамический PORT> (from env: <PORT>)
+   ✅ Server is ready to accept connections
+   ✅ Railway: Service is ready on port <PORT>
+   ```
+
+2. **HTTP Logs** → `GET /health` должен вернуть:
+   ```json
+   {"ok":true,"service":"frontend","port":<PORT>,...}
+   ```
+
+3. **HTTP Logs** → `GET /` должен вернуть HTML (index.html) или 200 OK.
+
+4. **НЕ должно быть**:
+   - `502 Bad Gateway`
+   - `connection refused` в upstreamErrors
+   - Фиксированных портов (3000, 8080) в логах
 
 ---
 
