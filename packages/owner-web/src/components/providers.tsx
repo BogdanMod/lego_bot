@@ -1,6 +1,7 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'sonner';
 import { PropsWithChildren, useState } from 'react';
 
 export function Providers({ children }: PropsWithChildren) {
@@ -15,6 +16,11 @@ export function Providers({ children }: PropsWithChildren) {
         },
       })
   );
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <Toaster position="top-center" richColors />
+    </QueryClientProvider>
+  );
 }
 
