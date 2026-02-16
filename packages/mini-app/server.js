@@ -28,13 +28,19 @@ if (!PORT || PORT < 1 || PORT > 65535) {
 }
 
 // Request logging middleware (for debugging)
+// Railway captures stdout/stderr, so console.log should work
 app.use((req, res, next) => {
   const startTime = Date.now();
-  console.log(`[REQUEST] ${req.method} ${req.path} from ${req.ip || 'unknown'}`);
+  const timestamp = new Date().toISOString();
+  const logMsg = `[${timestamp}] [REQUEST] ${req.method} ${req.path} from ${req.ip || 'unknown'}`;
+  console.log(logMsg);
+  process.stdout.write(`${logMsg}\n`);
   
   res.on('finish', () => {
     const duration = Date.now() - startTime;
-    console.log(`[RESPONSE] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms)`);
+    const responseMsg = `[${new Date().toISOString()}] [RESPONSE] ${req.method} ${req.path} -> ${res.statusCode} (${duration}ms)`;
+    console.log(responseMsg);
+    process.stdout.write(`${responseMsg}\n`);
   });
   
   next();
@@ -59,7 +65,11 @@ app.use((req, res, next) => {
 // Health check endpoint (for Railway) - MUST be before SPA fallback
 // Railway uses this to verify the service is ready
 app.get('/health', (req, res) => {
-  console.log(`[HEALTH] Health check requested from ${req.ip || 'unknown'}, User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
+  const timestamp = new Date().toISOString();
+  const logMsg = `[${timestamp}] [HEALTH] Health check requested from ${req.ip || 'unknown'}, User-Agent: ${req.headers['user-agent'] || 'unknown'}`;
+  console.log(logMsg);
+  process.stdout.write(`${logMsg}\n`);
+  
   res.status(200).json({ 
     ok: true, 
     service: 'mini-app', 
@@ -149,23 +159,45 @@ app.use((err, req, res, next) => {
   }
 });
 
+// Ensure logs go to stdout/stderr (Railway captures these)
+process.stdout.setEncoding('utf8');
+process.stderr.setEncoding('utf8');
+
+// Log startup immediately
+console.log('[MINI-APP] Starting server...');
+console.log(`[MINI-APP] PORT=${PORT}, NODE_ENV=${process.env.NODE_ENV || 'not set'}`);
+console.log(`[MINI-APP] DIST_DIR=${DIST_DIR}`);
+console.log(`[MINI-APP] CWD=${process.cwd()}`);
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   const address = server.address();
-  console.log(`🚀 Mini App server running on http://0.0.0.0:${PORT}`);
-  console.log(`📁 Serving static files from: ${DIST_DIR}`);
-  console.log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT})`);
-  console.log(`🌐 Health check available at http://0.0.0.0:${PORT}/health`);
-  console.log(`📦 Dist directory exists: ${existsSync(DIST_DIR)}`);
-  console.log(`🔍 Server address: ${JSON.stringify(address)}`);
-  console.log(`✅ Server is ready to accept connections`);
+  
+  // Use process.stdout.write for guaranteed output (Railway captures stdout)
+  const log = (msg) => {
+    console.log(msg);
+    process.stdout.write(`${new Date().toISOString()} ${msg}\n`);
+  };
+  
+  log(`🚀 Mini App server running on http://0.0.0.0:${PORT}`);
+  log(`📁 Serving static files from: ${DIST_DIR}`);
+  log(`✅ Server listening on port ${PORT} (from env: ${process.env.PORT})`);
+  log(`🌐 Health check available at http://0.0.0.0:${PORT}/health`);
+  log(`📦 Dist directory exists: ${existsSync(DIST_DIR)}`);
+  log(`🔍 Server address: ${JSON.stringify(address)}`);
+  log(`✅ Server is ready to accept connections`);
   
   // Test that server is actually listening
   if (address && typeof address === 'object') {
-    console.log(`✅ Verified: Server bound to ${address.address}:${address.port}`);
+    log(`✅ Verified: Server bound to ${address.address}:${address.port}`);
   }
   
   // Log that we're ready for Railway
-  console.log(`✅ Railway: Service is ready on port ${PORT}`);
+  log(`✅ Railway: Service is ready on port ${PORT}`);
+  
+  // Log a test request to verify logging works
+  setTimeout(() => {
+    log(`[MINI-APP] Server started successfully, ready for requests`);
+  }, 100);
 });
 
 // Handle errors
