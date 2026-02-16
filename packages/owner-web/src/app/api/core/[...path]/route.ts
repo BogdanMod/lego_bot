@@ -78,6 +78,10 @@ function copyResponseHeaders(upstream: Response, upstreamUrl: string): Headers {
 }
 
 async function proxy(req: NextRequest, pathParts: string[]) {
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.NEXT_PUBLIC_GIT_SHA ?? null;
+  const method = req.method;
+  const incomingPath = `/api/core/${pathParts.join('/')}`;
+  
   try {
     // Explicit CORE_API_ORIGIN validation at the very top
     if (!process.env.CORE_API_ORIGIN) {
@@ -97,6 +101,16 @@ async function proxy(req: NextRequest, pathParts: string[]) {
         { status: 500 }
       );
     }
+    
+    // Log proxy request (without sensitive headers)
+    console.log(JSON.stringify({
+      action: 'proxy_request',
+      method,
+      incomingPath,
+      targetUrl,
+      gitSha,
+      timestamp: new Date().toISOString(),
+    }));
 
     const hasBody = !['GET', 'HEAD'].includes(req.method.toUpperCase());
     

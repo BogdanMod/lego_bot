@@ -66,13 +66,15 @@ app.use((req, res, next) => {
 // Railway uses this to verify the service is ready
 app.get('/health', (req, res) => {
   const timestamp = new Date().toISOString();
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? null;
   const logMsg = `[${timestamp}] [HEALTH] Health check requested from ${req.ip || 'unknown'}, User-Agent: ${req.headers['user-agent'] || 'unknown'}`;
   console.log(logMsg);
   process.stdout.write(`${logMsg}\n`);
   
   res.status(200).json({ 
     ok: true, 
-    service: 'mini-app', 
+    service: 'mini-app',
+    gitSha,
     port: PORT,
     envPort: process.env.PORT,
     timestamp: Date.now(),

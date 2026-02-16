@@ -1963,6 +1963,10 @@ app.get('/health', async (req: Request, res: Response) => {
     };
   })();
   const minimalHealth = {
+    ok: true,
+    service: 'core',
+    gitSha,
+    port: PORT ?? null,
     status,
     timestamp,
     databases: {
@@ -2005,6 +2009,10 @@ app.get('/health', async (req: Request, res: Response) => {
   }
 
   const health = {
+    ok: true,
+    service: 'core',
+    gitSha,
+    port: PORT ?? null,
     status,
     timestamp,
     environment: {
@@ -3423,7 +3431,14 @@ app.get('/api/owner/bots/diagnostic', ensureDatabasesInitialized as any, require
 
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const bots = await getOwnerAccessibleBots(owner.sub);
+  logger.info({
+    action: 'get_bots',
+    userId: owner.sub,
+    count: bots.length,
+    requestId,
+  }, 'GET /api/owner/bots');
   res.json({ items: bots });
 });
 
@@ -3468,6 +3483,15 @@ app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireO
   const owner = (req as any).owner as any;
   const actorUserId = owner.sub as number;
 
+  logger.info({
+    action: 'bot_delete',
+    userId: actorUserId,
+    botId,
+    requestId,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  }, 'DELETE /api/owner/bots/:botId - starting deletion');
+
   try {
     const deleted = await deleteBot(botId, actorUserId, {
       requestId,
@@ -3476,6 +3500,13 @@ app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireO
     });
 
     if (!deleted) {
+      logger.warn({
+        action: 'bot_delete',
+        userId: actorUserId,
+        botId,
+        requestId,
+        reason: 'not_found_or_already_deleted',
+      }, 'Bot not found or already deleted');
       return ownerError(res, 404, 'not_found', 'Бот не найден или уже деактивирован');
     }
 
@@ -4827,8 +4858,24 @@ async function startServer() {
   await initializeRateLimiters();
 
   const appInstance = createApp();
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+  
+  // Log startup with diagnostic info
+  logger.info({
+    action: 'startup',
+    service: 'core',
+    gitSha,
+    port: PORT,
+    nodeEnv: process.env.NODE_ENV,
+  }, 'Core service starting');
+  
   appInstance.listen(PORT, '0.0.0.0', () => {
-    logger.info(`Server is running on port ${PORT}`);
+    logger.info({
+      action: 'startup',
+      service: 'core',
+      gitSha,
+      port: PORT,
+    }, `Server is running on port ${PORT}`);
   });
 }
 

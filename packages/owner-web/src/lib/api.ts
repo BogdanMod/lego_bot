@@ -198,8 +198,15 @@ export async function ownerBots() {
 }
 
 export async function ownerDeactivateBot(botId: string) {
+  const url = normalizeOwnerPath(`/api/owner/bots/${botId}`);
+  console.log(JSON.stringify({
+    action: 'owner_deactivate_bot',
+    botId,
+    url,
+    timestamp: new Date().toISOString(),
+  }));
   return request<{ success: boolean; message: string }>(
-    normalizeOwnerPath(`/api/owner/bots/${botId}`),
+    url,
     { method: 'DELETE' }
   );
 }
