@@ -48,5 +48,19 @@ export default defineConfig({
       '127.0.0.1',
     ],
   },
+  build: {
+    // Ensure proper content hashing for cache busting
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
+    },
+    // Generate sourcemaps for debugging
+    sourcemap: true,
+    // Increase chunk size warning limit
+    chunkSizeWarningLimit: 1000,
+  },
 });
 
