@@ -1856,6 +1856,7 @@ app.get('/', async (req: Request, res: Response) => {
 
 app.get('/health', async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
   const allowEnvDetails =
     process.env.NODE_ENV !== 'production' ||
     (process.env.HEALTH_TOKEN &&
