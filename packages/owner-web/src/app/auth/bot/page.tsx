@@ -35,12 +35,21 @@ function BotAuthContent() {
       return;
     }
 
+    // Get next path from query parameter
+    const nextPath = searchParams.get('next');
+    // Validate next path: must be relative, start with /, and not contain protocol
+    const validNextPath = nextPath && nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//') 
+      ? nextPath 
+      : '/cabinet';
+
     let isCancelled = false;
     (async () => {
       try {
-        await ownerAuthBotlink(token);
+        const result = await ownerAuthBotlink(token, validNextPath);
         if (isCancelled) return;
-        router.replace('/cabinet');
+        // Use redirect from response if available, otherwise use nextPath
+        const redirectPath = result.redirect || validNextPath;
+        router.replace(redirectPath);
       } catch (e) {
         if (isCancelled) return;
         setError(mapAuthError(e));

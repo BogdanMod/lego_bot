@@ -16,6 +16,7 @@ import { ProjectsProvider } from './contexts/ProjectsContext';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { isAdminUser } from './constants/admin';
 import type { MaintenanceState } from './types';
+import { Toaster } from 'sonner';
 import './App.css';
 
 declare global {
@@ -137,6 +138,19 @@ function App() {
   return (
     <ProjectsProvider>
       <div className="app">
+        <Toaster
+          position="top-center"
+          richColors
+          closeButton
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: 'var(--bg-panel)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border)',
+            },
+          }}
+        />
         <Routes>
           <Route path="/" element={<BotList />} />
           <Route path="/bot/:id" element={<BotEditor />} />

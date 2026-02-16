@@ -39,9 +39,22 @@ export default function CabinetIndexPage() {
     if (!authData?.bots || authData.bots.length === 0) return;
     if (botsData?.items && botsData.items.length > 0) return;
 
-    // Try to restore lastBotId from localStorage
+    // Check for openBot query parameter (from mini-app deep links)
     let targetBotId: string | undefined;
     if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const openBotId = params.get('openBot');
+      if (openBotId && authData.bots.some((b) => b.botId === openBotId)) {
+        targetBotId = openBotId;
+        // Clean up query parameter
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('openBot');
+        window.history.replaceState({}, '', newUrl.toString());
+      }
+    }
+
+    // Try to restore lastBotId from localStorage
+    if (!targetBotId && typeof window !== 'undefined') {
       const lastBotId = localStorage.getItem('owner_lastBotId');
       if (lastBotId && authData.bots.some((b) => b.botId === lastBotId)) {
         targetBotId = lastBotId;

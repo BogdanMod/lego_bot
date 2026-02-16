@@ -62,6 +62,7 @@ import * as crypto from 'crypto';
 import { decryptToken, encryptToken } from './utils/encryption';
 import { processBroadcastAsync } from './services/broadcast-processor';
 import {
+  createOwnerBotlinkToken,
   generateCsrfToken,
   parseCookies,
   serializeCookie,
@@ -2944,7 +2945,124 @@ app.post('/api/owner/auth/botlink', ensureDatabasesInitialized as any, ownerAuth
     'Owner botlink auth success'
   );
 
-  return res.json({ ok: true });
+  // Support 'next' parameter for redirect after auth
+  const nextPath = (req.body as any).next as string | undefined;
+  let redirectUrl = '/cabinet';
+  
+  if (nextPath) {
+    // Validate next path: must be relative, start with /, and not contain protocol
+    if (typeof nextPath === 'string' && nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//')) {
+      redirectUrl = nextPath;
+    }
+  }
+
+  return res.json({ ok: true, redirect: redirectUrl });
+});
+
+// GET endpoint for mini-app to generate botlink token
+app.get('/api/owner/auth/botlink/generate', ensureDatabasesInitialized as any, ownerAuthRateLimit as any, async (req: Request, res: Response) => {
+  const botToken = getTelegramBotToken();
+  const botlinkSecret = getOwnerBotlinkSecret();
+  const ownerWebBaseUrl = OWNER_WEB_BASE_URL;
+  
+  if (!botToken || !botlinkSecret || !ownerWebBaseUrl) {
+    const missing: string[] = [];
+    if (!botToken) missing.push('TELEGRAM_BOT_TOKEN');
+    if (!botlinkSecret) missing.push('OWNER_BOTLINK_SECRET');
+    if (!ownerWebBaseUrl) missing.push('OWNER_WEB_BASE_URL');
+    const message = `Owner botlink generation is not configured: missing ${missing.join(', ')}`;
+    logger.error({ requestId: getRequestId() ?? (req as any)?.id ?? 'unknown', missing }, message);
+    return ownerError(res, 500, 'misconfigured', message);
+  }
+
+  // Get initData from header or query
+  const initData = (req.headers['x-telegram-init-data'] as string) || (req.query.initData as string | undefined);
+  if (!initData) {
+    return ownerError(res, 401, 'unauthorized', 'Telegram initData required');
+  }
+
+  // Validate initData
+  const validation = validateTelegramWebAppData(initData, botToken);
+  if (!validation.valid || !validation.userId) {
+    logger.warn(
+      { requestId: getRequestId() ?? (req as any)?.id ?? 'unknown', reason: 'invalid_initdata' },
+      'Owner botlink generation failed: invalid initData'
+    );
+    return ownerError(res, 401, 'invalid_initdata', 'Invalid Telegram initData');
+  }
+
+  const telegramUserId = validation.userId;
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Get next path from query (optional) and validate
+  const nextPath = req.query.next as string | undefined;
+  let redirectPath = '/cabinet';
+  
+  if (nextPath && typeof nextPath === 'string') {
+    // Basic validation: must be relative, start with /, no protocol
+    if (nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//')) {
+      // Security: validate against whitelist
+      const allowedPaths = [
+        '/cabinet',
+        '/cabinet/create',
+        /^\/cabinet\/[a-z0-9-]+\/(overview|settings|inbox|calendar|orders|leads|customers|team|audit)$/,
+      ];
+      
+      const isValid = allowedPaths.some((pattern) => {
+        if (typeof pattern === 'string') {
+          return nextPath === pattern;
+        }
+        if (pattern instanceof RegExp) {
+          return pattern.test(nextPath);
+        }
+        return false;
+      });
+      
+      if (isValid) {
+        redirectPath = nextPath;
+      } else {
+        logger.warn(
+          { requestId, userId: telegramUserId, nextPath, reason: 'invalid_next_path' },
+          'Owner botlink generation: invalid next path, using default'
+        );
+      }
+    } else {
+      logger.warn(
+        { requestId, userId: telegramUserId, nextPath, reason: 'malformed_next_path' },
+        'Owner botlink generation: malformed next path, using default'
+      );
+    }
+  }
+
+  // Generate botlink token
+  const jti = crypto.randomBytes(16).toString('hex');
+  const token = createOwnerBotlinkToken(
+    {
+      telegramUserId,
+      jti,
+      ttlSec: 120, // 2 minutes
+    },
+    botlinkSecret,
+    nowSec
+  );
+
+  // Build botlink URL
+  const botlinkUrl = `${ownerWebBaseUrl}/auth/bot?token=${encodeURIComponent(token)}&next=${encodeURIComponent(redirectPath)}`;
+
+  logger.info(
+    {
+      requestId,
+      userId: telegramUserId,
+      redirectPath,
+      nextPath: nextPath || null,
+      botlinkUrlLength: botlinkUrl.length,
+      timestamp: new Date().toISOString(),
+    },
+    'Owner botlink generated'
+  );
+
+  return res.json({ ok: true, url: botlinkUrl, token, redirect: redirectPath });
 });
 
 app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAuthRateLimit as any, validateBody(OwnerTelegramAuthSchema) as any, async (req: Request, res: Response) => {

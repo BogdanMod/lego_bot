@@ -118,7 +118,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 export type BadgeVariant = 'success' | 'error' | 'warning' | 'info';
 
 export type Language = 'RU' | 'EN';
-export type MainTab = 'home' | 'leads' | 'store' | 'settings';
+export type MainTab = 'home' | 'bots' | 'store' | 'settings';
 
 export interface AdminStats {
   totalUsers: number;

@@ -4,7 +4,7 @@ import { BottomNavigation } from '../components/BottomNavigation';
 import { GlobalHeader } from '../components/GlobalHeader';
 import { LimitAlert } from '../components/LimitAlert';
 import { HomeTab } from '../components/tabs/HomeTab';
-import { LeadsTab } from '../components/tabs/LeadsTab';
+import { BotsTab } from '../components/tabs/BotsTab';
 import { SettingsTab } from '../components/tabs/SettingsTab';
 import { StoreTab } from '../components/tabs/StoreTab';
 import { useLanguage } from '../hooks/useLanguage';
@@ -20,22 +20,17 @@ export default function BotList() {
     navigate(`/bot/${project.id}`);
   };
 
-  const handleTemplatesClick = () => {
-    navigate('/templates');
-  };
-
   const renderTab = () => {
     switch (activeTab) {
       case 'home':
         return (
           <HomeTab
             onProjectClick={handleProjectClick}
-            onTemplatesClick={handleTemplatesClick}
             onLimitReached={() => setIsLimitOpen(true)}
           />
         );
-      case 'leads':
-        return <LeadsTab />;
+      case 'bots':
+        return <BotsTab />;
       case 'store':
         return <StoreTab />;
       case 'settings':

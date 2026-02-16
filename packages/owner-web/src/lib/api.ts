@@ -116,10 +116,10 @@ export function ownerAuthTelegram(payload: Record<string, unknown>) {
   });
 }
 
-export function ownerAuthBotlink(token: string) {
-  return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/botlink'), {
+export function ownerAuthBotlink(token: string, next?: string) {
+  return request<{ ok: boolean; redirect?: string }>(normalizeOwnerPath('/api/owner/auth/botlink'), {
     method: 'POST',
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, ...(next ? { next } : {}) }),
   });
 }
 

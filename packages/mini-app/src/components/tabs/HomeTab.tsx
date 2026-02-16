@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Plus, Search, Smartphone, Trash2 } from 'lucide-react';
+import { Layers, Loader2, Plus, Search, Smartphone, Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -14,10 +14,10 @@ import { useBotSummary } from '../../hooks/use-bot-summary';
 import { useDebugMe } from '../../hooks/use-debug-me';
 import { api } from '../../utils/api';
 import { projectToSchema } from '../../utils/brick-adapters';
+import { openOwnerWebCreateBot, openOwnerWebCabinet } from '../../utils/ownerWeb';
 
 export interface HomeTabProps {
   onProjectClick: (project: BotProject) => void;
-  onTemplatesClick: () => void;
   onLimitReached: () => void;
 }
 
@@ -182,7 +182,7 @@ function buildStarterBricks(form: NewBotForm) {
   ];
 }
 
-export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: HomeTabProps) {
+export function HomeTab({ onProjectClick, onLimitReached }: HomeTabProps) {
   const { projects, createProjectFromTemplate, deleteProject } = useProjects();
   const { t } = useLanguage();
   const { data: summary, isLoading: summaryLoading } = useBotSummary();
@@ -205,8 +205,33 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
     p.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
   );
 
-  const handleCreate = () => {
-    setIsCreateWizardOpen(true);
+  const [isOpeningCreate, setIsOpeningCreate] = React.useState(false);
+  const [isOpeningTemplates, setIsOpeningTemplates] = React.useState(false);
+
+  const handleCreate = async () => {
+    if (isOpeningCreate) return;
+    setIsOpeningCreate(true);
+    try {
+      await openOwnerWebCreateBot(true);
+    } catch (error) {
+      console.error('[HomeTab] Failed to open create bot:', error);
+      // Error is already shown via toast
+    } finally {
+      setIsOpeningCreate(false);
+    }
+  };
+
+  const handleTemplates = async () => {
+    if (isOpeningTemplates) return;
+    setIsOpeningTemplates(true);
+    try {
+      await openOwnerWebCabinet(true);
+    } catch (error) {
+      console.error('[HomeTab] Failed to open templates:', error);
+      // Error is already shown via toast
+    } finally {
+      setIsOpeningTemplates(false);
+    }
   };
 
   const handleCreateFromWizard = async () => {
@@ -441,17 +466,18 @@ export function HomeTab({ onProjectClick, onTemplatesClick, onLimitReached }: Ho
           <Button
             variant="secondary"
             size="sm"
-            icon={<Layers size={16} />}
-            onClick={onTemplatesClick}
+            icon={isOpeningTemplates ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
+            onClick={handleTemplates}
+            disabled={isOpeningTemplates}
           >
             {t.home.templates}
           </Button>
           <Button
             variant="primary"
             size="sm"
-            icon={<Plus size={16} />}
+            icon={isOpeningCreate ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
             onClick={handleCreate}
-            disabled={isLimitReached || isCreating}
+            disabled={isLimitReached || isCreating || isOpeningCreate}
           >
             {t.home.create}
           </Button>

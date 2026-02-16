@@ -5,7 +5,7 @@ export const translations = {
     },
     tabs: {
       home: 'Главная',
-      leads: 'Заявки',
+      bots: 'Боты',
       store: 'Подписка',
       settings: 'Настройки',
     },
@@ -117,6 +117,15 @@ export const translations = {
     leads: {
       title: 'Заявки',
     },
+    bots: {
+      title: 'Боты',
+      create: 'Создать',
+      edit: 'Редактировать',
+      open: 'Открыть',
+      emptyTitle: 'Нет ботов',
+      emptyHint: 'Создайте своего первого бота в кабинете владельца',
+      createInCabinet: 'Создать в кабинете',
+    },
     store: {
       title: 'Подписка',
       freeFeatures: ['1 бот', 'Базовые блоки', 'Аналитика'],
@@ -165,7 +174,7 @@ export const translations = {
     },
     tabs: {
       home: 'Home',
-      leads: 'Leads',
+      bots: 'Bots',
       store: 'Subscription',
       settings: 'Settings',
     },
@@ -276,6 +285,15 @@ export const translations = {
     },
     leads: {
       title: 'Leads',
+    },
+    bots: {
+      title: 'Bots',
+      create: 'Create',
+      edit: 'Edit',
+      open: 'Open',
+      emptyTitle: 'No bots',
+      emptyHint: 'Create your first bot in the owner cabinet',
+      createInCabinet: 'Create in cabinet',
     },
     store: {
       title: 'Subscription',

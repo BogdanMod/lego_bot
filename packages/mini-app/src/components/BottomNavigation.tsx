@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home as HomeIcon, Database, ShoppingBag, Settings } from 'lucide-react';
+import { Home as HomeIcon, Bot, ShoppingBag, Settings } from 'lucide-react';
 import type { MainTab } from '../types';
 
 export interface BottomNavigationProps {
@@ -10,7 +10,7 @@ export interface BottomNavigationProps {
 export function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
   const tabs: Array<{ id: MainTab; icon: React.ReactNode }> = [
     { id: 'home', icon: <HomeIcon size={22} /> },
-    { id: 'leads', icon: <Database size={22} /> },
+    { id: 'bots', icon: <Bot size={22} /> },
     { id: 'store', icon: <ShoppingBag size={22} /> },
     { id: 'settings', icon: <Settings size={22} /> },
   ];

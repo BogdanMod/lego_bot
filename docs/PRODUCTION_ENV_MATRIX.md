@@ -10,7 +10,7 @@
 |--------|-----------------|------------------|-------------------|-------------|-------------|
 | **core** | `core-production-xxxx.up.railway.app` | `DATABASE_URL`<br>`TELEGRAM_BOT_TOKEN`<br>`ENCRYPTION_KEY`<br>`JWT_SECRET` | `REDIS_URL`<br>`TELEGRAM_SECRET_TOKEN`<br>`OWNER_BOTLINK_SECRET`<br>`MINI_APP_URL`<br>`API_URL`<br>`SENTRY_DSN` | `GET /health` | PostgreSQL<br>Redis (опционально)<br>Telegram Bot API |
 | **owner-web** | `owner-web-production-xxxx.up.railway.app` | `CORE_API_ORIGIN`<br>`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | `NEXT_PUBLIC_SENTRY_DSN` | `GET /api/health` | core (через CORE_API_ORIGIN) |
-| **miniapp** | `miniapp-production-xxxx.up.railway.app` | *(нет)* | `VITE_API_URL` | `GET /health` | core (через API) |
+| **miniapp** | `miniapp-production-xxxx.up.railway.app` | *(нет)* | `VITE_API_URL`<br>`VITE_OWNER_WEB_BASE_URL` | `GET /health` | core (через API)<br>owner-web (через botlink) |
 | **router** | `router-production-xxxx.up.railway.app` | `DATABASE_URL`<br>`ENCRYPTION_KEY` | `REDIS_URL`<br>`ROUTER_PORT` | `GET /health` | PostgreSQL<br>Redis (опционально)<br>Telegram Bot API |
 | **worker** | *(private service)* | `DATABASE_URL`<br>`REDIS_URL` | `LOG_LEVEL` | *(нет HTTP сервера)* | PostgreSQL<br>Redis (обязательно) |
 | **frontend** | `frontend-production-xxxx.up.railway.app` | *(нет)* | `VITE_API_URL` | *(нет)* | core (через API) |
@@ -130,6 +130,12 @@ pnpm --filter @dialogue-constructor/owner-web start
 - `VITE_API_URL` (client-side) - URL API для запросов (обычно URL core сервиса)
   - Пример: `https://core-production-xxxx.up.railway.app`
   - **Важно:** После изменения требуется rebuild (`pnpm build`)
+- `VITE_OWNER_WEB_BASE_URL` (client-side) - URL Owner Web для переходов в кабинет владельца
+  - Пример: `https://owner-web-production-xxxx.up.railway.app`
+  - **Важно:** 
+    - URL должен быть без trailing slash (`/`)
+    - После изменения требуется rebuild (`pnpm build`)
+    - Если не установлен, переходы в owner-web не будут работать
 - `NODE_ENV` - Окружение (production/development/test)
 
 **Healthcheck:**
@@ -148,6 +154,7 @@ pnpm --filter @dialogue-constructor/owner-web start
 
 **Зависимости:**
 - **core** (через API) - все запросы идут к core сервису
+- **owner-web** (опционально, через `VITE_OWNER_WEB_BASE_URL`) - для переходов в кабинет владельца
 
 **Build Command:**
 ```bash
@@ -161,7 +168,8 @@ pnpm --filter @dialogue-constructor/mini-app start
 
 **Важно:**
 - Сервер слушает на `0.0.0.0` и использует `process.env.PORT` (Railway устанавливает автоматически)
-- `VITE_API_URL` встраивается в клиентский код при сборке
+- `VITE_API_URL` и `VITE_OWNER_WEB_BASE_URL` встраиваются в клиентский код при сборке
+- После изменения `VITE_*` переменных требуется rebuild
 
 ---
 
