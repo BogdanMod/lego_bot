@@ -212,15 +212,18 @@ export async function ownerBots() {
 }
 
 export async function ownerDeactivateBot(botId: string) {
-  const url = normalizeOwnerPath(`/api/owner/bots/${botId}`);
   console.log(JSON.stringify({
     action: 'owner_deactivate_bot',
     botId,
-    url,
     timestamp: new Date().toISOString(),
   }));
-  return request<{ success: boolean; message: string }>(
-    url,
+  
+  // Ensure CSRF token is fresh before deletion
+  await ensureCsrfToken();
+  
+  // Use ownerFetch to automatically include CSRF token
+  return ownerFetch<{ success: boolean; message: string }>(
+    `/api/owner/bots/${botId}`,
     { method: 'DELETE' }
   );
 }
