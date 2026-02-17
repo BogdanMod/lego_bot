@@ -142,8 +142,9 @@ app.use(express.static(DIST_DIR, {
 // CRITICAL: ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
 // This ensures desktop Telegram always gets fresh version, not stale cached one
 app.get('*', (req, res) => {
-  // Skip health check, root, and assets (already handled above)
-  if (req.path === '/health' || req.path === '/' || req.path.startsWith('/assets/') || req.path.startsWith('/api/')) {
+  // Skip health check and API routes (already handled above)
+  // NOTE: Root path '/' should be handled by SPA fallback (after root handler calls next())
+  if (req.path === '/health' || req.path.startsWith('/api/')) {
     // These routes should be handled by specific handlers above
     // If we reach here, it means the route wasn't matched - return 404
     return res.status(404).json({ error: 'Not found', path: req.path });
@@ -165,14 +166,16 @@ app.get('*', (req, res) => {
   
   // If this is a request for SPA route without version query param,
   // and we have a git SHA, redirect to add version for cache busting
+  // NOTE: Skip redirect for root path to avoid breaking initial load
   const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? 'dev';
   const hasVersion = req.query.v || req.query.version;
   
   // Only redirect if:
   // 1. No version query param present
   // 2. Git SHA is available
-  // 3. Not an asset/API/health request (already checked above)
-  if (!hasVersion && gitSha && gitSha !== 'dev') {
+  // 3. Not root path (root should serve index.html directly)
+  // 4. Not asset/API/health request (already checked above)
+  if (!hasVersion && gitSha && gitSha !== 'dev' && req.path !== '/') {
     const version = gitSha.substring(0, 8);
     const newUrl = `${req.path}${req.path.includes('?') ? '&' : '?'}v=${version}`;
     const logMsg = `[SPA] Redirecting to add version query: ${req.path} -> ${newUrl}`;
