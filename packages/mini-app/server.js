@@ -141,31 +141,14 @@ app.use(express.static(DIST_DIR, {
 // SPA fallback: serve index.html for all routes (must be last)
 // CRITICAL: ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
 // This ensures desktop Telegram always gets fresh version, not stale cached one
-app.get('*', (req, res, next) => {
-  // If this is a request for root or SPA route without version query param,
-  // and we have a git SHA, redirect to add version for cache busting
-  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA;
-  const hasVersion = req.query.v || req.query.version;
-  
-  // Only redirect if:
-  // 1. No version query param present
-  // 2. Git SHA is available
-  // 3. Not an asset request
-  // 4. Not already an API request
-  if (!hasVersion && gitSha && !req.path.startsWith('/assets/') && !req.path.startsWith('/api/') && !req.path.startsWith('/health')) {
-    const version = gitSha.substring(0, 8);
-    const newUrl = `${req.path}${req.path.includes('?') ? '&' : '?'}v=${version}`;
-    const logMsg = `[SPA] Redirecting to add version query: ${req.path} -> ${newUrl}`;
-    console.log(logMsg);
-    process.stdout.write(`${logMsg}\n`);
-    return res.redirect(302, newUrl);
+app.get('*', (req, res) => {
+  // Skip health check, root, and assets (already handled above)
+  if (req.path === '/health' || req.path === '/' || req.path.startsWith('/assets/') || req.path.startsWith('/api/')) {
+    // These routes should be handled by specific handlers above
+    // If we reach here, it means the route wasn't matched - return 404
+    return res.status(404).json({ error: 'Not found', path: req.path });
   }
   
-  // Continue to serve index.html
-  next();
-});
-
-app.get('*', (req, res) => {
   // Skip if this is an asset request (should be handled by /assets middleware)
   // This should never be reached if /assets middleware works correctly
   if (req.path.startsWith('/assets/')) {
@@ -178,6 +161,24 @@ app.get('*', (req, res) => {
       path: req.path,
       message: 'Asset request should be handled by /assets middleware. This indicates a routing issue.',
     });
+  }
+  
+  // If this is a request for SPA route without version query param,
+  // and we have a git SHA, redirect to add version for cache busting
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA;
+  const hasVersion = req.query.v || req.query.version;
+  
+  // Only redirect if:
+  // 1. No version query param present
+  // 2. Git SHA is available
+  // 3. Not an asset/API/health request (already checked above)
+  if (!hasVersion && gitSha) {
+    const version = gitSha.substring(0, 8);
+    const newUrl = `${req.path}${req.path.includes('?') ? '&' : '?'}v=${version}`;
+    const logMsg = `[SPA] Redirecting to add version query: ${req.path} -> ${newUrl}`;
+    console.log(logMsg);
+    process.stdout.write(`${logMsg}\n`);
+    return res.redirect(302, newUrl);
   }
   
   const filePath = path.join(DIST_DIR, 'index.html');
