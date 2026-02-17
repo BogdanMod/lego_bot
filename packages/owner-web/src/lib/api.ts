@@ -287,3 +287,10 @@ export async function ownerUpdateBot(botId: string, payload: UpdateBotPayload) {
   });
 }
 
+export async function ownerUpdateBotSchema(botId: string, schema: any) {
+  return request<{ ok: boolean }>(normalizeOwnerPath(`/api/owner/bots/${botId}/schema`), {
+    method: 'PUT',
+    body: JSON.stringify({ schema }),
+  });
+}
+

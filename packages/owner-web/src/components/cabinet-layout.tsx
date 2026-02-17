@@ -11,6 +11,7 @@ import { i18n } from '@/lib/i18n';
 
 const sections = [
   { key: 'overview', label: i18n.nav.overview },
+  { key: 'constructor', label: 'Конструктор', icon: '⚙️' },
   { key: 'inbox', label: i18n.nav.inbox },
   { key: 'calendar', label: i18n.nav.calendar },
   { key: 'orders', label: i18n.nav.orders },
@@ -146,6 +147,7 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
           {sections.map((section) => {
             const href = currentBotId ? `/cabinet/${currentBotId}/${section.key}` : '/cabinet';
             const active = pathname.startsWith(href);
+            const icon = (section as any).icon;
             return (
               <button
                 key={section.key}
@@ -156,6 +158,7 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
                     : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
                 }`}
               >
+                {icon && <span className="mr-2">{icon}</span>}
                 {section.label}
               </button>
             );

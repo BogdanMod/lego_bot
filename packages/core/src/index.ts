@@ -3754,10 +3754,12 @@ app.patch('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOw
       });
     }
 
-    logger.info({
-      action: 'owner_update_bot',
-      userId,
-      botId,
+  res.json({ ok: true });
+
+  logger.info({
+    action: 'owner_update_bot',
+    userId,
+    botId,
       requestId,
     }, 'Bot updated via owner-web');
 
