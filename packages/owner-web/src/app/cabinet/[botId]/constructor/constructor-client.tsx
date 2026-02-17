@@ -25,6 +25,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const { data: botData, isLoading, error } = useQuery({
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
+    enabled: !!botId,
   });
 
   const updateSchemaMutation = useMutation({
@@ -42,21 +43,21 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   });
 
   useEffect(() => {
-    if (botData?.schema) {
+    if (!botData) return;
+    
+    if (botData.schema) {
       const loadedSchema = botData.schema as BotSchema;
       
       // Validate it's a proper schema
       if (loadedSchema && typeof loadedSchema === 'object' && loadedSchema.states && loadedSchema.initialState) {
         setSchema(loadedSchema);
-        if (!selectedState && loadedSchema.initialState) {
-          setSelectedState(loadedSchema.initialState);
-          setPreviewState(loadedSchema.initialState);
-        }
+        setSelectedState((prev) => prev || loadedSchema.initialState);
+        setPreviewState((prev) => prev || loadedSchema.initialState);
       } else {
         console.error('Invalid schema structure:', botData);
         toast.error('Неверная структура схемы бота. Создайте схему через Wizard.');
       }
-    } else if (botData && !botData.schema) {
+    } else {
       // Bot exists but has no schema - create empty one
       const emptySchema: BotSchema = {
         version: 1,
@@ -69,8 +70,8 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
         },
       };
       setSchema(emptySchema);
-      setSelectedState('start');
-      setPreviewState('start');
+      setSelectedState((prev) => prev || 'start');
+      setPreviewState((prev) => prev || 'start');
       setHasChanges(true);
       toast.info('Создана пустая схема. Настройте бота и сохраните.');
     }
@@ -258,9 +259,9 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
     return { nodes, edges };
   }, [schema]);
 
-  const states = Object.keys(schema.states);
-  const currentState = selectedState ? schema.states[selectedState] : null;
-  const previewStateData = previewState ? schema.states[previewState] : null;
+  const states = schema ? Object.keys(schema.states) : [];
+  const currentState = selectedState && schema ? schema.states[selectedState] : null;
+  const previewStateData = previewState && schema ? schema.states[previewState] : null;
 
   return (
     <div className="space-y-6">
@@ -285,14 +286,17 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
             </button>
             <button
               onClick={() => {
-                setViewMode('preview');
-                setPreviewState(schema.initialState);
+                if (schema) {
+                  setViewMode('preview');
+                  setPreviewState(schema.initialState);
+                }
               }}
+              disabled={!schema}
               className={`px-3 py-1 rounded text-sm ${
                 viewMode === 'preview'
                   ? 'bg-white dark:bg-slate-700 shadow'
                   : 'hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
+              } disabled:opacity-50`}
             >
               Предпросмотр
             </button>
@@ -486,7 +490,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
         </div>
       )}
 
-      {viewMode === 'preview' && previewStateData && (
+      {viewMode === 'preview' && schema && (
         <div className="panel p-6 max-w-2xl mx-auto">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Предпросмотр бота</h2>
@@ -498,44 +502,51 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
             </button>
           </div>
           
-          <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-6 min-h-[400px]">
-            <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow mb-4">
-              <div className="text-sm text-muted-foreground mb-2">Бот:</div>
-              <div className="whitespace-pre-wrap">{previewStateData.message}</div>
-            </div>
-            
-            {previewStateData.buttons && previewStateData.buttons.length > 0 && (
-              <div className="space-y-2">
-                {previewStateData.buttons.map((button, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      if (schema.states[button.nextState]) {
-                        setPreviewState(button.nextState);
-                      }
-                    }}
-                    className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 text-left"
-                  >
-                    {button.text}
-                  </button>
-                ))}
+          {previewStateData ? (
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-6 min-h-[400px]">
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-4 shadow mb-4">
+                <div className="text-sm text-muted-foreground mb-2">Бот:</div>
+                <div className="whitespace-pre-wrap">{previewStateData.message || 'Нет сообщения'}</div>
               </div>
-            )}
-            
-            <div className="mt-4 text-xs text-muted-foreground">
-              Текущее состояние: <span className="font-medium">{previewState}</span>
+              
+              {previewStateData.buttons && previewStateData.buttons.length > 0 && (
+                <div className="space-y-2">
+                  {previewStateData.buttons.map((button, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        if (schema.states[button.nextState]) {
+                          setPreviewState(button.nextState);
+                        }
+                      }}
+                      className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 text-left"
+                    >
+                      {button.text}
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              <div className="mt-4 text-xs text-muted-foreground">
+                Текущее состояние: <span className="font-medium">{previewState || 'не выбрано'}</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="text-center text-muted-foreground py-8">
+              Выберите состояние для предпросмотра
+            </div>
+          )}
         </div>
       )}
 
-      {viewMode === 'graph' && (
+      {viewMode === 'graph' && schema && (
         <div className="panel p-6">
           <h2 className="text-lg font-semibold mb-4">Визуальная схема переходов</h2>
           <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-6 min-h-[500px] overflow-auto">
-            <div className="relative" style={{ minHeight: '400px' }}>
-              {/* Nodes */}
-              {graphData.nodes.map((node, index) => {
+            {graphData.nodes.length > 0 ? (
+              <div className="relative" style={{ minHeight: '400px' }}>
+                {/* Nodes */}
+                {graphData.nodes.map((node, index) => {
                 const row = Math.floor(index / 3);
                 const col = index % 3;
                 const x = 150 + col * 250;
@@ -591,8 +602,8 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
                     style={{
                       left: `${Math.min(fromX, toX)}px`,
                       top: `${Math.min(fromY, toY)}px`,
-                      width: `${Math.abs(dx)}px`,
-                      height: `${Math.abs(dy)}px`,
+                      width: `${Math.abs(dx) || 1}px`,
+                      height: `${Math.abs(dy) || 1}px`,
                     }}
                   >
                     <defs>
@@ -616,19 +627,26 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
                       strokeWidth="2"
                       markerEnd={`url(#arrowhead-${index})`}
                     />
-                    <text
-                      x={Math.abs(dx) / 2}
-                      y={Math.abs(dy) / 2 - 5}
-                      fontSize="10"
-                      fill="#64748b"
-                      textAnchor="middle"
-                    >
-                      {edge.label.length > 15 ? edge.label.substring(0, 15) + '...' : edge.label}
-                    </text>
+                    {Math.abs(dx) > 20 && Math.abs(dy) > 20 && (
+                      <text
+                        x={Math.abs(dx) / 2}
+                        y={Math.abs(dy) / 2 - 5}
+                        fontSize="10"
+                        fill="#64748b"
+                        textAnchor="middle"
+                      >
+                        {edge.label.length > 15 ? edge.label.substring(0, 15) + '...' : edge.label}
+                      </text>
+                    )}
                   </svg>
                 );
               })}
-            </div>
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground py-8">
+                Нет состояний для отображения
+              </div>
+            )}
             
             <div className="mt-6 text-sm text-muted-foreground">
               <div className="flex items-center gap-4">
