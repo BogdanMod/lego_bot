@@ -9,7 +9,7 @@
 | Сервис | Домен (Railway) | Обязательные ENV | Опциональные ENV | Healthcheck | Зависимости |
 |--------|-----------------|------------------|-------------------|-------------|-------------|
 | **core** | `core-production-xxxx.up.railway.app` | `DATABASE_URL`<br>`TELEGRAM_BOT_TOKEN`<br>`ENCRYPTION_KEY`<br>`JWT_SECRET` | `REDIS_URL`<br>`TELEGRAM_SECRET_TOKEN`<br>`OWNER_BOTLINK_SECRET`<br>`MINI_APP_URL`<br>`API_URL`<br>`SENTRY_DSN` | `GET /health` | PostgreSQL<br>Redis (опционально)<br>Telegram Bot API |
-| **owner-web** | `owner-web-production-xxxx.up.railway.app` | `CORE_API_ORIGIN`<br>`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | `NEXT_PUBLIC_SENTRY_DSN` | `GET /api/health` | core (через CORE_API_ORIGIN) |
+| **owner-web** | `owner-web-production-xxxx.up.railway.app` | `CORE_API_ORIGIN`<br>`NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | `NEXT_PUBLIC_SENTRY_DSN`<br>`ENABLE_OWNER_WIZARD` (опционально)<br>`NEXT_PUBLIC_ENABLE_OWNER_WIZARD` (опционально) | `GET /api/health` | core (через CORE_API_ORIGIN) |
 | **miniapp** | `miniapp-production-xxxx.up.railway.app` | *(нет)* | `VITE_API_URL`<br>`VITE_OWNER_WEB_BASE_URL` | `GET /health` | core (через API)<br>owner-web (через botlink) |
 | **router** | `router-production-xxxx.up.railway.app` | `DATABASE_URL`<br>`ENCRYPTION_KEY` | `REDIS_URL`<br>`ROUTER_PORT` | `GET /health` | PostgreSQL<br>Redis (опционально)<br>Telegram Bot API |
 | **worker** | *(private service)* | `DATABASE_URL`<br>`REDIS_URL` | `LOG_LEVEL` | *(нет HTTP сервера)* | PostgreSQL<br>Redis (обязательно) |

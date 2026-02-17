@@ -135,7 +135,7 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
           <button
             onClick={() => router.push('/cabinet/bots')}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-              pathname.startsWith('/cabinet/bots')
+              pathname.startsWith('/cabinet/bots') && !pathname.match(/\/cabinet\/bots\/[^/]+\//)
                 ? 'bg-primary text-white'
                 : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
             }`}

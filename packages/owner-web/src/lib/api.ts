@@ -257,10 +257,15 @@ export async function ownerGetTemplates() {
 // Bot creation/update API
 export interface CreateBotPayload {
   templateId?: string;
+  templateVersion?: string;
   name: string;
   timezone?: string;
   language?: string;
   inputs?: Record<string, unknown>;
+  config?: {
+    schema: unknown; // BotSchema
+    metadata?: Record<string, unknown>;
+  };
 }
 
 export interface UpdateBotPayload {

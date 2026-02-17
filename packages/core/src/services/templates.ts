@@ -118,14 +118,110 @@ export function templateToMetadata(template: BotTemplate): TemplateMetadata {
   const industry = industryMap[template.category] || template.category;
 
   // Extract required inputs from template (if any)
-  // For now, use common inputs based on category
+  // Map common inputs based on template ID
   const requiredInputs: TemplateMetadata['requiredInputs'] = [];
   
-  if (template.category === 'business') {
+  // Common business inputs
+  if (['coffee_shop', 'beauty_salon', 'dental_clinic', 'auto_service', 'fitness_studio', 'real_estate', 'lawyer', 'tour_agency', 'event_manager', 'hr_recruitment'].includes(template.id)) {
     requiredInputs.push(
       { key: 'businessName', label: 'Название бизнеса', type: 'text', required: true },
+      { key: 'address', label: 'Адрес', type: 'text', required: true },
       { key: 'contactPhone', label: 'Контактный телефон', type: 'phone', required: true },
-      { key: 'contactEmail', label: 'Email', type: 'email', required: false }
+      { key: 'workingHours', label: 'Часы работы', type: 'text', required: false }
+    );
+  }
+  
+  // Template-specific inputs
+  if (template.id === 'coffee_shop') {
+    requiredInputs.push(
+      { key: 'menuUrl', label: 'Ссылка на меню', type: 'url', required: false }
+    );
+  }
+  
+  if (template.id === 'beauty_salon') {
+    requiredInputs.push(
+      { key: 'servicesList', label: 'Список услуг', type: 'text', required: true },
+      { key: 'mastersList', label: 'Список мастеров', type: 'text', required: false }
+    );
+  }
+  
+  if (template.id === 'dental_clinic') {
+    requiredInputs.push(
+      { key: 'doctorsList', label: 'Список врачей', type: 'text', required: true },
+      { key: 'servicesList', label: 'Список услуг', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'auto_service') {
+    requiredInputs.push(
+      { key: 'servicesList', label: 'Список услуг', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'online_store') {
+    requiredInputs.push(
+      { key: 'categoriesList', label: 'Категории товаров', type: 'text', required: true },
+      { key: 'supportEmail', label: 'Email поддержки', type: 'email', required: false }
+    );
+  }
+  
+  if (template.id === 'fitness_studio') {
+    requiredInputs.push(
+      { key: 'scheduleList', label: 'Расписание', type: 'text', required: true },
+      { key: 'membershipList', label: 'Абонементы', type: 'text', required: true },
+      { key: 'trainersList', label: 'Тренеры', type: 'text', required: false }
+    );
+  }
+  
+  if (template.id === 'real_estate') {
+    requiredInputs.push(
+      { key: 'region', label: 'Регион работы', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'lawyer') {
+    requiredInputs.push(
+      { key: 'servicesList', label: 'Список услуг', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'psychologist') {
+    requiredInputs.push(
+      { key: 'specialistName', label: 'Имя специалиста', type: 'text', required: true },
+      { key: 'pricing', label: 'Стоимость', type: 'text', required: true },
+      { key: 'schedule', label: 'Расписание', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'education') {
+    requiredInputs.push(
+      { key: 'coursesList', label: 'Список курсов', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'tour_agency') {
+    requiredInputs.push(
+      { key: 'destinations', label: 'Направления', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'event_manager') {
+    requiredInputs.push(
+      { key: 'eventTypesList', label: 'Типы мероприятий', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'hr_recruitment') {
+    requiredInputs.push(
+      { key: 'vacanciesList', label: 'Вакансии', type: 'text', required: true }
+    );
+  }
+  
+  if (template.id === 'product_support') {
+    requiredInputs.push(
+      { key: 'productName', label: 'Название продукта', type: 'text', required: true },
+      { key: 'faqList', label: 'Список FAQ', type: 'text', required: true },
+      { key: 'supportEmail', label: 'Email поддержки', type: 'email', required: true }
     );
   }
 

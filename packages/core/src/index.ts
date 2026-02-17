@@ -3501,10 +3501,15 @@ app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireO
 // POST /api/owner/bots - создать бота (с шаблоном или без)
 const OwnerCreateBotSchema = z.object({
   templateId: z.string().optional(),
+  templateVersion: z.string().optional(),
   name: z.string().min(1).max(100),
   timezone: z.string().default('Europe/Moscow'),
   language: z.string().default('ru'),
   inputs: z.record(z.unknown()).optional(), // Custom inputs from template
+  config: z.object({
+    schema: z.any(), // BotSchema
+    metadata: z.record(z.unknown()).optional(),
+  }).optional(), // Full bot config (new wizard format)
 });
 
 app.post('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, validateBody(OwnerCreateBotSchema) as any, async (req: Request, res: Response) => {
@@ -3570,13 +3575,52 @@ app.post('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth 
       }
     );
 
-    // Update schema if provided
-    if (schema) {
-      await updateBotSchema(bot.id, userId, schema, {
+    // Update schema if provided (either from template or from config)
+    let finalSchema = schema;
+    let finalMetadata: Record<string, unknown> | undefined;
+    
+    // New wizard format: use config directly
+    if (body.config) {
+      finalSchema = body.config.schema;
+      finalMetadata = body.config.metadata;
+    } else if (schema) {
+      // Legacy template format
+      finalSchema = schema;
+      // Add template metadata if templateId provided
+      if (body.templateId) {
+        finalMetadata = {
+          template: {
+            id: body.templateId,
+            version: body.templateVersion || '1.0.0',
+          },
+        };
+      }
+    }
+    
+    if (finalSchema) {
+      await updateBotSchema(bot.id, userId, finalSchema, {
         requestId,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
+      
+      // Store metadata in bot_settings if available (graceful degradation if column doesn't exist)
+      if (finalMetadata) {
+        const settingsClient = await getPostgresClient();
+        try {
+          await settingsClient.query(
+            `UPDATE bot_settings SET metadata = $1 WHERE bot_id = $2`,
+            [JSON.stringify(finalMetadata), bot.id]
+          );
+        } catch (err: any) {
+          // If metadata column doesn't exist, ignore (backward compatible)
+          if (!err?.message?.includes('column') && !err?.code?.includes('42703')) {
+            logger.warn({ botId: bot.id, error: err }, 'Failed to store metadata');
+          }
+        } finally {
+          settingsClient.release();
+        }
+      }
     }
 
     // Create bot_settings with timezone

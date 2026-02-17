@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerBots, ownerSummary, ownerDeactivateBot, type ApiError } from '@/lib/api';
+import { isOwnerWizardEnabled } from '@/lib/templates/feature-flag';
 
 export default function BotsPage() {
   const router = useRouter();
@@ -117,6 +118,11 @@ export default function BotsPage() {
         >
           Создать бота
         </button>
+        {!isOwnerWizardEnabled() && (
+          <div className="text-xs text-muted-foreground mt-2">
+            Для использования Wizard установите ENABLE_OWNER_WIZARD=1
+          </div>
+        )}
       </div>
 
       {bots.length === 0 ? (
@@ -159,12 +165,17 @@ export default function BotsPage() {
           onClose={() => setShowCreateModal(false)}
           onSelectTemplate={() => {
             setShowCreateModal(false);
-            router.push('/cabinet/bots/templates');
+            if (isOwnerWizardEnabled()) {
+              router.push('/cabinet/bots/new?template=true');
+            } else {
+              router.push('/cabinet/bots/templates');
+            }
           }}
           onCreateFromScratch={() => {
             setShowCreateModal(false);
             router.push('/cabinet/bots/new');
           }}
+          wizardEnabled={isOwnerWizardEnabled()}
         />
       )}
     </div>
@@ -175,10 +186,12 @@ function CreateBotModal({
   onClose,
   onSelectTemplate,
   onCreateFromScratch,
+  wizardEnabled,
 }: {
   onClose: () => void;
   onSelectTemplate: () => void;
   onCreateFromScratch: () => void;
+  wizardEnabled: boolean;
 }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
