@@ -107,13 +107,15 @@ export function templateToMetadata(template: BotTemplate): TemplateMetadata {
     description: state.message?.substring(0, 200),
   }));
 
-  // Map category to industry
+  // Map category to industry (Russian)
   const industryMap: Record<string, string> = {
     business: 'Бизнес',
     education: 'Образование',
     entertainment: 'Развлечения',
     other: 'Другое',
   };
+  
+  const industry = industryMap[template.category] || template.category;
 
   // Extract required inputs from template (if any)
   // For now, use common inputs based on category
