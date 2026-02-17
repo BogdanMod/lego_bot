@@ -1,19 +1,17 @@
 /**
  * Feature flag for Owner Wizard
+ * @deprecated Use @/lib/flags instead
+ * This file is kept for backward compatibility but should not be used in new code
  */
+
+import { isOwnerWizardEnabled as getFlag } from '@/lib/flags';
 
 /**
  * Check if Owner Wizard is enabled
- * Server-side: checks process.env.ENABLE_OWNER_WIZARD
- * Client-side: checks NEXT_PUBLIC_ENABLE_OWNER_WIZARD
+ * @deprecated Use isOwnerWizardEnabled from @/lib/flags instead
  */
 export function isOwnerWizardEnabled(): boolean {
-  if (typeof window === 'undefined') {
-    // Server-side
-    return process.env.ENABLE_OWNER_WIZARD === '1';
-  } else {
-    // Client-side
-    return process.env.NEXT_PUBLIC_ENABLE_OWNER_WIZARD === '1';
-  }
+  // Delegate to the new flags module
+  return getFlag();
 }
 
