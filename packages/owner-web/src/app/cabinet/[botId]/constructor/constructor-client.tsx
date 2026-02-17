@@ -39,7 +39,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const { data: botData, isLoading, error } = useQuery({
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
-    enabled: !!botId && isMountedRef.current,
+    enabled: !!botId,
     retry: 1,
     staleTime: 30_000,
   });
