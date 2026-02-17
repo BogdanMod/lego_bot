@@ -11,6 +11,7 @@ export function SentryInit() {
     if (!dsn) return;
 
     // Dynamic import to avoid SSR issues
+    // @ts-ignore - @sentry/nextjs is optional dependency
     import('@sentry/nextjs')
       .then((Sentry: any) => {
         Sentry.init({
