@@ -173,33 +173,15 @@ export default function CabinetIndexPage() {
           )}
         </div>
         <button
-          onClick={async () => {
-            if (isCreating || isLimitReached) return;
-            setIsCreating(true);
-            try {
-              // TODO: Implement bot creation flow
-              // For now, redirect to mini-app or show creation modal
-              // If creation fails with BOT_LIMIT_REACHED, show modal
-              router.push('/cabinet/create');
-            } catch (error: any) {
-              if (error?.code === 'BOT_LIMIT_REACHED' || error?.error === 'BOT_LIMIT_REACHED') {
-                setLimitError({
-                  activeBots: error?.activeBots ?? active,
-                  limit: error?.limit ?? limit,
-                });
-                setShowLimitModal(true);
-              } else {
-                console.error('Failed to create bot:', error);
-                alert('Ошибка при создании бота: ' + (error?.message || 'Неизвестная ошибка'));
-              }
-            } finally {
-              setIsCreating(false);
-            }
+          onClick={() => {
+            if (isLimitReached) return;
+            // Navigate to bots page where user can choose template or create from scratch
+            router.push('/cabinet/bots');
           }}
-          disabled={isLimitReached || isCreating}
+          disabled={isLimitReached}
           className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
         >
-          {isCreating ? 'Создание...' : 'Создать бота'}
+          Создать бота
         </button>
       </div>
 
