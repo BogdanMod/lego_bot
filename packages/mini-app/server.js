@@ -165,14 +165,14 @@ app.get('*', (req, res) => {
   
   // If this is a request for SPA route without version query param,
   // and we have a git SHA, redirect to add version for cache busting
-  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA;
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? 'dev';
   const hasVersion = req.query.v || req.query.version;
   
   // Only redirect if:
   // 1. No version query param present
   // 2. Git SHA is available
   // 3. Not an asset/API/health request (already checked above)
-  if (!hasVersion && gitSha) {
+  if (!hasVersion && gitSha && gitSha !== 'dev') {
     const version = gitSha.substring(0, 8);
     const newUrl = `${req.path}${req.path.includes('?') ? '&' : '?'}v=${version}`;
     const logMsg = `[SPA] Redirecting to add version query: ${req.path} -> ${newUrl}`;
@@ -202,7 +202,7 @@ app.get('*', (req, res) => {
   
   // Add version to HTML content to force cache invalidation
   // Read the file, inject version, and send modified content
-  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? 'dev';
+  // Reuse gitSha declared above
   const version = gitSha.substring(0, 8); // Use first 8 chars of git SHA as version
   
   try {
