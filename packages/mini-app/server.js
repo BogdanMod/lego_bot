@@ -110,8 +110,22 @@ if (existsSync(assetsPath)) {
       immutable: true, // Mark as immutable for browsers
       etag: true,
       lastModified: true,
-    })
+    }),
+    // Fallback: if asset not found, log and return 404
+    (req, res) => {
+      const timestamp = new Date().toISOString();
+      const logMsg = `[ASSETS] 404: Asset not found: ${req.path} (requested from ${req.get('referer') || 'direct'})`;
+      console.error(logMsg);
+      process.stdout.write(`${logMsg}\n`);
+      res.status(404).json({ 
+        error: 'Asset not found', 
+        path: req.path,
+        message: 'This asset file was likely removed after a new deployment. Please clear your browser cache and reload.',
+      });
+    }
   );
+} else {
+  console.warn(`[ASSETS] Assets directory not found at ${assetsPath}`);
 }
 
 // Serve other static files (like tonconnect-manifest.json, favicon, etc.) without caching
@@ -129,8 +143,17 @@ app.use(express.static(DIST_DIR, {
 // This ensures desktop Telegram always gets fresh version, not stale cached one
 app.get('*', (req, res) => {
   // Skip if this is an asset request (should be handled by /assets middleware)
+  // This should never be reached if /assets middleware works correctly
   if (req.path.startsWith('/assets/')) {
-    return res.status(404).json({ error: 'Asset not found', path: req.path });
+    const timestamp = new Date().toISOString();
+    const logMsg = `[SPA] Asset request reached SPA fallback (should not happen): ${req.path}`;
+    console.error(logMsg);
+    process.stdout.write(`${logMsg}\n`);
+    return res.status(404).json({ 
+      error: 'Asset not found', 
+      path: req.path,
+      message: 'Asset request should be handled by /assets middleware. This indicates a routing issue.',
+    });
   }
   
   const filePath = path.join(DIST_DIR, 'index.html');
