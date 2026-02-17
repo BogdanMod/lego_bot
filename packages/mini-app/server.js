@@ -6,7 +6,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -141,6 +141,30 @@ app.use(express.static(DIST_DIR, {
 // SPA fallback: serve index.html for all routes (must be last)
 // CRITICAL: ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
 // This ensures desktop Telegram always gets fresh version, not stale cached one
+app.get('*', (req, res, next) => {
+  // If this is a request for root or SPA route without version query param,
+  // and we have a git SHA, redirect to add version for cache busting
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA;
+  const hasVersion = req.query.v || req.query.version;
+  
+  // Only redirect if:
+  // 1. No version query param present
+  // 2. Git SHA is available
+  // 3. Not an asset request
+  // 4. Not already an API request
+  if (!hasVersion && gitSha && !req.path.startsWith('/assets/') && !req.path.startsWith('/api/') && !req.path.startsWith('/health')) {
+    const version = gitSha.substring(0, 8);
+    const newUrl = `${req.path}${req.path.includes('?') ? '&' : '?'}v=${version}`;
+    const logMsg = `[SPA] Redirecting to add version query: ${req.path} -> ${newUrl}`;
+    console.log(logMsg);
+    process.stdout.write(`${logMsg}\n`);
+    return res.redirect(302, newUrl);
+  }
+  
+  // Continue to serve index.html
+  next();
+});
+
 app.get('*', (req, res) => {
   // Skip if this is an asset request (should be handled by /assets middleware)
   // This should never be reached if /assets middleware works correctly
@@ -174,16 +198,35 @@ app.get('*', (req, res) => {
   res.setHeader('Last-Modified', new Date().toUTCString());
   // Remove ETag to prevent conditional requests that might serve cached version
   res.removeHeader('ETag');
-  // Add version query param to force reload (if not already present)
-  // This helps with aggressive browser caches
-  if (!req.query.v) {
-    const timestamp = Date.now();
-    const logMsg = `[SPA] Serving index.html with no-cache headers, timestamp=${timestamp}`;
+  
+  // Add version to HTML content to force cache invalidation
+  // Read the file, inject version, and send modified content
+  const gitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VITE_GIT_SHA ?? 'dev';
+  const version = gitSha.substring(0, 8); // Use first 8 chars of git SHA as version
+  
+  try {
+    let htmlContent = readFileSync(filePath, 'utf-8');
+    
+    // Inject version as meta tag and in a comment for debugging
+    const versionMeta = `    <meta name="app-version" content="${version}" />\n    <meta name="app-deployed" content="${new Date().toISOString()}" />`;
+    const versionComment = `\n    <!-- App version: ${version}, deployed: ${new Date().toISOString()} -->`;
+    
+    // Insert version meta after charset meta
+    htmlContent = htmlContent.replace(
+      /(<meta charset="UTF-8" \/>)/,
+      `$1\n${versionMeta}${versionComment}`
+    );
+    
+    const logMsg = `[SPA] Serving index.html v${version} with no-cache headers, path=${req.path}`;
     console.log(logMsg);
     process.stdout.write(`${logMsg}\n`);
-  }
-  
-  res.sendFile(filePath, (err) => {
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(htmlContent);
+  } catch (readErr) {
+    console.error(`[SPA] Error reading index.html:`, readErr);
+    // Fallback to sendFile if read fails
+    res.sendFile(filePath, (err) => {
     if (err) {
       console.error(`[SPA] Error sending index.html:`, err);
       if (!res.headersSent) {
