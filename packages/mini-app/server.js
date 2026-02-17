@@ -228,13 +228,14 @@ app.get('*', (req, res) => {
     console.error(`[SPA] Error reading index.html:`, readErr);
     // Fallback to sendFile if read fails
     res.sendFile(filePath, (err) => {
-    if (err) {
-      console.error(`[SPA] Error sending index.html:`, err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal server error' });
+      if (err) {
+        console.error(`[SPA] Error sending index.html:`, err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
       }
-    }
-  });
+    });
+  }
 });
 
 // Verify dist directory exists
