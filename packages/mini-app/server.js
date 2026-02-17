@@ -125,8 +125,14 @@ app.use(express.static(DIST_DIR, {
 }));
 
 // SPA fallback: serve index.html for all routes (must be last)
-// ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
+// CRITICAL: ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
+// This ensures desktop Telegram always gets fresh version, not stale cached one
 app.get('*', (req, res) => {
+  // Skip if this is an asset request (should be handled by /assets middleware)
+  if (req.path.startsWith('/assets/')) {
+    return res.status(404).json({ error: 'Asset not found', path: req.path });
+  }
+  
   const filePath = path.join(DIST_DIR, 'index.html');
   
   // Check if file exists before sending
@@ -135,12 +141,13 @@ app.get('*', (req, res) => {
     return res.status(404).json({ error: 'Not found', path: req.path });
   }
   
-  // CRITICAL: Force no-store for index.html to ensure Telegram Web always gets fresh version
-  // This prevents desktop Telegram from showing stale cached version
+  // CRITICAL: Force no-store for index.html
+  // This is the key fix: Telegram Web caches index.html, causing stale versions
+  // no-store tells browser AND Telegram Web to never cache this file
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  // Remove ETag to prevent conditional requests
+  // Remove ETag to prevent conditional requests that might serve cached version
   res.removeHeader('ETag');
   
   res.sendFile(filePath, (err) => {
