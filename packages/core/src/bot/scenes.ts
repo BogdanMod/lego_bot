@@ -21,7 +21,10 @@ function resolveMiniAppUrl(): string {
   if (defaultUrl) {
     return defaultUrl;
   }
-  return 'https://lego-bot-miniapp.vercel.app';
+  // Railway fallback - use new production domain
+  return process.env.RAILWAY_PUBLIC_DOMAIN 
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : 'https://miniapp-production-325b.up.railway.app';
 }
 
 // Интерфейс для данных сессии
