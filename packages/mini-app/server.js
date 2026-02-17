@@ -98,29 +98,35 @@ app.get('/', (req, res, next) => {
   next();
 });
 
-// Serve static files with proper caching
-// Vite generates files with content hashes (e.g., index-abc123.js)
-// These files can be cached forever since hash changes on content change
-// But we need to ensure index.html is never cached
+// Serve /assets with aggressive caching (immutable, max-age=1y)
+// Vite generates files with content hashes, so these can be cached forever
+// This ensures: Cache-Control: public, max-age=31536000, immutable
+const assetsPath = path.join(DIST_DIR, 'assets');
+if (existsSync(assetsPath)) {
+  app.use(
+    '/assets',
+    express.static(assetsPath, {
+      maxAge: '1y', // 31536000 seconds = 1 year
+      immutable: true, // Mark as immutable for browsers
+      etag: true,
+      lastModified: true,
+    })
+  );
+}
+
+// Serve other static files (like tonconnect-manifest.json, favicon, etc.) without caching
+// Note: index.html is NOT served here - it's handled by SPA fallback with no-store
 app.use(express.static(DIST_DIR, {
-  maxAge: (req) => {
-    // Assets with hashes (JS/CSS from Vite) can be cached for 1 year
-    if (req.path.match(/\/assets\/.*-[a-f0-9]+\.(js|css|woff2?|png|jpg|svg)$/i)) {
-      return '1y';
-    }
-    // All other files (including index.html) should not be cached
-    return '0';
-  },
-  immutable: (req) => {
-    // Only mark hashed assets as immutable
-    return !!req.path.match(/\/assets\/.*-[a-f0-9]+\.(js|css)$/i);
-  },
-  etag: true,
-  lastModified: true,
+  maxAge: 0, // No caching
+  etag: false,
+  lastModified: false,
+  // Exclude index.html from static serving (handled by SPA fallback)
+  index: false,
 }));
 
 // SPA fallback: serve index.html for all routes (must be last)
-app.get('*', (req, res, next) => {
+// ALWAYS with Cache-Control: no-store to prevent Telegram Web from caching
+app.get('*', (req, res) => {
   const filePath = path.join(DIST_DIR, 'index.html');
   
   // Check if file exists before sending
@@ -129,11 +135,13 @@ app.get('*', (req, res, next) => {
     return res.status(404).json({ error: 'Not found', path: req.path });
   }
   
-  // Force no-cache for index.html to ensure fresh JS/CSS references
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+  // CRITICAL: Force no-store for index.html to ensure Telegram Web always gets fresh version
+  // This prevents desktop Telegram from showing stale cached version
+  res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
-  res.setHeader('ETag', '');
+  // Remove ETag to prevent conditional requests
+  res.removeHeader('ETag');
   
   res.sendFile(filePath, (err) => {
     if (err) {
