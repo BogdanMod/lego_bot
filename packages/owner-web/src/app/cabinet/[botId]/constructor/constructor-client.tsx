@@ -305,7 +305,11 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
         <div className="flex gap-2">
           <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
             <button
-              onClick={() => setViewMode('edit')}
+              onClick={() => {
+                if (isMountedRef.current) {
+                  setViewMode('edit');
+                }
+              }}
               className={`px-3 py-1 rounded text-sm ${
                 viewMode === 'edit'
                   ? 'bg-white dark:bg-slate-700 shadow'
