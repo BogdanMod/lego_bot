@@ -26,6 +26,8 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
     enabled: !!botId,
+    retry: 1,
+    staleTime: 30_000,
   });
 
   const updateSchemaMutation = useMutation({
@@ -33,48 +35,74 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
       return ownerUpdateBotSchema(botId, newSchema);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bot', botId] });
-      setHasChanges(false);
-      toast.success('Схема бота обновлена');
+      // Use requestAnimationFrame to ensure component is still mounted
+      requestAnimationFrame(() => {
+        queryClient.invalidateQueries({ queryKey: ['bot', botId] });
+        setHasChanges(false);
+        toast.success('Схема бота обновлена');
+      });
     },
     onError: (error: ApiError) => {
-      toast.error(error?.message || 'Ошибка при сохранении схемы');
+      // Use requestAnimationFrame to ensure component is still mounted
+      requestAnimationFrame(() => {
+        toast.error(error?.message || 'Ошибка при сохранении схемы');
+      });
     },
   });
 
   useEffect(() => {
     if (!botData) return;
     
-    if (botData.schema) {
-      const loadedSchema = botData.schema as BotSchema;
+    let isMounted = true;
+    
+    const updateState = () => {
+      if (!isMounted) return;
       
-      // Validate it's a proper schema
-      if (loadedSchema && typeof loadedSchema === 'object' && loadedSchema.states && loadedSchema.initialState) {
-        setSchema(loadedSchema);
-        setSelectedState((prev) => prev || loadedSchema.initialState);
-        setPreviewState((prev) => prev || loadedSchema.initialState);
+      if (botData.schema) {
+        const loadedSchema = botData.schema as BotSchema;
+        
+        // Validate it's a proper schema
+        if (loadedSchema && typeof loadedSchema === 'object' && loadedSchema.states && loadedSchema.initialState) {
+          if (isMounted) {
+            setSchema(loadedSchema);
+            setSelectedState((prev) => prev || loadedSchema.initialState);
+            setPreviewState((prev) => prev || loadedSchema.initialState);
+          }
+        } else {
+          console.error('Invalid schema structure:', botData);
+          if (isMounted) {
+            toast.error('Неверная структура схемы бота. Создайте схему через Wizard.');
+          }
+        }
       } else {
-        console.error('Invalid schema structure:', botData);
-        toast.error('Неверная структура схемы бота. Создайте схему через Wizard.');
-      }
-    } else {
-      // Bot exists but has no schema - create empty one
-      const emptySchema: BotSchema = {
-        version: 1,
-        initialState: 'start',
-        states: {
-          start: {
-            message: 'Добро пожаловать!',
-            buttons: [],
+        // Bot exists but has no schema - create empty one
+        const emptySchema: BotSchema = {
+          version: 1,
+          initialState: 'start',
+          states: {
+            start: {
+              message: 'Добро пожаловать!',
+              buttons: [],
+            },
           },
-        },
-      };
-      setSchema(emptySchema);
-      setSelectedState((prev) => prev || 'start');
-      setPreviewState((prev) => prev || 'start');
-      setHasChanges(true);
-      toast.info('Создана пустая схема. Настройте бота и сохраните.');
-    }
+        };
+        if (isMounted) {
+          setSchema(emptySchema);
+          setSelectedState((prev) => prev || 'start');
+          setPreviewState((prev) => prev || 'start');
+          setHasChanges(true);
+          toast.info('Создана пустая схема. Настройте бота и сохраните.');
+        }
+      }
+    };
+    
+    // Use requestAnimationFrame to ensure state updates happen safely
+    const rafId = requestAnimationFrame(updateState);
+    
+    return () => {
+      isMounted = false;
+      cancelAnimationFrame(rafId);
+    };
   }, [botData]);
 
   if (isLoading) {
