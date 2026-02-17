@@ -14,13 +14,34 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const useTemplate = searchParams.get('template') === 'true';
+  const templateIdFromUrl = searchParams.get('templateId');
   
-  const [step, setStep] = useState(0);
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(useTemplate ? null : 'empty');
+  // Initialize selectedTemplate from URL or default
+  const [step, setStep] = useState(() => {
+    // If templateId is in URL, start at step 1 (skip template selection)
+    return templateIdFromUrl ? 1 : 0;
+  });
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(() => {
+    if (templateIdFromUrl) {
+      return templateIdFromUrl;
+    }
+    return useTemplate ? null : 'empty';
+  });
   const [answers, setAnswers] = useState<TemplateAnswers>({});
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   
   const templates = wizardEnabled ? getAllTemplates() : [];
+  
+  // Validate template exists if templateId is provided
+  useEffect(() => {
+    if (templateIdFromUrl && wizardEnabled) {
+      const template = getTemplateById(templateIdFromUrl);
+      if (!template) {
+        toast.error(`Template ${templateIdFromUrl} not found`);
+        router.push('/cabinet/bots/new');
+      }
+    }
+  }, [templateIdFromUrl, wizardEnabled, router]);
   
   const createMutation = useMutation({
     mutationFn: ownerCreateBot,
@@ -108,6 +129,27 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
     ? getTemplateById(selectedTemplate) 
     : null;
   
+  // Show error if template was requested but not found
+  if (selectedTemplate && selectedTemplate !== 'empty' && !template) {
+    return (
+      <div className="panel p-8 max-w-2xl mx-auto">
+        <div className="text-center py-12">
+          <div className="text-2xl mb-4 text-red-500">❌</div>
+          <h1 className="text-xl font-semibold mb-2">Шаблон не найден</h1>
+          <p className="text-muted-foreground mb-6">
+            Шаблон "{selectedTemplate}" не найден. Возможно, он был удален или переименован.
+          </p>
+          <button
+            onClick={() => router.push('/cabinet/bots/new')}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
+          >
+            Выбрать другой шаблон
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
   const wizardSteps = template?.wizard.steps || [
     {
       id: 'basic',
@@ -157,6 +199,8 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
         config = finalizeBotConfig(config, answers, enabledModules);
       }
       
+      // Don't send templateId to backend - we already built the config on frontend
+      // Backend doesn't need to know about templates, just use the config
       await createMutation.mutateAsync({
         name: (answers.businessName as string) || 'Мой бот',
         timezone: (answers.timezone as string) || 'Europe/Moscow',
@@ -165,10 +209,8 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
           schema: config.schema,
           metadata: config.metadata,
         },
-        ...(template ? {
-          templateId: template.manifest.id,
-          templateVersion: template.manifest.version,
-        } : {}),
+        // Only include template metadata in config.metadata, not as separate fields
+        // This way backend doesn't try to load template
       });
     } catch (error) {
       console.error('Failed to create bot:', error);
