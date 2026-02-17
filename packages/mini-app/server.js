@@ -59,6 +59,14 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   
+  // Additional headers to prevent caching in Telegram Web
+  // Telegram Web may cache more aggressively, so we set these on all responses
+  if (req.path === '/' || !req.path.startsWith('/assets/')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  
   next();
 });
 
@@ -223,6 +231,7 @@ app.get('*', (req, res) => {
     );
     
     // Add cache-busting script that forces reload if version changes
+    // Also add error handling for failed asset loads
     const cacheBustScript = `
     <script>
       (function() {
@@ -232,10 +241,34 @@ app.get('*', (req, res) => {
           console.log('[CacheBust] Version changed, clearing cache and reloading...');
           sessionStorage.clear();
           localStorage.clear();
-          window.location.reload(true);
+          // Force hard reload
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for(let registration of registrations) {
+                registration.unregister();
+              }
+              window.location.reload(true);
+            });
+          } else {
+            window.location.reload(true);
+          }
         } else {
           sessionStorage.setItem('app-version', currentVersion);
         }
+        
+        // Handle failed asset loads
+        window.addEventListener('error', function(e) {
+          if (e.target && (e.target.tagName === 'LINK' || e.target.tagName === 'SCRIPT')) {
+            console.error('[AssetError] Failed to load:', e.target.src || e.target.href);
+            // If critical assets fail, show error message
+            if (e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.includes('/assets/')) {
+              const root = document.getElementById('root');
+              if (root && !root.querySelector('.asset-error')) {
+                root.innerHTML = '<div class="asset-error" style="padding: 20px; text-align: center; color: #fff;"><h2>⚠️ Ошибка загрузки</h2><p>Не удалось загрузить ресурсы приложения.</p><p style="font-size: 12px; opacity: 0.7;">Попробуйте обновить страницу (Ctrl+R или Cmd+R)</p><button onclick="window.location.reload(true)" style="margin-top: 16px; padding: 8px 16px; background: #0088cc; color: white; border: none; border-radius: 4px; cursor: pointer;">Обновить</button></div>';
+              }
+            }
+          }
+        }, true);
       })();
     </script>`;
     
