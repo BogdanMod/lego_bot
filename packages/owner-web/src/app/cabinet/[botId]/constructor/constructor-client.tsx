@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerFetch, ownerUpdateBotSchema, type ApiError } from '@/lib/api';
@@ -14,6 +14,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const router = useRouter();
   const botId = params.botId as string;
   const queryClient = useQueryClient();
+  const isMountedRef = useRef(true);
   
   const [selectedState, setSelectedState] = useState<string | null>(null);
   const [schema, setSchema] = useState<BotSchema | null>(null);
@@ -21,11 +22,24 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [previewState, setPreviewState] = useState<string | null>(null);
   const [draggedButtonIndex, setDraggedButtonIndex] = useState<number | null>(null);
+  
+  // Safe state setters that check if component is mounted
+  const safeSetState = <T,>(setter: (value: T | ((prev: T) => T)) => void, value: T | ((prev: T) => T)) => {
+    if (isMountedRef.current) {
+      setter(value);
+    }
+  };
+  
+  const safeToast = (fn: typeof toast.success, message: string) => {
+    if (isMountedRef.current) {
+      fn(message);
+    }
+  };
 
   const { data: botData, isLoading, error } = useQuery({
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
-    enabled: !!botId,
+    enabled: !!botId && isMountedRef.current,
     retry: 1,
     staleTime: 30_000,
   });
@@ -35,74 +49,58 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
       return ownerUpdateBotSchema(botId, newSchema);
     },
     onSuccess: () => {
-      // Use requestAnimationFrame to ensure component is still mounted
-      requestAnimationFrame(() => {
+      if (isMountedRef.current) {
         queryClient.invalidateQueries({ queryKey: ['bot', botId] });
-        setHasChanges(false);
-        toast.success('Схема бота обновлена');
-      });
+        safeSetState(setHasChanges, false);
+        safeToast(toast.success, 'Схема бота обновлена');
+      }
     },
     onError: (error: ApiError) => {
-      // Use requestAnimationFrame to ensure component is still mounted
-      requestAnimationFrame(() => {
-        toast.error(error?.message || 'Ошибка при сохранении схемы');
-      });
+      if (isMountedRef.current) {
+        safeToast(toast.error, error?.message || 'Ошибка при сохранении схемы');
+      }
     },
   });
 
   useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!botData) return;
     
-    let isMounted = true;
-    
-    const updateState = () => {
-      if (!isMounted) return;
+    if (botData.schema) {
+      const loadedSchema = botData.schema as BotSchema;
       
-      if (botData.schema) {
-        const loadedSchema = botData.schema as BotSchema;
-        
-        // Validate it's a proper schema
-        if (loadedSchema && typeof loadedSchema === 'object' && loadedSchema.states && loadedSchema.initialState) {
-          if (isMounted) {
-            setSchema(loadedSchema);
-            setSelectedState((prev) => prev || loadedSchema.initialState);
-            setPreviewState((prev) => prev || loadedSchema.initialState);
-          }
-        } else {
-          console.error('Invalid schema structure:', botData);
-          if (isMounted) {
-            toast.error('Неверная структура схемы бота. Создайте схему через Wizard.');
-          }
-        }
+      // Validate it's a proper schema
+      if (loadedSchema && typeof loadedSchema === 'object' && loadedSchema.states && loadedSchema.initialState) {
+        safeSetState(setSchema, loadedSchema);
+        safeSetState(setSelectedState, (prev) => prev || loadedSchema.initialState);
+        safeSetState(setPreviewState, (prev) => prev || loadedSchema.initialState);
       } else {
-        // Bot exists but has no schema - create empty one
-        const emptySchema: BotSchema = {
-          version: 1,
-          initialState: 'start',
-          states: {
-            start: {
-              message: 'Добро пожаловать!',
-              buttons: [],
-            },
-          },
-        };
-        if (isMounted) {
-          setSchema(emptySchema);
-          setSelectedState((prev) => prev || 'start');
-          setPreviewState((prev) => prev || 'start');
-          setHasChanges(true);
-          toast.info('Создана пустая схема. Настройте бота и сохраните.');
-        }
+        console.error('Invalid schema structure:', botData);
+        safeToast(toast.error, 'Неверная структура схемы бота. Создайте схему через Wizard.');
       }
-    };
-    
-    // Use requestAnimationFrame to ensure state updates happen safely
-    const rafId = requestAnimationFrame(updateState);
-    
-    return () => {
-      isMounted = false;
-      cancelAnimationFrame(rafId);
-    };
+    } else {
+      // Bot exists but has no schema - create empty one
+      const emptySchema: BotSchema = {
+        version: 1,
+        initialState: 'start',
+        states: {
+          start: {
+            message: 'Добро пожаловать!',
+            buttons: [],
+          },
+        },
+      };
+      safeSetState(setSchema, emptySchema);
+      safeSetState(setSelectedState, (prev) => prev || 'start');
+      safeSetState(setPreviewState, (prev) => prev || 'start');
+      safeSetState(setHasChanges, true);
+      safeToast(toast.info, 'Создана пустая схема. Настройте бота и сохраните.');
+    }
   }, [botData]);
 
   if (isLoading) {
@@ -144,17 +142,17 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   };
 
   const handleAddState = () => {
-    if (!schema) return;
+    if (!schema || !isMountedRef.current) return;
     const stateName = prompt('Введите название состояния (например: menu, help):');
     if (!stateName || !stateName.trim()) return;
     
     const trimmedName = stateName.trim();
     if (schema.states[trimmedName]) {
-      toast.error('Состояние с таким именем уже существует');
+      safeToast(toast.error, 'Состояние с таким именем уже существует');
       return;
     }
 
-    setSchema({
+    safeSetState(setSchema, {
       ...schema,
       states: {
         ...schema.states,
@@ -164,14 +162,14 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
         },
       },
     });
-    setSelectedState(trimmedName);
-    setHasChanges(true);
+    safeSetState(setSelectedState, trimmedName);
+    safeSetState(setHasChanges, true);
   };
 
   const handleDeleteState = (stateName: string) => {
-    if (!schema) return;
+    if (!schema || !isMountedRef.current) return;
     if (stateName === schema.initialState) {
-      toast.error('Нельзя удалить начальное состояние');
+      safeToast(toast.error, 'Нельзя удалить начальное состояние');
       return;
     }
     
@@ -191,20 +189,20 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
       }
     });
 
-    setSchema({
+    safeSetState(setSchema, {
       ...schema,
       states: newStates,
     });
     
     if (selectedState === stateName) {
-      setSelectedState(schema.initialState);
+      safeSetState(setSelectedState, schema.initialState);
     }
-    setHasChanges(true);
+    safeSetState(setHasChanges, true);
   };
 
   const handleUpdateState = (stateName: string, updates: Partial<BotSchema['states'][string]>) => {
-    if (!schema) return;
-    setSchema({
+    if (!schema || !isMountedRef.current) return;
+    safeSetState(setSchema, {
       ...schema,
       states: {
         ...schema.states,
@@ -214,20 +212,22 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
         },
       },
     });
-    setHasChanges(true);
+    safeSetState(setHasChanges, true);
   };
 
   const handleSetInitialState = (stateName: string) => {
-    if (!schema) return;
-    setSchema({
+    if (!schema || !isMountedRef.current) return;
+    safeSetState(setSchema, {
       ...schema,
       initialState: stateName,
     });
-    setHasChanges(true);
+    safeSetState(setHasChanges, true);
   };
 
   const handleButtonDragStart = (index: number) => {
-    setDraggedButtonIndex(index);
+    if (isMountedRef.current) {
+      setDraggedButtonIndex(index);
+    }
   };
 
   const handleButtonDragOver = (e: React.DragEvent, targetIndex: number) => {
@@ -235,7 +235,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   };
 
   const handleButtonDrop = (targetIndex: number) => {
-    if (draggedButtonIndex === null || !selectedState || !schema) return;
+    if (draggedButtonIndex === null || !selectedState || !schema || !isMountedRef.current) return;
     
     const buttons = [...(schema.states[selectedState].buttons || [])];
     const draggedButton = buttons[draggedButtonIndex];
@@ -243,7 +243,9 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
     buttons.splice(targetIndex, 0, draggedButton);
     
     handleUpdateState(selectedState, { buttons });
-    setDraggedButtonIndex(null);
+    if (isMountedRef.current) {
+      setDraggedButtonIndex(null);
+    }
   };
 
   const handleAddButton = () => {
@@ -314,9 +316,9 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
             </button>
             <button
               onClick={() => {
-                if (schema) {
+                if (schema && isMountedRef.current) {
                   setViewMode('preview');
-                  setPreviewState(schema.initialState);
+                  safeSetState(setPreviewState, schema.initialState);
                 }
               }}
               disabled={!schema}
@@ -329,7 +331,11 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
               Предпросмотр
             </button>
             <button
-              onClick={() => setViewMode('graph')}
+              onClick={() => {
+                if (isMountedRef.current) {
+                  setViewMode('graph');
+                }
+              }}
               className={`px-3 py-1 rounded text-sm ${
                 viewMode === 'graph'
                   ? 'bg-white dark:bg-slate-700 shadow'
@@ -377,7 +383,11 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
                       ? 'bg-primary text-white'
                       : 'hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
-                  onClick={() => setSelectedState(stateName)}
+                  onClick={() => {
+                    if (isMountedRef.current) {
+                      setSelectedState(stateName);
+                    }
+                  }}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -523,7 +533,11 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Предпросмотр бота</h2>
             <button
-              onClick={() => setPreviewState(schema.initialState)}
+              onClick={() => {
+                if (isMountedRef.current) {
+                  safeSetState(setPreviewState, schema.initialState);
+                }
+              }}
               className="text-sm px-3 py-1 bg-slate-200 dark:bg-slate-700 rounded hover:bg-slate-300 dark:hover:bg-slate-600"
             >
               Сбросить
@@ -543,8 +557,8 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
                     <button
                       key={index}
                       onClick={() => {
-                        if (schema.states[button.nextState]) {
-                          setPreviewState(button.nextState);
+                        if (schema.states[button.nextState] && isMountedRef.current) {
+                          safeSetState(setPreviewState, button.nextState);
                         }
                       }}
                       className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 text-left"
