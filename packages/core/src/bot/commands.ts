@@ -2,9 +2,9 @@ import { Context } from 'telegraf';
 import { Scenes } from 'telegraf';
 import crypto from 'crypto';
 import { getBotsByUserId } from '../db/bots';
-import { setBotMenuButton } from '../services/telegram-webhook';
 import { getMainMenuWithMiniAppKeyboard, getBackButtonKeyboard, getBotsListKeyboard } from './keyboards';
 import { createOwnerBotlinkToken } from '../utils/owner-auth';
+import { ensureChatMenuButton, ensureChatMenuButtonOncePerDay, resolveMiniAppUrlForMenu } from './menu-button';
 
 function resolveMiniAppUrl(): { url: string; source: 'MINI_APP_URL' | 'DEFAULT_MINI_APP_URL' | 'FALLBACK' } {
   const explicitUrl = process.env.MINI_APP_URL;
@@ -88,6 +88,12 @@ function getOwnerBotlinkSecret(): string | null {
 export async function handleStart(ctx: Context) {
   const userName = ctx.from?.first_name || 'пользователь';
   const { url: miniAppUrl } = resolveMiniAppUrl();
+  // Best-effort: ensure chat menu button points to актуальный MINIAPP_URL (deduped via Redis)
+  try {
+    await ensureChatMenuButtonOncePerDay({ ctx, reason: '/start' });
+  } catch {
+    // never break /start flow
+  }
   
   const welcomeMessage = `
 👋 Привет, <b>${userName}</b>!
@@ -259,7 +265,7 @@ export async function handleCabinet(ctx: Context) {
  * Обработчик команды /setup_miniapp
  */
 export async function handleSetupMiniApp(ctx: Context) {
-  const { url: miniAppUrl, source: miniAppUrlSource } = resolveMiniAppUrl();
+  const { url: miniAppUrl, source: miniAppUrlSource } = resolveMiniAppUrlForMenu();
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -320,15 +326,22 @@ export async function handleSetupMiniApp(ctx: Context) {
   }
 
   try {
-    const result = await setBotMenuButton(
-      botToken,
-      'Open Mini App',
-      miniAppUrl,
-      chatId
-    );
+    let ensured: { ok: boolean; ensured: boolean; skipped?: boolean; error?: string };
+    if (chatId !== undefined) {
+      // Explicit setup: still dedupe by url per day (stored value compare in ensureChatMenuButtonOncePerDay is chat-based),
+      // but this path may target arbitrary chatId (admin flow), so we call direct ensure (best-effort).
+      ensured = await ensureChatMenuButton({
+        botToken,
+        chatId,
+        miniAppUrl,
+        reason: '/setup_miniapp',
+      });
+    } else {
+      ensured = { ok: false, ensured: false, error: 'chatId is not available' };
+    }
 
-    if (!result.ok) {
-      throw new Error(result.description || 'Unknown error');
+    if (!ensured.ok) {
+      throw new Error(ensured.error || 'Unknown error');
     }
 
     await ctx.reply(
@@ -357,6 +370,30 @@ export async function handleSetupMiniApp(ctx: Context) {
       }
     );
   }
+}
+
+/**
+ * Smoke-check: /debug_menu_button
+ * Returns current MINIAPP_URL and ensures menu button (best-effort).
+ */
+export async function handleDebugMenuButton(ctx: Context) {
+  const { url } = resolveMiniAppUrlForMenu();
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = ctx.chat?.id;
+
+  const ensured = await ensureChatMenuButton({
+    botToken,
+    chatId,
+    miniAppUrl: url,
+    reason: '/debug_menu_button',
+  });
+
+  await ctx.reply(
+    `🧪 debug_menu_button\n\n` +
+      `MINIAPP_URL: ${url}\n\n` +
+      `menu button ensured: ${ensured.ok ? 'yes' : 'no'}${ensured.error ? `\nerror: ${ensured.error}` : ''}`,
+    { reply_markup: getBackButtonKeyboard() }
+  );
 }
 
 /**

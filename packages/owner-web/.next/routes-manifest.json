@@ -135,6 +135,24 @@
       "namedRegex": "^/cabinet(?:/)?$"
     },
     {
+      "page": "/cabinet/bots",
+      "regex": "^/cabinet/bots(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/cabinet/bots(?:/)?$"
+    },
+    {
+      "page": "/cabinet/bots/new",
+      "regex": "^/cabinet/bots/new(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/cabinet/bots/new(?:/)?$"
+    },
+    {
+      "page": "/cabinet/bots/templates",
+      "regex": "^/cabinet/bots/templates(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/cabinet/bots/templates(?:/)?$"
+    },
+    {
       "page": "/login",
       "regex": "^/login(?:/)?$",
       "routeKeys": {},

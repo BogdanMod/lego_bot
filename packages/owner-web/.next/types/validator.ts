@@ -146,6 +146,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/cabinet/bots/new/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/cabinet/bots/new">> = Specific
+  const handler = {} as typeof import("../../src/app/cabinet/bots/new/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/cabinet/bots/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/cabinet/bots">> = Specific
+  const handler = {} as typeof import("../../src/app/cabinet/bots/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/cabinet/bots/templates/page.tsx
+{
+  type __IsExpected<Specific extends AppPageConfig<"/cabinet/bots/templates">> = Specific
+  const handler = {} as typeof import("../../src/app/cabinet/bots/templates/page.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/cabinet/page.tsx
 {
   type __IsExpected<Specific extends AppPageConfig<"/cabinet">> = Specific
@@ -177,6 +204,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/core/[...path]">> = Specific
   const handler = {} as typeof import("../../src/app/api/core/[...path]/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/debug/env/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/debug/env">> = Specific
+  const handler = {} as typeof import("../../src/app/api/debug/env/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

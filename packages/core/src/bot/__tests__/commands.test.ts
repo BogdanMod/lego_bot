@@ -13,6 +13,7 @@ import {
 
 import { getBotsByUserId } from '../../db/bots';
 import { setBotMenuButton, getWebhookInfoFormatted } from '../../services/telegram-webhook';
+import { getRedisClientOptional } from '../../db/redis';
 import {
   getMainMenuWithMiniAppKeyboard,
   getBackButtonKeyboard,
@@ -26,6 +27,10 @@ vi.mock('../../db/bots', () => ({
 vi.mock('../../services/telegram-webhook', () => ({
   setBotMenuButton: vi.fn(),
   getWebhookInfoFormatted: vi.fn(),
+}));
+
+vi.mock('../../db/redis', () => ({
+  getRedisClientOptional: vi.fn(),
 }));
 
 vi.mock('../keyboards', () => ({
@@ -77,6 +82,9 @@ afterEach(() => {
 describe('handleStart', () => {
   it('should send welcome message with user name', async () => {
     process.env.MINI_APP_URL = 'https://test.app';
+    process.env.TELEGRAM_BOT_TOKEN = 'token';
+    (getRedisClientOptional as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (setBotMenuButton as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
     (getMainMenuWithMiniAppKeyboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ k: 'kb' });
 
     const ctx = createMockContext({ from: { id: 1, first_name: 'John' } as any });
@@ -94,6 +102,9 @@ describe('handleStart', () => {
 
   it('should use default name when user name is missing', async () => {
     process.env.MINI_APP_URL = 'https://test.app';
+    process.env.TELEGRAM_BOT_TOKEN = 'token';
+    (getRedisClientOptional as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (setBotMenuButton as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
     (getMainMenuWithMiniAppKeyboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ k: 'kb' });
 
     const ctx = createMockContext({ from: { id: 1 } as any });
@@ -104,6 +115,9 @@ describe('handleStart', () => {
 
   it('should use MINI_APP_URL from env', async () => {
     process.env.MINI_APP_URL = 'https://test.app';
+    process.env.TELEGRAM_BOT_TOKEN = 'token';
+    (getRedisClientOptional as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (setBotMenuButton as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
     (getMainMenuWithMiniAppKeyboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ k: 'kb' });
 
     const ctx = createMockContext();
@@ -116,6 +130,9 @@ describe('handleStart', () => {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete process.env.MINI_APP_URL;
     process.env.DEFAULT_MINI_APP_URL = 'https://default.app';
+    process.env.TELEGRAM_BOT_TOKEN = 'token';
+    (getRedisClientOptional as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (setBotMenuButton as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
     (getMainMenuWithMiniAppKeyboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ k: 'kb' });
 
     const ctx = createMockContext();

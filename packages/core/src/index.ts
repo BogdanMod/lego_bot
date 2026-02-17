@@ -544,6 +544,23 @@ async function initBot(): Promise<void> {
   registeredCommands.push('/setup_miniapp');
   logger.info({ command: '/setup_miniapp' }, '✅ Command registered');
 
+  botInstance.command('debug_menu_button', async (ctx) => {
+    const userId = ctx.from?.id;
+    const command = '/debug_menu_button';
+    logger.info({ userId, command }, '🧪 Команда /debug_menu_button получена');
+    try {
+      const { handleDebugMenuButton } = await import('./bot/commands');
+      await handleDebugMenuButton(ctx as any);
+    } catch (error) {
+      logger.error({ userId, command, error }, 'Error in /debug_menu_button command:');
+      ctx.reply('❌ Произошла ошибка при проверке Menu Button.').catch((replyError) => {
+        logger.error({ userId, command, error: replyError }, 'Failed to send error message');
+      });
+    }
+  });
+  registeredCommands.push('/debug_menu_button');
+  logger.info({ command: '/debug_menu_button' }, '✅ Command registered');
+
   botInstance.command('check_webhook', async (ctx) => {
     const userId = ctx.from?.id;
     const command = '/check_webhook';
