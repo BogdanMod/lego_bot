@@ -1497,7 +1497,7 @@ const allowedOriginsFromEnv = corsOriginsEnv
 
 // Legacy env vars (for backward compatibility)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const MINI_APP_URL = process.env.MINI_APP_URL || 'https://your-miniapp.railway.app';
+const MINI_APP_URL = process.env.MINI_APP_URL || 'https://miniapp-production-325b.up.railway.app';
 const OWNER_WEB_BASE_URL = process.env.OWNER_WEB_BASE_URL || 'http://localhost:5175';
 
 // Telegram Mini App origins (always allowed for Mini App embedding)

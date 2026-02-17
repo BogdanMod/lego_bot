@@ -21,7 +21,7 @@ function resolveMiniAppUrl(): { url: string; source: 'MINI_APP_URL' | 'DEFAULT_M
   // Railway fallback - use miniapp service URL if available
   const fallbackUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-    : 'https://miniapp-production.up.railway.app';
+    : 'https://miniapp-production-325b.up.railway.app';
   console.warn('⚠️ MINI_APP_URL and DEFAULT_MINI_APP_URL are not set, using fallback:', fallbackUrl);
   return { url: fallbackUrl, source: 'FALLBACK' };
 }
