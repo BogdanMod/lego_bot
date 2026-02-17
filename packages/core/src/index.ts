@@ -10,7 +10,7 @@ import { Telegraf, session } from 'telegraf';
 import { Scenes } from 'telegraf';
 import pinoHttp from 'pino-http';
 import { z } from 'zod';
-import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, getTelegramBotToken, validateTelegramWebAppData } from '@dialogue-constructor/shared';
+import { BOT_LIMITS, RATE_LIMITS, WEBHOOK_INTEGRATION_LIMITS, BotIdSchema, BroadcastIdSchema, CreateBotSchema, CreateBroadcastSchema, PaginationSchema, UpdateBotSchemaSchema, createLogger, getTelegramBotToken, validateTelegramWebAppData, type BotSchema } from '@dialogue-constructor/shared';
 import { createRateLimiter, errorMetricsMiddleware, getErrorMetrics, logBroadcastCreated, logRateLimitMetrics, metricsMiddleware, requestContextMiddleware, requestIdMiddleware, requireBotOwnership, validateBody, validateParams, validateQuery, getRequestId } from './middleware/shared/index.js';
 import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
@@ -3437,6 +3437,20 @@ app.get('/api/owner/bots/diagnostic', ensureDatabasesInitialized as any, require
   }
 });
 
+// GET /api/owner/templates - получить список шаблонов
+app.get('/api/owner/templates', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  try {
+    const { getTemplatesMetadata } = await import('./services/templates');
+    const templates = await getTemplatesMetadata();
+    logger.info({ requestId, count: templates.length }, 'GET /api/owner/templates');
+    res.json({ items: templates });
+  } catch (error) {
+    logger.error({ requestId, error }, 'Failed to get templates');
+    res.status(500).json({ error: 'Failed to load templates', message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
@@ -3482,6 +3496,215 @@ app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireO
       name: bot.name,
     },
   });
+});
+
+// POST /api/owner/bots - создать бота (с шаблоном или без)
+const OwnerCreateBotSchema = z.object({
+  templateId: z.string().optional(),
+  name: z.string().min(1).max(100),
+  timezone: z.string().default('Europe/Moscow'),
+  language: z.string().default('ru'),
+  inputs: z.record(z.unknown()).optional(), // Custom inputs from template
+});
+
+app.post('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, validateBody(OwnerCreateBotSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+  const body = req.body as z.infer<typeof OwnerCreateBotSchema>;
+
+  try {
+    let schema: BotSchema | null = null;
+    let botName = body.name;
+
+    // If templateId provided, load template and customize it
+    if (body.templateId) {
+      const { getTemplateById } = await import('./services/templates');
+      const template = await getTemplateById(body.templateId);
+      
+      if (!template) {
+        return ownerError(res, 404, 'template_not_found', `Template ${body.templateId} not found`);
+      }
+
+      // Use template schema as base
+      schema = template.schema;
+      
+      // Apply custom inputs to schema (replace placeholders)
+      if (body.inputs && schema) {
+        const inputs = body.inputs;
+        // Replace placeholders in messages (e.g., {{businessName}})
+        const replacePlaceholders = (text: string): string => {
+          let result = text;
+          for (const [key, value] of Object.entries(inputs)) {
+            const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+            result = result.replace(placeholder, String(value || ''));
+          }
+          return result;
+        };
+
+        // Deep clone and replace placeholders
+        const clonedSchema = JSON.parse(JSON.stringify(schema)) as BotSchema;
+        for (const stateKey in clonedSchema.states) {
+          const state = clonedSchema.states[stateKey];
+          if (state.message) {
+            state.message = replacePlaceholders(state.message);
+          }
+        }
+        schema = clonedSchema;
+      }
+    }
+
+    // Create bot (without token - user will add it later via Mini App or settings)
+    // For now, we create with a placeholder token that must be updated
+    const placeholderToken = `placeholder-${Date.now()}`;
+    const bot = await createBot(
+      {
+        user_id: userId,
+        token: placeholderToken, // Will be updated when user adds real token
+        name: botName,
+      },
+      {
+        requestId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      }
+    );
+
+    // Update schema if provided
+    if (schema) {
+      await updateBotSchema(bot.id, userId, schema, {
+        requestId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
+
+    // Create bot_settings with timezone
+    const client = await getPostgresClient();
+    try {
+      await client.query(
+        `INSERT INTO bot_settings (bot_id, timezone, notify_new_leads, notify_new_orders, notify_new_appointments)
+         VALUES ($1, $2, true, true, true)
+         ON CONFLICT (bot_id) DO UPDATE SET timezone = $2`,
+        [bot.id, body.timezone]
+      );
+    } finally {
+      client.release();
+    }
+
+    // Add owner to bot_admins as 'owner'
+    const { upsertBotTeamMember } = await import('./db/owner');
+    await upsertBotTeamMember({
+      botId: bot.id,
+      telegramUserId: userId,
+      role: 'owner',
+      actorUserId: userId,
+    });
+
+    logger.info({
+      action: 'owner_create_bot',
+      userId,
+      botId: bot.id,
+      templateId: body.templateId,
+      requestId,
+    }, 'Bot created via owner-web');
+
+    res.status(201).json({
+      bot: {
+        botId: bot.id,
+        name: bot.name,
+        role: 'owner',
+      },
+    });
+  } catch (error) {
+    if (error instanceof BotLimitError) {
+      logger.warn({
+        action: 'owner_create_bot_limit',
+        userId,
+        activeCount: error.activeCount,
+        limit: error.limit,
+        requestId,
+      }, 'Bot limit reached');
+      return ownerError(res, 429, 'bot_limit_reached', error.message, {
+        activeBots: error.activeCount,
+        limit: error.limit,
+      });
+    }
+    logger.error({ userId, error, requestId }, 'Failed to create bot via owner-web');
+    return ownerError(res, 500, 'create_failed', 'Failed to create bot', { error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// PATCH /api/owner/bots/:botId - обновить бота
+const OwnerUpdateBotSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  inputs: z.record(z.unknown()).optional(),
+});
+
+app.patch('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerUpdateBotSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+  const body = req.body as z.infer<typeof OwnerUpdateBotSchema>;
+
+  try {
+    const bot = await getBotById(botId, userId);
+    if (!bot) {
+      return ownerError(res, 404, 'not_found', 'Bot not found');
+    }
+
+    // Update name if provided
+    if (body.name) {
+      const client = await getPostgresClient();
+      try {
+        await client.query(
+          `UPDATE bots SET name = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+          [body.name, botId, userId]
+        );
+      } finally {
+        client.release();
+      }
+    }
+
+    // Update schema with new inputs if provided
+    if (body.inputs && bot.schema) {
+      const schema = JSON.parse(JSON.stringify(bot.schema));
+      const replacePlaceholders = (text: string): string => {
+        let result = text;
+        for (const [key, value] of Object.entries(body.inputs || {})) {
+          const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+          result = result.replace(placeholder, String(value || ''));
+        }
+        return result;
+      };
+
+      for (const stateKey in schema.states) {
+        const state = schema.states[stateKey];
+        if (state.message) {
+          state.message = replacePlaceholders(state.message);
+        }
+      }
+
+      await updateBotSchema(botId, userId, schema, {
+        requestId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
+
+    logger.info({
+      action: 'owner_update_bot',
+      userId,
+      botId,
+      requestId,
+    }, 'Bot updated via owner-web');
+
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error({ userId, botId, error, requestId }, 'Failed to update bot via owner-web');
+    return ownerError(res, 500, 'update_failed', 'Failed to update bot', { error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 // Deactivate bot (soft delete)

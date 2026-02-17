@@ -21,6 +21,9 @@ const sections = [
   { key: 'audit', label: i18n.nav.audit },
 ];
 
+// Special section for bots list (not bot-specific, appears first)
+const BOTS_SECTION = { key: 'bots', label: i18n.nav.bots, icon: '🤖' };
+
 // Special section for bots list (not bot-specific)
 const BOTS_SECTION_KEY = 'bots';
 
@@ -128,6 +131,18 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
 
         <div className="mt-6 text-xs uppercase tracking-wide text-muted-foreground">Разделы</div>
         <nav className="mt-2 space-y-1">
+          {/* Bots section - appears first, not bot-specific */}
+          <button
+            onClick={() => router.push('/cabinet/bots')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              pathname.startsWith('/cabinet/bots')
+                ? 'bg-primary text-white'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
+            }`}
+          >
+            {BOTS_SECTION.icon} {BOTS_SECTION.label}
+          </button>
+          {/* Bot-specific sections */}
           {sections.map((section) => {
             const href = currentBotId ? `/cabinet/${currentBotId}/${section.key}` : '/cabinet';
             const active = pathname.startsWith(href);

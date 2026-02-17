@@ -21,6 +21,7 @@ export const i18n = {
     import: 'Импорт',
   },
   nav: {
+    bots: 'Мои боты',
     overview: 'Обзор',
     inbox: 'Входящие',
     calendar: 'Календарь',

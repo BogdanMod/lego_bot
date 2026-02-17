@@ -228,3 +228,57 @@ export async function ownerDeactivateBot(botId: string) {
   );
 }
 
+// Templates API
+export interface TemplateMetadata {
+  id: string;
+  title: string;
+  industry: string;
+  goal: string;
+  shortDescription: string;
+  requiredInputs: Array<{
+    key: string;
+    label: string;
+    type: 'text' | 'number' | 'email' | 'phone' | 'url';
+    required: boolean;
+    description?: string;
+  }>;
+  defaultFlows: Array<{
+    id: string;
+    name: string;
+    description?: string;
+  }>;
+  tags: string[];
+}
+
+export async function ownerGetTemplates() {
+  return ownerFetch<{ items: TemplateMetadata[] }>('/api/owner/templates');
+}
+
+// Bot creation/update API
+export interface CreateBotPayload {
+  templateId?: string;
+  name: string;
+  timezone?: string;
+  language?: string;
+  inputs?: Record<string, unknown>;
+}
+
+export interface UpdateBotPayload {
+  name?: string;
+  inputs?: Record<string, unknown>;
+}
+
+export async function ownerCreateBot(payload: CreateBotPayload) {
+  return ownerFetch<{ bot: { botId: string; name: string; role: string } }>('/api/owner/bots', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function ownerUpdateBot(botId: string, payload: UpdateBotPayload) {
+  return ownerFetch<{ ok: boolean }>(`/api/owner/bots/${botId}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
