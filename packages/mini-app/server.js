@@ -207,13 +207,14 @@ app.get('*', (req, res) => {
   // Read the file, inject version, and send modified content
   // Reuse gitSha declared above
   const version = gitSha.substring(0, 8); // Use first 8 chars of git SHA as version
+  const timestamp = Date.now(); // Add timestamp for additional cache busting
   
   try {
     let htmlContent = readFileSync(filePath, 'utf-8');
     
     // Inject version as meta tag and in a comment for debugging
-    const versionMeta = `    <meta name="app-version" content="${version}" />\n    <meta name="app-deployed" content="${new Date().toISOString()}" />`;
-    const versionComment = `\n    <!-- App version: ${version}, deployed: ${new Date().toISOString()} -->`;
+    const versionMeta = `    <meta name="app-version" content="${version}" />\n    <meta name="app-deployed" content="${new Date().toISOString()}" />\n    <meta name="app-timestamp" content="${timestamp}" />`;
+    const versionComment = `\n    <!-- App version: ${version}, deployed: ${new Date().toISOString()}, timestamp: ${timestamp} -->`;
     
     // Insert version meta after charset meta
     htmlContent = htmlContent.replace(
@@ -221,11 +222,37 @@ app.get('*', (req, res) => {
       `$1\n${versionMeta}${versionComment}`
     );
     
-    const logMsg = `[SPA] Serving index.html v${version} with no-cache headers, path=${req.path}`;
+    // Add cache-busting script that forces reload if version changes
+    const cacheBustScript = `
+    <script>
+      (function() {
+        const currentVersion = '${version}';
+        const storedVersion = sessionStorage.getItem('app-version');
+        if (storedVersion && storedVersion !== currentVersion) {
+          console.log('[CacheBust] Version changed, clearing cache and reloading...');
+          sessionStorage.clear();
+          localStorage.clear();
+          window.location.reload(true);
+        } else {
+          sessionStorage.setItem('app-version', currentVersion);
+        }
+      })();
+    </script>`;
+    
+    // Insert cache-bust script before closing head tag
+    htmlContent = htmlContent.replace(
+      /(<\/head>)/,
+      `${cacheBustScript}\n$1`
+    );
+    
+    const logMsg = `[SPA] Serving index.html v${version} (ts:${timestamp}) with no-cache headers, path=${req.path}`;
     console.log(logMsg);
     process.stdout.write(`${logMsg}\n`);
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    // Add additional headers to prevent any caching
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'ALLOWALL'); // Allow embedding in Telegram
     res.send(htmlContent);
   } catch (readErr) {
     console.error(`[SPA] Error reading index.html:`, readErr);
