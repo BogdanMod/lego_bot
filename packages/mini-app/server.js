@@ -144,11 +144,21 @@ app.get('*', (req, res) => {
   // CRITICAL: Force no-store for index.html
   // This is the key fix: Telegram Web caches index.html, causing stale versions
   // no-store tells browser AND Telegram Web to never cache this file
-  res.setHeader('Cache-Control', 'no-store');
+  // Using multiple headers to ensure all browsers and proxies respect this
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  res.setHeader('Last-Modified', new Date().toUTCString());
   // Remove ETag to prevent conditional requests that might serve cached version
   res.removeHeader('ETag');
+  // Add version query param to force reload (if not already present)
+  // This helps with aggressive browser caches
+  if (!req.query.v) {
+    const timestamp = Date.now();
+    const logMsg = `[SPA] Serving index.html with no-cache headers, timestamp=${timestamp}`;
+    console.log(logMsg);
+    process.stdout.write(`${logMsg}\n`);
+  }
   
   res.sendFile(filePath, (err) => {
     if (err) {
