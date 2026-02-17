@@ -1,5 +1,3 @@
-import { NextResponse } from 'next/server';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -8,11 +6,6 @@ export const dynamic = 'force-dynamic';
  * Returns boolean/length info, never exposes secrets
  */
 export async function GET() {
-  // Only allow in non-production environments
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ ok: false, error: 'Not available in production' }, { status: 404 });
-  }
-
   const enableOwnerWizard = process.env.ENABLE_OWNER_WIZARD;
   
   const env = {
@@ -39,7 +32,7 @@ export async function GET() {
     service: 'owner-web',
   };
 
-  return NextResponse.json({
+  return Response.json({
     ok: true,
     env,
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.NEXT_PUBLIC_GIT_SHA ?? null,
