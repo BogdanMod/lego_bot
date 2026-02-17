@@ -10,6 +10,7 @@ export async function GET() {
     service: 'owner-web',
     gitSha,
     port,
+    debugEnvPath: '/api/debug/env',
     ts: Date.now() 
   });
 }
