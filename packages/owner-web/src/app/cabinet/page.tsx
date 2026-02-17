@@ -41,25 +41,52 @@ export default function CabinetIndexPage() {
   });
 
   useEffect(() => {
+    // Only redirect if there are bots and user hasn't explicitly navigated to /cabinet
+    // If user is on /cabinet page, show the bots list instead of redirecting
     if (!authData?.bots || authData.bots.length === 0) return;
-    if (botsData?.items && botsData.items.length > 0) return;
-
-    // Check for openBot query parameter (from mini-app deep links)
-    let targetBotId: string | undefined;
+    
+    // Check for openBot query parameter (from mini-app deep links) - always redirect for this
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const openBotId = params.get('openBot');
       if (openBotId && authData.bots.some((b) => b.botId === openBotId)) {
-        targetBotId = openBotId;
         // Clean up query parameter
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('openBot');
         window.history.replaceState({}, '', newUrl.toString());
+        router.replace(`/cabinet/${openBotId}/overview`);
+        return;
       }
     }
 
-    // Try to restore lastBotId from localStorage
-    if (!targetBotId && typeof window !== 'undefined') {
+    // Check for redirect query parameter (from botlink)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const redirectPath = params.get('redirect');
+      if (redirectPath && redirectPath.startsWith('/cabinet/')) {
+        // Clean up query parameter
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('redirect');
+        window.history.replaceState({}, '', newUrl.toString());
+        router.replace(redirectPath);
+        return;
+      }
+    }
+
+    // Don't auto-redirect if user explicitly navigated to /cabinet
+    // Show the bots list page instead
+    // Only redirect if coming from login/auth flow
+    const isFromAuth = typeof window !== 'undefined' && 
+      (document.referrer.includes('/auth/') || document.referrer.includes('/login'));
+    
+    if (!isFromAuth) {
+      // User explicitly navigated to /cabinet, show bots list
+      return;
+    }
+
+    // Try to restore lastBotId from localStorage (only if from auth)
+    let targetBotId: string | undefined;
+    if (typeof window !== 'undefined') {
       const lastBotId = localStorage.getItem('owner_lastBotId');
       if (lastBotId && authData.bots.some((b) => b.botId === lastBotId)) {
         targetBotId = lastBotId;

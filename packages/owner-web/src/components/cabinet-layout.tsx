@@ -21,6 +21,9 @@ const sections = [
   { key: 'audit', label: i18n.nav.audit },
 ];
 
+// Special section for bots list (not bot-specific)
+const BOTS_SECTION_KEY = 'bots';
+
 function useHotkeys(botId?: string) {
   const router = useRouter();
   useEffect(() => {

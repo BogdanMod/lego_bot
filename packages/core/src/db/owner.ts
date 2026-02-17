@@ -48,6 +48,7 @@ export async function getOwnerAccessibleBots(telegramUserId: number): Promise<Ow
        FROM bot_admins ba
        JOIN bots b ON b.id = ba.bot_id
        WHERE ba.telegram_user_id = $1
+         AND b.is_active = true
        ORDER BY b.created_at DESC`,
       [telegramUserId]
     );
