@@ -3483,9 +3483,22 @@ app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth a
 
 app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
   const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+  const bot = await getBotById(botId, userId);
+  if (!bot) {
+    return ownerError(res, 404, 'not_found', 'Bot not found');
+  }
   const settings = await getBotSettings(botId);
   const team = await listBotTeam(botId);
-  res.json({ botId, settings, team, role: (req as any).ownerRole });
+  res.json({ 
+    botId, 
+    name: bot.name,
+    schema: bot.schema,
+    settings, 
+    team, 
+    role: (req as any).ownerRole 
+  });
 });
 
 app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
@@ -3754,12 +3767,10 @@ app.patch('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOw
       });
     }
 
-  res.json({ ok: true });
-
-  logger.info({
-    action: 'owner_update_bot',
-    userId,
-    botId,
+    logger.info({
+      action: 'owner_update_bot',
+      userId,
+      botId,
       requestId,
     }, 'Bot updated via owner-web');
 
