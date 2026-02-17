@@ -3340,27 +3340,34 @@ app.get('/api/debug/me', ensureDatabasesInitialized as any, requireUserId as any
 app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const owner = (req as any).owner as any;
-  const userId = owner.sub as number;
+  const telegramUserId = owner.sub as number;
 
   try {
-    const botStats = await getBotStatsByUserId(userId);
+    // For owner-web, count bots through bot_admins (RBAC) and filter by is_active
+    // This ensures consistency with getOwnerAccessibleBots
+    const accessibleBots = await getOwnerAccessibleBots(telegramUserId);
+    const activeCount = accessibleBots.length;
+    
+    // Also get total count (including inactive) for reference
+    const botStats = await getBotStatsByUserId(telegramUserId);
+    
     // TODO: Get plan from subscriptions table when implemented
     const plan = 'free';
     const botLimit = BOT_LIMITS.MAX_BOTS_PER_USER;
 
     return res.json({
       user: {
-        userId,
+        userId: telegramUserId,
         plan,
         botLimit,
       },
       bots: {
-        active: botStats.active,
-        total: botStats.total,
+        active: activeCount, // Count through bot_admins with is_active filter
+        total: botStats.total, // Total bots (including inactive) for reference
       },
     });
   } catch (error) {
-    logger.error({ requestId, userId, error }, 'Failed to get owner summary');
+    logger.error({ requestId, userId: telegramUserId, error }, 'Failed to get owner summary');
     return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : String(error),
