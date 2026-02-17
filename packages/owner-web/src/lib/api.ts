@@ -69,6 +69,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           message = 'Owner auth не настроен. Проверьте JWT_SECRET и TELEGRAM_BOT_TOKEN в сервисе core.';
         }
       }
+      // Handle CSRF token mismatch - refresh token and retry
+      if (code === 'csrf_failed' || code === 'csrf_token_mismatch') {
+        // Clear CSRF cache and try to refresh
+        csrfTokenCache = null;
+        try {
+          const freshData = await ownerMe();
+          csrfTokenCache = freshData.csrfToken || null;
+          message = 'CSRF токен обновлен. Попробуйте еще раз.';
+        } catch (refreshError) {
+          message = 'Ошибка CSRF токена. Обновите страницу.';
+        }
+      }
       // Handle 401/403 auth errors
       else if (response.status === 401 || response.status === 403) {
         if (code === 'unauthorized' || code === 'invalid_telegram_auth') {
@@ -144,12 +156,14 @@ export async function ownerBotMe(botId: string) {
   }>(normalizeOwnerPath(`/api/owner/bots/${botId}/me`));
 }
 
-async function ensureCsrfToken(): Promise<string | null> {
-  if (csrfTokenCache) return csrfTokenCache;
+async function ensureCsrfToken(forceRefresh = false): Promise<string | null> {
+  if (csrfTokenCache && !forceRefresh) return csrfTokenCache;
   try {
     const data = await ownerMe();
-    return data.csrfToken || null;
+    csrfTokenCache = data.csrfToken || null;
+    return csrfTokenCache;
   } catch {
+    csrfTokenCache = null;
     return null;
   }
 }
