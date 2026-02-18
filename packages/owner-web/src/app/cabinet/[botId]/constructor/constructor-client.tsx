@@ -46,10 +46,20 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
 
   const { data: botData, isLoading, error } = useQuery({
     queryKey: ['bot', botId],
-    queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
+    queryFn: () => {
+      console.log('[constructor] useQuery fetch started', { botId });
+      return ownerFetch<any>(`/api/owner/bots/${botId}`);
+    },
     enabled: !!botId,
     retry: 1,
     staleTime: 30_000,
+  });
+  
+  console.log('[constructor] useQuery state', { 
+    isLoading, 
+    hasData: !!botData, 
+    hasError: !!error,
+    botId 
   });
 
   const updateSchemaMutation = useMutation({
