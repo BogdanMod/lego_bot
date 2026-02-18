@@ -16,6 +16,14 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const queryClient = useQueryClient();
   const isMountedRef = useRef(true);
   
+  // Diagnostic logging
+  console.log('[constructor] render', { 
+    botId, 
+    wizardEnabled, 
+    hasParams: !!params,
+    renderId: Math.random().toString(36).substring(7)
+  });
+  
   const [selectedState, setSelectedState] = useState<string | null>(null);
   const [schema, setSchema] = useState<BotSchema | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -69,6 +77,12 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   }, []);
 
   useEffect(() => {
+    console.log('[constructor] useEffect[botData] triggered', { 
+      hasBotData: !!botData, 
+      hasSchema: !!botData?.schema,
+      botId 
+    });
+    
     if (!botData) return;
     
     if (botData.schema) {
