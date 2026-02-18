@@ -2930,17 +2930,22 @@ app.post('/api/owner/auth/botlink', ensureDatabasesInitialized as any, ownerAuth
     return ownerError(res, 401, 'botlink_used', 'Ссылка уже использована, запросите новую через /cabinet');
   }
 
-  const bots = await getOwnerAccessibleBots(verified.telegramUserId);
-  if (bots.length === 0) {
-    logger.warn(
+  // SOURCE OF TRUTH: Use countOwnerAccessibleBots instead of .length
+  const botsCount = await countOwnerAccessibleBots(verified.telegramUserId);
+  
+  // Allow access even if no bots - user can create first bot
+  // The check is informational only, not a blocker
+  if (botsCount === 0) {
+    logger.info(
       {
         requestId,
         userId: verified.telegramUserId,
-        reason: 'no_bots_access',
+        reason: 'no_bots_yet',
+        note: 'User has no bots yet, but access granted to allow first bot creation',
       },
-      'Owner botlink auth denied'
+      'Owner botlink auth: no bots yet'
     );
-    return ownerError(res, 403, 'no_bots_access', 'Нет доступа к кабинетам ботов');
+    // Continue with auth - user can create first bot in UI
   }
 
   const csrf = generateCsrfToken();
