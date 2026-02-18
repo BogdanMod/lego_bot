@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ReactFlow styles override for dark mode */
+.dark .react-flow__node {
+  background: rgb(15 23 42);
+  color: rgb(241 245 249);
+}
+
+.dark .react-flow__edge-path {
+  stroke: rgb(148 163 184);
+}
+
+.dark .react-flow__controls {
+  background: rgb(15 23 42);
+  border-color: rgb(30 41 59);
+}
+
+.dark .react-flow__minimap {
+  background: rgb(15 23 42);
+  border-color: rgb(30 41 59);
+}
+
+.dark .react-flow__background {
+  background-color: rgb(15 23 42);
+}
+
+.dark .react-flow__background-pattern {
+  stroke: rgb(30 41 59);
+}
+
 :root {
   --bg: 220 30% 98%;
   --fg: 222 47% 11%;

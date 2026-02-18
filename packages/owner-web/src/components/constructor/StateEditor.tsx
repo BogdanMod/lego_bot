@@ -1,0 +1,256 @@
+'use client';
+
+import { useState } from 'react';
+import { Plus, Trash2, GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import type { BotSchema } from '@/lib/templates/types';
+
+interface StateEditorProps {
+  schema: BotSchema;
+  stateName: string;
+  onUpdate: (updates: Partial<BotSchema['states'][string]>) => void;
+  onSetInitial: () => void;
+  isInitial: boolean;
+}
+
+function SortableButton({
+  button,
+  index,
+  states,
+  onUpdate,
+  onDelete,
+}: {
+  button: { text: string; nextState: string };
+  index: number;
+  states: string[];
+  onUpdate: (index: number, updates: Partial<{ text: string; nextState: string }>) => void;
+  onDelete: (index: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `button-${index}` });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <input
+        type="text"
+        value={button.text}
+        onChange={(e) => onUpdate(index, { text: e.target.value })}
+        placeholder="Button text"
+        className="flex-1 px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
+      />
+      <select
+        value={button.nextState}
+        onChange={(e) => onUpdate(index, { nextState: e.target.value })}
+        className="px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
+      >
+        {states.map((state) => (
+          <option key={state} value={state}>
+            {state}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => onDelete(index)}
+        className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+export function StateEditor({
+  schema,
+  stateName,
+  onUpdate,
+  onSetInitial,
+  isInitial,
+}: StateEditorProps) {
+  const state = schema.states[stateName];
+  const buttons = state.buttons || [];
+  const states = Object.keys(schema.states);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const oldIndex = buttons.findIndex(
+      (_, i) => `button-${i}` === active.id
+    );
+    const newIndex = buttons.findIndex(
+      (_, i) => `button-${i}` === over.id
+    );
+
+    if (oldIndex !== newIndex) {
+      const newButtons = arrayMove(buttons, oldIndex, newIndex);
+      onUpdate({ buttons: newButtons });
+    }
+  };
+
+  const handleButtonUpdate = (
+    index: number,
+    updates: Partial<{ text: string; nextState: string }>
+  ) => {
+    const newButtons = [...buttons];
+    newButtons[index] = { ...newButtons[index], ...updates };
+    onUpdate({ buttons: newButtons });
+  };
+
+  const handleAddButton = () => {
+    const newButtons = [
+      ...buttons,
+      { text: '', nextState: schema.initialState },
+    ];
+    onUpdate({ buttons: newButtons });
+  };
+
+  const handleDeleteButton = (index: number) => {
+    const newButtons = buttons.filter((_, i) => i !== index);
+    onUpdate({ buttons: newButtons });
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-white dark:bg-slate-950">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {stateName}
+            </h2>
+            {isInitial && (
+              <span className="text-xs text-slate-500 dark:text-slate-400 mt-1 inline-block">
+                Initial state
+              </span>
+            )}
+          </div>
+          {!isInitial && (
+            <button
+              onClick={onSetInitial}
+              className="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 transition-colors"
+            >
+              Set as initial
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        {/* Message */}
+        <div className="mb-8">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            Message
+          </label>
+          <textarea
+            value={state.message || ''}
+            onChange={(e) => onUpdate({ message: e.target.value })}
+            placeholder="Enter message text..."
+            className="w-full px-4 py-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent resize-none min-h-[120px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+          />
+        </div>
+
+        {/* Buttons */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Buttons
+            </label>
+            <button
+              onClick={handleAddButton}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add button
+            </button>
+          </div>
+
+          {buttons.length === 0 ? (
+            <div className="py-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+                No buttons yet
+              </p>
+              <button
+                onClick={handleAddButton}
+                className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline"
+              >
+                Add first button
+              </button>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={buttons.map((_, i) => `button-${i}`)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-2">
+                  {buttons.map((button, index) => (
+                    <SortableButton
+                      key={`button-${index}`}
+                      button={button}
+                      index={index}
+                      states={states}
+                      onUpdate={handleButtonUpdate}
+                      onDelete={handleDeleteButton}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
