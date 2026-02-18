@@ -15,6 +15,7 @@ export function SentryInit() {
     const initSentry = async () => {
       try {
         // Use dynamic import with a fallback
+        // @ts-ignore - @sentry/nextjs is optional dependency
         const SentryModule = await import('@sentry/nextjs').catch(() => null);
         if (!SentryModule) {
           // Sentry package not installed, skip initialization
