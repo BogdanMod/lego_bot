@@ -127,6 +127,35 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
     }
   }, [botData]);
 
+  // Graph visualization data - MUST be before early returns
+  const graphData = useMemo(() => {
+    if (!schema) return { nodes: [], edges: [] };
+    
+    const nodes = Object.keys(schema.states).map(stateName => ({
+      id: stateName,
+      label: stateName,
+      isInitial: stateName === schema.initialState,
+    }));
+    
+    const edges: Array<{ from: string; to: string; label: string }> = [];
+    Object.entries(schema.states).forEach(([stateName, state]) => {
+      state.buttons?.forEach(button => {
+        edges.push({
+          from: stateName,
+          to: button.nextState,
+          label: button.text,
+        });
+      });
+    });
+    
+    return { nodes, edges };
+  }, [schema]);
+
+  // Computed values - before early returns for consistency
+  const states = schema ? Object.keys(schema.states) : [];
+  const currentState = selectedState && schema ? schema.states[selectedState] : null;
+  const previewStateData = previewState && schema ? schema.states[previewState] : null;
+
   if (isLoading) {
     return (
       <div className="panel p-8">
@@ -288,34 +317,6 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
       ],
     });
   };
-
-  // Graph visualization data
-  const graphData = useMemo(() => {
-    if (!schema) return { nodes: [], edges: [] };
-    
-    const nodes = Object.keys(schema.states).map(stateName => ({
-      id: stateName,
-      label: stateName,
-      isInitial: stateName === schema.initialState,
-    }));
-    
-    const edges: Array<{ from: string; to: string; label: string }> = [];
-    Object.entries(schema.states).forEach(([stateName, state]) => {
-      state.buttons?.forEach(button => {
-        edges.push({
-          from: stateName,
-          to: button.nextState,
-          label: button.text,
-        });
-      });
-    });
-    
-    return { nodes, edges };
-  }, [schema]);
-
-  const states = schema ? Object.keys(schema.states) : [];
-  const currentState = selectedState && schema ? schema.states[selectedState] : null;
-  const previewStateData = previewState && schema ? schema.states[previewState] : null;
 
   return (
     <div className="space-y-6">
