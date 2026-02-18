@@ -747,19 +747,94 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
 
 ### pnpm -C packages/owner-web why react
 
-```bash
-pnpm -C packages/owner-web why react
+```
+Legend: production dependency, optional only, dev only
+
+@dialogue-constructor/owner-web@1.0.0 /Users/bogdan.rudenko/Desktop/lego_bot-main/packages/owner-web
+
+dependencies:
+@radix-ui/react-dialog 1.1.15
+├─┬ @radix-ui/react-compose-refs 1.1.2
+│ └── react 18.3.1 peer
+├─┬ @radix-ui/react-context 1.1.2
+│ └── react 18.3.1 peer
+└─┬ @radix-ui/react-dismissable-layer 1.1.11
+  ├─┬ @radix-ui/react-compose-refs 1.1.2
+  │ └── react 18.3.1 peer
+  ├─┬ @radix-ui/react-primitive 2.1.3
+  │ ├─┬ @radix-ui/react-slot 1.2.3
+  │ │ ├─┬ @radix-ui/react-compose-refs 1.1.2
+  │ │ │ └── react 18.3.1 peer
+  │ │ └── react 18.3.1 peer
+  │ ├── react 18.3.1 peer
+  │ └─┬ react-dom 18.3.1 peer
+  │   └── react 18.3.1 peer
+  ├─┬ @radix-ui/react-use-callback-ref 1.1.1
+  │ └── react 18.3.1 peer
+  └─┬ @radix-ui/react-use-escape-keydown 1.1.1
+    ├─┬ @radix-ui/react-use-callback-ref 1.1.1
+    │ └── react 18.3.1 peer
+    └── react 18.3.1 peer
 ```
 
-**Результат:** (см. ниже)
+**Прямые зависимости:**
+- `react: ^18.3.1` - в `package.json` (строка 25)
+- Все peer dependencies используют `react 18.3.1`
 
 ### pnpm -C packages/owner-web why react-dom
 
-```bash
-pnpm -C packages/owner-web why react-dom
+```
+Legend: production dependency, optional only, dev only
+
+@dialogue-constructor/owner-web@1.0.0 /Users/bogdan.rudenko/Desktop/lego_bot-main/packages/owner-web
+
+dependencies:
+@radix-ui/react-dialog 1.1.15
+├─┬ @radix-ui/react-dismissable-layer 1.1.11
+│ ├─┬ @radix-ui/react-primitive 2.1.3
+│ │ └── react-dom 18.3.1 peer
+│ └── react-dom 18.3.1 peer
+├─┬ @radix-ui/react-focus-scope 1.1.7
+│ ├─┬ @radix-ui/react-primitive 2.1.3
+│ │ └── react-dom 18.3.1 peer
+│ └── react-dom 18.3.1 peer
+├─┬ @radix-ui/react-portal 1.1.9
+│ ├─┬ @radix-ui/react-primitive 2.1.3
+│ │ └── react-dom 18.3.1 peer
+│ └── react-dom 18.3.1 peer
+├─┬ @radix-ui/react-presence 1.1.5
+│ └── react-dom 18.3.1 peer
+├─┬ @radix-ui/react-primitive 2.1.3
+│ └── react-dom 18.3.1 peer
+└── react-dom 18.3.1 peer
+@radix-ui/react-dropdown-menu 2.1.16
+└─┬ @radix-ui/react-menu 2.1.16
+  └─┬ @radix-ui/react-collection 1.1.7
+    └─┬ @radix-ui/react-primitive 2.1.3
+      └── react-dom 18.3.1 peer
 ```
 
-**Результат:** (см. ниже)
+**Прямые зависимости:**
+- `react-dom: ^18.3.1` - в `package.json` (строка 26)
+- Все peer dependencies используют `react-dom 18.3.1`
+
+### Установленные версии
+
+```bash
+pnpm list --depth=0 --filter @dialogue-constructor/owner-web | grep -E "react|next|@tanstack"
+```
+
+**Результат:**
+```
+@tanstack/react-query 5.90.21
+@tanstack/react-table 8.21.3
+@tanstack/react-virtual 3.13.18
+next 15.5.12
+react 18.3.1
+react-dom 18.3.1
+```
+
+**Вывод:** Все зависимости используют одну версию React 18.3.1, конфликтов версий нет ✅
 
 ## 3. Инструкции для получения неминифицированной ошибки
 
