@@ -37,11 +37,23 @@ function normalizeLimit(value: number | undefined, fallback = 50, max = 200): nu
   return Math.min(Math.max(Math.floor(num), 1), max);
 }
 
+/**
+ * Get accessible bots for user through bot_admins (RBAC)
+ * 
+ * IMPORTANT: For count, use countOwnerAccessibleBots() instead of .length
+ * This function and countOwnerAccessibleBots use identical filters:
+ * - b.is_active = true
+ * - b.deleted_at IS NULL
+ * 
+ * This ensures items.length === countOwnerAccessibleBots() always
+ */
 export async function getOwnerAccessibleBots(telegramUserId: number): Promise<OwnerBotAccess[]> {
   const client = await getPostgresClient();
   try {
+    // Use DISTINCT ON to prevent duplicates if somehow multiple bot_admins entries exist
+    // Also prioritize 'owner' role if user has multiple roles in same bot
     const result = await client.query<OwnerBotAccess>(
-      `SELECT
+      `SELECT DISTINCT ON (b.id)
          b.id::text as "botId",
          b.name as name,
          ba.role::text as role
@@ -49,10 +61,47 @@ export async function getOwnerAccessibleBots(telegramUserId: number): Promise<Ow
        JOIN bots b ON b.id = ba.bot_id
        WHERE ba.telegram_user_id = $1
          AND b.is_active = true
-       ORDER BY b.created_at DESC`,
+         AND b.deleted_at IS NULL
+       ORDER BY b.id, 
+         CASE ba.role
+           WHEN 'owner' THEN 1
+           WHEN 'admin' THEN 2
+           WHEN 'staff' THEN 3
+           ELSE 4
+         END,
+         b.created_at DESC`,
       [telegramUserId]
     );
     return result.rows;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Count active bots accessible to user through bot_admins (RBAC)
+ * 
+ * SOURCE OF TRUTH: This is the single source of truth for bot count in owner-web.
+ * Always use this function instead of getOwnerAccessibleBots().length
+ * 
+ * Filters (identical to getOwnerAccessibleBots):
+ * - b.is_active = true
+ * - b.deleted_at IS NULL
+ * - COUNT(DISTINCT b.id) to prevent duplicates
+ */
+export async function countOwnerAccessibleBots(telegramUserId: number): Promise<number> {
+  const client = await getPostgresClient();
+  try {
+    const result = await client.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT b.id)::text as count
+       FROM bot_admins ba
+       JOIN bots b ON b.id = ba.bot_id
+       WHERE ba.telegram_user_id = $1
+         AND b.is_active = true
+         AND b.deleted_at IS NULL`,
+      [telegramUserId]
+    );
+    return parseInt(result.rows[0]?.count || '0', 10);
   } finally {
     client.release();
   }

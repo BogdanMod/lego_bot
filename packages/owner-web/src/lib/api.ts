@@ -25,6 +25,7 @@ const OwnerMeSchema = z.object({
       role: z.string(),
     })
   ),
+  botsCountVisible: z.number().optional(), // Single source of truth for count
   csrfToken: z.string(),
 });
 
@@ -206,7 +207,10 @@ export async function ownerSummary() {
 }
 
 export async function ownerBots() {
-  return request<{ items: Array<{ botId: string; name: string; role: string }> }>(
+  return request<{ 
+    items: Array<{ botId: string; name: string; role: string }>;
+    total: number;
+  }>(
     normalizeOwnerPath('/api/owner/bots')
   );
 }

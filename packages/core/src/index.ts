@@ -16,6 +16,7 @@ import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError, resetUserBots, getBotStatsByUserId } from './db/bots';
+import { countOwnerAccessibleBots } from './db/owner';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
@@ -3154,7 +3155,19 @@ app.post('/api/owner/auth/telegram', ensureDatabasesInitialized as any, ownerAut
 
 app.get('/api/owner/auth/me', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
   const owner = (req as any).owner as any;
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const bots = await getOwnerAccessibleBots(owner.sub);
+  // SOURCE OF TRUTH: Use countOwnerAccessibleBots, not bots.length
+  const botsCountVisible = await countOwnerAccessibleBots(owner.sub);
+  
+  logger.info({
+    action: 'get_owner_me',
+    userId: owner.sub,
+    botsItemsCount: bots.length,
+    botsCountVisible,
+    requestId,
+  }, 'GET /api/owner/auth/me');
+  
   res.json({
     user: {
       telegramUserId: owner.sub,
@@ -3164,6 +3177,7 @@ app.get('/api/owner/auth/me', ensureDatabasesInitialized as any, requireOwnerAut
       photoUrl: owner.photo_url ?? null,
     },
     bots,
+    botsCountVisible, // SOURCE OF TRUTH: countOwnerAccessibleBots()
     csrfToken: owner.csrf,
   });
 });
@@ -3191,7 +3205,8 @@ app.get('/api/owner/_debug/session', ensureDatabasesInitialized as any, requireU
   const token = cookies[OWNER_SESSION_COOKIE];
   const claims = jwtSecret && token ? verifyOwnerSession(token, jwtSecret) : null;
 
-  const botCount = claims?.sub ? (await getOwnerAccessibleBots(claims.sub)).length : 0;
+  // SOURCE OF TRUTH: Use countOwnerAccessibleBots, not .length
+  const botCount = claims?.sub ? await countOwnerAccessibleBots(claims.sub) : 0;
   
   logger.info({ requestId, actorUserId, action: 'debug_session' }, 'Debug session endpoint accessed');
   
@@ -3360,10 +3375,8 @@ app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAut
   const telegramUserId = owner.sub as number;
 
   try {
-    // For owner-web, count bots through bot_admins (RBAC) and filter by is_active
-    // This ensures consistency with getOwnerAccessibleBots
-    const accessibleBots = await getOwnerAccessibleBots(telegramUserId);
-    const activeCount = accessibleBots.length;
+    // SOURCE OF TRUTH: count through bot_admins (RBAC)
+    const activeCount = await countOwnerAccessibleBots(telegramUserId);
     
     // Also get total count (including inactive) for reference
     const botStats = await getBotStatsByUserId(telegramUserId);
@@ -3379,7 +3392,7 @@ app.get('/api/owner/summary', ensureDatabasesInitialized as any, requireOwnerAut
         botLimit,
       },
       bots: {
-        active: activeCount, // Count through bot_admins with is_active filter
+        active: activeCount, // SOURCE OF TRUTH: countOwnerAccessibleBots()
         total: botStats.total, // Total bots (including inactive) for reference
       },
     });
@@ -3421,15 +3434,26 @@ app.get('/api/owner/bots/diagnostic', ensureDatabasesInitialized as any, require
         [userId]
       );
 
+      // Compare different count sources
       const botStats = await getBotStatsByUserId(userId);
-      const activeCount = await countActiveBotsByUserId(userId);
+      const activeCountFromBots = await countActiveBotsByUserId(userId);
+      const accessibleBots = await getOwnerAccessibleBots(userId);
+      const countFromBotAdmins = await countOwnerAccessibleBots(userId);
 
       return res.json({
         userId,
-        stats: {
-          active: botStats.active,
-          total: botStats.total,
-          activeCountFromFunction: activeCount,
+        counts: {
+          // From bots table (by user_id)
+          fromBotsTable: {
+            active: botStats.active,
+            total: botStats.total,
+            activeCountFunction: activeCountFromBots,
+          },
+          // From bot_admins (RBAC - single source of truth)
+          fromBotAdmins: {
+            accessibleBotsLength: accessibleBots.length,
+            countFunction: countFromBotAdmins,
+          },
         },
         bots: result.rows.map(b => ({
           id: b.id,
@@ -3440,13 +3464,120 @@ app.get('/api/owner/bots/diagnostic', ensureDatabasesInitialized as any, require
           webhook_set: b.webhook_set,
         })),
         limit: BOT_LIMITS.MAX_BOTS_PER_USER,
-        canCreate: activeCount < BOT_LIMITS.MAX_BOTS_PER_USER,
+        canCreate: countFromBotAdmins < BOT_LIMITS.MAX_BOTS_PER_USER,
       });
     } finally {
       client.release();
     }
   } catch (error) {
     logger.error({ requestId, userId, error }, 'Failed to get bot diagnostic');
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Debug endpoint for owner bot counts (dev/staging/test only)
+app.get('/api/debug/owner', ensureDatabasesInitialized as any, requireOwnerAuth as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+
+  // Only allow in non-production
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  try {
+    const client = await getPostgresClient();
+    try {
+      // Get all count sources for comparison
+      const accessibleBots = await getOwnerAccessibleBots(userId);
+      const countFromBotAdmins = await countOwnerAccessibleBots(userId);
+      const botStats = await getBotStatsByUserId(userId);
+      const activeCountFromBots = await countActiveBotsByUserId(userId);
+
+      // Calculate distinct items count
+      const distinctItemsCount = new Set(accessibleBots.map(b => b.botId)).size;
+
+      // Check for raw duplicates in bot_admins (grouped by bot_id)
+      const duplicatesResult = await client.query<{ bot_id: string; count: string }>(
+        `SELECT bot_id::text as bot_id, COUNT(*)::text as count
+         FROM bot_admins
+         WHERE telegram_user_id = $1
+         GROUP BY bot_id
+         HAVING COUNT(*) > 1`,
+        [userId]
+      );
+      const rawDuplicates = duplicatesResult.rows.map(r => ({
+        botId: r.bot_id,
+        duplicateCount: parseInt(r.count, 10),
+      }));
+
+      return res.json({
+        userId,
+        counts: {
+          // SOURCE OF TRUTH: Single source of truth (RBAC through bot_admins)
+          sourceOfTruth: {
+            countFunction: countFromBotAdmins,
+            source: 'countOwnerAccessibleBots() - bot_admins JOIN bots WHERE is_active=true AND deleted_at IS NULL',
+          },
+          // Comparison: items array
+          itemsArray: {
+            accessibleBotsLength: accessibleBots.length,
+            distinctItemsCount,
+            match: accessibleBots.length === distinctItemsCount,
+            note: accessibleBots.length !== distinctItemsCount 
+              ? `Items array has duplicates: ${accessibleBots.length} total, ${distinctItemsCount} distinct`
+              : 'Items array has no duplicates',
+          },
+          // From bots table (by user_id) - for reference
+          botsTable: {
+            active: botStats.active,
+            total: botStats.total,
+            activeCountFunction: activeCountFromBots,
+            source: 'bots WHERE user_id=$1 AND is_active=true',
+          },
+        },
+        comparison: {
+          // Primary comparison: source of truth vs items array
+          sourceOfTruthVsItems: {
+            countFunction: countFromBotAdmins,
+            itemsLength: accessibleBots.length,
+            distinctItemsCount,
+            match: countFromBotAdmins === accessibleBots.length && accessibleBots.length === distinctItemsCount,
+            difference: countFromBotAdmins - accessibleBots.length,
+            note: countFromBotAdmins !== accessibleBots.length
+              ? `Mismatch: count function (${countFromBotAdmins}) vs items length (${accessibleBots.length})`
+              : 'Source of truth matches items array',
+          },
+          // Secondary comparison: bot_admins vs bots table
+          botAdminsVsBotsTable: {
+            botAdminsCount: countFromBotAdmins,
+            botsTableCount: botStats.active,
+            match: countFromBotAdmins === botStats.active,
+            difference: countFromBotAdmins - botStats.active,
+            note: countFromBotAdmins !== botStats.active 
+              ? 'Counts differ: bot_admins (RBAC) vs bots table (user_id). Use bot_admins as source of truth.'
+              : 'Counts match',
+          },
+        },
+        duplicates: {
+          rawDuplicatesInBotAdmins: rawDuplicates,
+          hasDuplicates: rawDuplicates.length > 0,
+          note: rawDuplicates.length > 0
+            ? `Found ${rawDuplicates.length} bot(s) with multiple bot_admins entries`
+            : 'No duplicates in bot_admins table',
+        },
+        limit: BOT_LIMITS.MAX_BOTS_PER_USER,
+        canCreate: countFromBotAdmins < BOT_LIMITS.MAX_BOTS_PER_USER,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    logger.error({ requestId, userId, error }, 'Failed to get debug owner info');
     return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : String(error),
@@ -3472,13 +3603,21 @@ app.get('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth a
   const owner = (req as any).owner as any;
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const bots = await getOwnerAccessibleBots(owner.sub);
+  const total = await countOwnerAccessibleBots(owner.sub);
+  
+  // SOURCE OF TRUTH: total comes from countOwnerAccessibleBots
   logger.info({
     action: 'get_bots',
     userId: owner.sub,
-    count: bots.length,
+    itemsCount: bots.length,
+    total,
     requestId,
   }, 'GET /api/owner/bots');
-  res.json({ items: bots });
+  
+  res.json({ 
+    items: bots,
+    total, // Total count (single source of truth)
+  });
 });
 
 app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {

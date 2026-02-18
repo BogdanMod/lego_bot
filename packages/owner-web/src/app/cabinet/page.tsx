@@ -153,7 +153,8 @@ export default function CabinetIndexPage() {
     return <div className="panel p-8">Загрузка...</div>;
   }
 
-  const active = summary?.bots.active ?? 0;
+  // Use single source of truth: botsCountVisible from /api/owner/auth/me or total from /api/owner/bots
+  const active = authData?.botsCountVisible ?? botsData?.total ?? summary?.bots.active ?? 0;
   const limit = summary?.user.botLimit ?? 3;
   const isLimitReached = active >= limit;
   const bots = botsData?.items ?? [];
