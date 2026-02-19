@@ -263,6 +263,7 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
       onAddState={handleAddState}
       onDeleteState={handleDeleteState}
       onSetInitialState={handleSetInitialState}
+      onManualSave={handleManualSave}
       isSaving={isSaving}
       isSaved={isSaved}
     />

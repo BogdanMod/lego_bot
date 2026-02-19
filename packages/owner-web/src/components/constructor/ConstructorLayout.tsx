@@ -18,6 +18,7 @@ interface ConstructorLayoutProps {
   onAddState: () => void;
   onDeleteState: (stateName: string) => void;
   onSetInitialState: (stateName: string) => void;
+  onManualSave?: () => void;
   isSaving?: boolean;
   isSaved?: boolean;
 }
@@ -30,6 +31,7 @@ export function ConstructorLayout({
   onAddState,
   onDeleteState,
   onSetInitialState,
+  onManualSave,
   isSaving = false,
   isSaved = true,
 }: ConstructorLayoutProps) {
@@ -59,7 +61,7 @@ export function ConstructorLayout({
             <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">
               Bot Constructor
             </h1>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {isSaving ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
@@ -73,9 +75,21 @@ export function ConstructorLayout({
                   Saved
                 </span>
               ) : (
-                <span className="text-xs text-amber-600 dark:text-amber-400">
-                  Unsaved changes
-                </span>
+                <>
+                  <span className="text-xs text-amber-600 dark:text-amber-400">
+                    Unsaved changes
+                  </span>
+                  {onManualSave && (
+                    <button
+                      onClick={onManualSave}
+                      disabled={isSaving}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>

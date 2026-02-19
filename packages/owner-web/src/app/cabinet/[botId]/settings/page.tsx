@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { i18n } from '@/lib/i18n';
+import { BotPublish } from '@/components/bot-publish';
 
 export default function SettingsPage() {
   const params = useParams();
@@ -25,11 +26,22 @@ export default function SettingsPage() {
   }
 
   const settings = data?.settings || {};
+  const hasToken = !!data?.bot?.hasToken; // Check if bot has token
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">{i18n.settings.title}</h1>
+      
+      {/* Bot Publishing Section */}
+      <BotPublish 
+        botId={botId} 
+        botName={data?.name || 'Бот'} 
+        hasToken={hasToken}
+      />
+
+      {/* Other Settings */}
       <div className="panel p-6">
+        <h2 className="text-lg font-semibold mb-4">Общие настройки</h2>
         <div className="space-y-4">
           <div>
             <label className="text-sm font-medium">Название бизнеса</label>
@@ -48,4 +60,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
 

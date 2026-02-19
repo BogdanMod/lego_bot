@@ -3639,6 +3639,10 @@ app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwne
     botId, 
     name: bot.name,
     schema: bot.schema,
+    bot: {
+      // Don't expose token, only indicate if it exists
+      hasToken: !!bot.token,
+    },
     settings, 
     team, 
     role: (req as any).ownerRole 
@@ -4035,6 +4039,132 @@ app.delete('/api/owner/bots/:botId/team/:telegramUserId', ensureDatabasesInitial
     requestId: getRequestId() ?? null,
   });
   res.json({ ok: true });
+});
+
+// PUT /api/owner/bots/:botId/schema - обновить схему бота
+const OwnerUpdateSchemaSchema = z.object({
+  schema: z.any(), // BotSchema
+});
+
+app.put('/api/owner/bots/:botId/schema', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerUpdateSchemaSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+  const body = req.body as z.infer<typeof OwnerUpdateSchemaSchema>;
+  const schema = body.schema;
+
+  try {
+    const bot = await getBotById(botId, userId);
+    if (!bot) {
+      return ownerError(res, 404, 'not_found', 'Bot not found');
+    }
+
+    // Validate schema limits
+    const stateCount = Object.keys(schema?.states ?? {}).length;
+    if (stateCount > BOT_LIMITS.MAX_SCHEMA_STATES) {
+      logger.warn({ userId, botId, requestId, error: 'Schema too large', currentCount: stateCount }, 'Invalid schema');
+      return ownerError(res, 400, 'schema_too_large', `Maximum ${BOT_LIMITS.MAX_SCHEMA_STATES} states allowed`, { currentCount: stateCount });
+    }
+
+    // Validate schema structure
+    const schemaValidation = validateBotSchema(schema);
+    if (!schemaValidation.valid) {
+      logger.warn({ userId, botId, requestId, errors: schemaValidation.errors }, 'Invalid schema');
+      return ownerError(res, 400, 'invalid_schema', 'Invalid schema structure', { errors: schemaValidation.errors });
+    }
+
+    // Update schema
+    const updateStart = Date.now();
+    let success: boolean;
+    try {
+      success = await updateBotSchema(botId, userId, schema, {
+        requestId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (error) {
+      logger.error({ userId, botId, requestId, error }, 'Failed to update schema');
+      throw error;
+    }
+    const updateDuration = Date.now() - updateStart;
+    logger.info(
+      { metric: 'db_query', operation: 'updateBotSchema', userId, botId, duration: updateDuration, requestId },
+      'Schema updated via owner-web'
+    );
+
+    if (!success) {
+      logger.error({ userId, botId, requestId }, 'Schema update failed');
+      return ownerError(res, 500, 'update_failed', 'Failed to update schema');
+    }
+
+    // Invalidate cache
+    const redisClient = await getRedisClientOptional();
+    if (redisClient) {
+      await redisClient.del(`bot:${botId}:schema`);
+      logger.info({ userId, botId, requestId }, 'Schema cache invalidated');
+    }
+
+    const newSchemaVersion = (bot.schema_version || 0) + 1;
+    logger.info({ userId, botId, requestId, schemaVersion: newSchemaVersion }, 'Schema update response sent');
+    
+    res.json({ 
+      ok: true,
+      success: true, 
+      message: 'Schema updated successfully',
+      schema_version: newSchemaVersion
+    });
+  } catch (error) {
+    logger.error({ requestId, userId, botId, error }, 'Error updating schema via owner-web');
+    return ownerError(res, 500, 'update_failed', 'Failed to update schema', { error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// PUT /api/owner/bots/:botId/token - обновить токен бота
+const OwnerUpdateTokenSchema = z.object({
+  token: z.string().regex(/^\d+:[A-Za-z0-9_-]+$/, 'Invalid bot token format'),
+});
+
+app.put('/api/owner/bots/:botId/token', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerUpdateTokenSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const botId = req.params.botId;
+  const owner = (req as any).owner as any;
+  const userId = owner.sub as number;
+  const body = req.body as z.infer<typeof OwnerUpdateTokenSchema>;
+
+  try {
+    const bot = await getBotById(botId, userId);
+    if (!bot) {
+      return ownerError(res, 404, 'not_found', 'Bot not found');
+    }
+
+    // Encrypt token before storing
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      logger.error({ requestId, botId }, 'ENCRYPTION_KEY is not set');
+      return ownerError(res, 500, 'misconfigured', 'Encryption key is not configured');
+    }
+
+    const { encryptToken } = await import('./utils/encryption');
+    const encryptedToken = encryptToken(body.token, encryptionKey);
+
+    // Update bot token
+    const client = await getPostgresClient();
+    try {
+      await client.query(
+        `UPDATE bots SET token = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+        [encryptedToken, botId, userId]
+      );
+    } finally {
+      client.release();
+    }
+
+    logger.info({ userId, botId, requestId }, 'Bot token updated via owner-web');
+    res.json({ ok: true, message: 'Token updated successfully' });
+  } catch (error) {
+    logger.error({ requestId, userId, botId, error }, 'Failed to update bot token');
+    return ownerError(res, 500, 'update_failed', 'Failed to update token', { error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 app.get('/api/owner/bots/:botId/events', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerEventsQuerySchema) as any, async (req: Request, res: Response) => {

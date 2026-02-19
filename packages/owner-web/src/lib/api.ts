@@ -172,7 +172,7 @@ async function ensureCsrfToken(forceRefresh = false): Promise<string | null> {
 export async function ownerFetch<T>(
   path: string,
   options?: {
-    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
     body?: unknown;
     csrfToken?: string;
   }
@@ -292,9 +292,13 @@ export async function ownerUpdateBot(botId: string, payload: UpdateBotPayload) {
 }
 
 export async function ownerUpdateBotSchema(botId: string, schema: any) {
-  return request<{ ok: boolean }>(normalizeOwnerPath(`/api/owner/bots/${botId}/schema`), {
-    method: 'PUT',
-    body: JSON.stringify({ schema }),
-  });
+  // Use ownerFetch to automatically include CSRF token
+  return ownerFetch<{ ok: boolean; success?: boolean; message?: string; schema_version?: number }>(
+    `/api/owner/bots/${botId}/schema`,
+    {
+      method: 'PUT',
+      body: { schema },
+    }
+  );
 }
 
