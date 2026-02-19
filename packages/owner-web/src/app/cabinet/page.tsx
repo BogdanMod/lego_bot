@@ -1,17 +1,21 @@
 'use client';
 
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerSummary, ownerBots, ownerDeactivateBot, type ApiError } from '@/lib/api';
 import { BotCard } from '@/components/bot-card';
+import { ModeSelectorPage } from '@/components/mode-selector-page';
+import { useWorkMode } from '@/contexts/mode-context';
 
 export default function CabinetIndexPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const { data: authData } = useOwnerAuth();
+  const { mode, isModeSelected } = useWorkMode();
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [limitError, setLimitError] = useState<{ activeBots: number; limit: number } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -42,6 +46,11 @@ export default function CabinetIndexPage() {
   });
 
   useEffect(() => {
+    // Don't auto-redirect if mode is not selected - show mode selector instead
+    if (!isModeSelected) {
+      return;
+    }
+    
     // Only redirect if there are bots and user hasn't explicitly navigated to /cabinet
     // If user is on /cabinet page, show the bots list instead of redirecting
     if (!authData?.bots || authData.bots.length === 0) return;
@@ -55,7 +64,12 @@ export default function CabinetIndexPage() {
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('openBot');
         window.history.replaceState({}, '', newUrl.toString());
-        router.replace(`/cabinet/${openBotId}/overview`);
+        // Navigate based on mode
+        if (mode === 'edit') {
+          router.replace(`/cabinet/${openBotId}/constructor?mode=edit`);
+        } else {
+          router.replace(`/cabinet/${openBotId}?mode=manage`);
+        }
         return;
       }
     }
@@ -100,9 +114,14 @@ export default function CabinetIndexPage() {
     }
 
     if (targetBotId) {
-      router.replace(`/cabinet/${targetBotId}`);
+      // Navigate based on mode
+      if (mode === 'edit') {
+        router.replace(`/cabinet/${targetBotId}/constructor?mode=edit`);
+      } else {
+        router.replace(`/cabinet/${targetBotId}?mode=manage`);
+      }
     }
-  }, [authData, botsData, router]);
+  }, [authData, botsData, router, mode, isModeSelected]);
 
   const handleDeactivate = async (botId: string, botName: string) => {
     const confirmed = await new Promise<boolean>((resolve) => {
@@ -150,6 +169,11 @@ export default function CabinetIndexPage() {
     }
   };
 
+  // Show mode selector if mode is not selected
+  if (!isModeSelected) {
+    return <ModeSelectorPage />;
+  }
+
   if (summaryLoading || botsLoading) {
     return <div className="panel p-8">Загрузка...</div>;
   }
@@ -159,6 +183,11 @@ export default function CabinetIndexPage() {
   const limit = summary?.user.botLimit ?? 3;
   const isLimitReached = active >= limit;
   const bots = botsData?.items ?? [];
+
+  // Empty state messages based on mode
+  const emptyStateMessage = mode === 'edit' 
+    ? 'У вас пока нет ботов. Создайте первого бота, чтобы начать.'
+    : 'У вас нет активных ботов. Сначала создайте бота и запустите его.';
 
   return (
     <div className="panel p-8">
@@ -188,8 +217,20 @@ export default function CabinetIndexPage() {
       </div>
 
       {bots.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          У вас пока нет ботов. Создайте первого бота, чтобы начать.
+        <div className="text-center py-12 space-y-4">
+          <p className="text-muted-foreground">{emptyStateMessage}</p>
+          {mode === 'edit' && (
+            <button
+              onClick={() => {
+                if (isLimitReached) return;
+                router.push('/cabinet/bots?mode=edit');
+              }}
+              disabled={isLimitReached}
+              className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
+            >
+              Создать первого бота
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

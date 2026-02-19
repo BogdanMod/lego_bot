@@ -1,7 +1,12 @@
 import { CabinetLayout } from '@/components/cabinet-layout';
+import { ModeProvider } from '@/contexts/mode-context';
 
 export default function OwnerCabinetLayout({ children }: { children: React.ReactNode }) {
-  return <CabinetLayout>{children}</CabinetLayout>;
+  return (
+    <ModeProvider>
+      <CabinetLayout>{children}</CabinetLayout>
+    </ModeProvider>
+  );
 }
 
 
