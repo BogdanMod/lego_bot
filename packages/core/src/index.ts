@@ -1420,6 +1420,21 @@ export function setRedisSkippedForTests(
 
 const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Exclude public endpoints from rate limiting
+    const publicEndpoints = [
+      '/api/maintenance',
+      '/api/health',
+    ];
+    
+    // Exclude miniapp endpoints from strict rate limiting (they have their own usage patterns)
+    const miniappEndpoints = [
+      '/api/miniapp/overview',
+    ];
+    
+    if (publicEndpoints.includes(req.path) || miniappEndpoints.includes(req.path)) {
+      return next();
+    }
+    
     if (!apiGeneralLimiter) {
       if (!rateLimiterReady) {
         rateLimiterReady = initializeRateLimiters();
