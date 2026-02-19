@@ -16,7 +16,7 @@ import { validateBotSchema } from '@dialogue-constructor/shared/server';
 import { initPostgres, closePostgres, getPoolStats, getPostgresCircuitBreakerStats, getPostgresConnectRetryBudgetMs, getPostgresRetryStats, POSTGRES_RETRY_CONFIG, getPostgresClient, getPostgresPoolConfig, getPostgresConnectionInfo } from './db/postgres';
 import { initRedis, closeRedis, getRedisCircuitBreakerStats, getRedisClientOptional, getRedisRetryStats, getRedisInitOutcome, getRedisSkipReason, getRedisClient } from './db/redis';
 import { initializeBotsTable, getBotsByUserId, getBotsByUserIdPaginated, getBotById, getBotByIdAnyUser, updateBotSchema, createBot, deleteBot, countActiveBotsByUserId, BotLimitError, resetUserBots, getBotStatsByUserId } from './db/bots';
-import { countOwnerAccessibleBots } from './db/owner';
+import { countOwnerAccessibleBots, countPublishedBots } from './db/owner';
 import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStats } from './db/bot-users';
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
@@ -4859,8 +4859,11 @@ const AnalyticsExportQuerySchema = z.object({
 
 // POST /api/bot/:id/schema - обновить схему бота
 app.post('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(UpdateBotSchemaSchema) as any, requireUserId as any, requireBotOwnership() as any, updateSchemaLimiterMiddleware as any, updateSchemaHandler as any);
+
 // GET /api/miniapp/overview - единый endpoint для Mini App (billing mode)
 // Возвращает subscription данные и read-only список ботов
+// SOURCE OF TRUTH: Использует getOwnerAccessibleBots (RBAC) для единообразия с Owner Web
+// Активным считается только опубликованный бот (с реальным токеном из BotFather)
 app.get('/api/miniapp/overview', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
   const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const userId = (req as any).user.id;
@@ -4869,26 +4872,72 @@ app.get('/api/miniapp/overview', ensureDatabasesInitialized as any, requireUserI
     // Get subscription data
     const subscription = await getUserSubscription(userId);
     
-    // Get bot stats (active/total counts)
-    const botStats = await getBotStatsByUserId(userId);
+    // SOURCE OF TRUTH: Use getOwnerAccessibleBots (RBAC) for consistency with Owner Web
+    const accessibleBots = await getOwnerAccessibleBots(userId);
     
-    // Get list of bots (read-only: id, name, is_active)
+    // Get encryption key for token decryption
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      logger.error({ requestId, userId }, 'ENCRYPTION_KEY is not set');
+      return res.status(500).json({
+        error: 'Internal server error',
+        message: 'Encryption key is not configured',
+      });
+    }
+
+    // Get list of bots with token check (read-only: id, name, isPublished)
+    // SOURCE OF TRUTH: Use bot_admins (RBAC) like Owner Web, but get ALL bots (not just is_active=true)
     const client = await getPostgresClient();
     try {
-      const botsResult = await client.query<{ id: string; name: string; is_active: boolean }>(
-        `SELECT id, name, is_active
-         FROM bots
-         WHERE user_id = $1 AND deleted_at IS NULL
-         ORDER BY created_at DESC`,
+      // Get all accessible bots with their tokens (for checking if published)
+      // Note: We get all bots through bot_admins (RBAC), not filtering by is_active
+      // because we want to show unpublished bots too, but mark them as inactive
+      const botsResult = await client.query<{ id: string; name: string; token: string; is_active: boolean }>(
+        `SELECT DISTINCT ON (b.id) b.id, b.name, b.token, b.is_active
+         FROM bot_admins ba
+         JOIN bots b ON b.id = ba.bot_id
+         WHERE ba.telegram_user_id = $1
+           AND b.deleted_at IS NULL
+         ORDER BY b.id, 
+           CASE ba.role
+             WHEN 'owner' THEN 1
+             WHEN 'admin' THEN 2
+             WHEN 'staff' THEN 3
+             ELSE 4
+           END,
+           b.created_at DESC`,
         [userId]
       );
       
-      const bots = botsResult.rows.map(b => ({
-        id: b.id,
-        name: b.name,
-        isActive: b.is_active,
-      }));
+      // Check each bot if it's published (has real token)
+      const { decryptToken } = await import('./utils/encryption');
+      const bots = botsResult.rows.map(b => {
+        let isPublished = false;
+        try {
+          const decryptedToken = decryptToken(b.token, encryptionKey);
+          // Real Telegram bot tokens have format: \d+:[A-Za-z0-9_-]{35}
+          const realTokenPattern = /^\d+:[A-Za-z0-9_-]{35}$/;
+          // Placeholder tokens start with "placeholder-"
+          isPublished = !decryptedToken.startsWith('placeholder-') && realTokenPattern.test(decryptedToken);
+        } catch (error) {
+          // If decryption fails, assume it's not published
+          logger.warn({ requestId, userId, botId: b.id, error }, 'Failed to decrypt token for bot');
+          isPublished = false;
+        }
+        
+        return {
+          id: b.id,
+          name: b.name,
+          isActive: isPublished, // isActive = isPublished (has real token from BotFather)
+        };
+      });
 
+      // Count published bots (with real token)
+      const publishedCount = await countPublishedBots(userId);
+      
+      // Get total count (all accessible bots, including unpublished)
+      const totalCount = bots.length;
+      
       // Get bot limit
       const botLimit = BOT_LIMITS.MAX_BOTS_PER_USER;
 
@@ -4902,8 +4951,8 @@ app.get('/api/miniapp/overview', ensureDatabasesInitialized as any, requireUserI
         },
         bots: {
           items: bots,
-          active: botStats.active,
-          total: botStats.total,
+          active: publishedCount, // Only published bots (with real token)
+          total: totalCount, // All accessible bots
           limit: botLimit,
         },
       });

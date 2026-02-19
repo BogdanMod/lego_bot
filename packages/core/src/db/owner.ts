@@ -107,6 +107,64 @@ export async function countOwnerAccessibleBots(telegramUserId: number): Promise<
   }
 }
 
+/**
+ * Count published bots (with real token from BotFather, not placeholder)
+ * 
+ * Active bot = published bot = has real token (not placeholder)
+ * Placeholder tokens: "placeholder-{timestamp}" or tokens that don't match Telegram format
+ */
+export async function countPublishedBots(telegramUserId: number): Promise<number> {
+  const client = await getPostgresClient();
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  
+  if (!encryptionKey) {
+    // If encryption is not available, fallback to is_active count
+    return countOwnerAccessibleBots(telegramUserId);
+  }
+
+  try {
+    // Get all accessible bots with tokens
+    const result = await client.query<{ id: string; token: string }>(
+      `SELECT DISTINCT ON (b.id) b.id, b.token
+       FROM bot_admins ba
+       JOIN bots b ON b.id = ba.bot_id
+       WHERE ba.telegram_user_id = $1
+         AND b.deleted_at IS NULL
+       ORDER BY b.id, 
+         CASE ba.role
+           WHEN 'owner' THEN 1
+           WHEN 'admin' THEN 2
+           WHEN 'staff' THEN 3
+           ELSE 4
+         END`,
+      [telegramUserId]
+    );
+
+    // Check each token if it's real (not placeholder)
+    const { decryptToken } = await import('../utils/encryption');
+    let publishedCount = 0;
+    
+    for (const row of result.rows) {
+      try {
+        const decryptedToken = decryptToken(row.token, encryptionKey);
+        // Real Telegram bot tokens have format: \d+:[A-Za-z0-9_-]{35}
+        const realTokenPattern = /^\d+:[A-Za-z0-9_-]{35}$/;
+        // Placeholder tokens start with "placeholder-"
+        if (!decryptedToken.startsWith('placeholder-') && realTokenPattern.test(decryptedToken)) {
+          publishedCount++;
+        }
+      } catch (error) {
+        // If decryption fails, assume it's not published
+        continue;
+      }
+    }
+
+    return publishedCount;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getBotRoleForUser(botId: string, telegramUserId: number): Promise<OwnerRole | null> {
   const client = await getPostgresClient();
   try {
