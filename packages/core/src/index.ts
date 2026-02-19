@@ -1421,6 +1421,7 @@ export function setRedisSkippedForTests(
 const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Exclude public endpoints from rate limiting
+    // Use startsWith to handle query parameters
     const publicEndpoints = [
       '/api/maintenance',
       '/api/health',
@@ -1431,7 +1432,14 @@ const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: Ne
       '/api/miniapp/overview',
     ];
     
-    if (publicEndpoints.includes(req.path) || miniappEndpoints.includes(req.path)) {
+    // Check if path matches any excluded endpoint (with or without query params)
+    const pathWithoutQuery = req.path.split('?')[0];
+    const isExcluded = 
+      publicEndpoints.some(ep => pathWithoutQuery === ep || req.path.startsWith(ep + '?')) ||
+      miniappEndpoints.some(ep => pathWithoutQuery === ep || req.path.startsWith(ep + '?'));
+    
+    if (isExcluded) {
+      logger.debug({ path: req.path, pathWithoutQuery }, 'Skipping rate limit for excluded endpoint');
       return next();
     }
     
