@@ -9,7 +9,11 @@ import Analytics from './pages/Analytics';
 import Broadcasts from './pages/Broadcasts';
 import PublishPage from './pages/PublishPage';
 import AdminPanel from './pages/AdminPanel';
+import SubscriptionPage from './pages/SubscriptionPage';
+import BotsPage from './pages/BotsPage';
 import TelegramOnly from './components/TelegramOnly';
+import { LegacyRedirect } from './components/LegacyRedirect';
+import { BillingNavigation } from './components/BillingNavigation';
 import { api, isTelegramWebApp } from './utils/api';
 import { useTheme } from '@/hooks/useTheme';
 import { ProjectsProvider } from './contexts/ProjectsContext';
@@ -18,6 +22,11 @@ import { isAdminUser } from './constants/admin';
 import type { MaintenanceState } from './types';
 import { Toaster } from 'sonner';
 import './App.css';
+
+// Feature flag: MINIAPP_MODE (billing|legacy)
+// Default: billing (new simplified mode)
+// Set MINIAPP_MODE=legacy to use old full-featured mode
+const MINIAPP_MODE = (import.meta.env.VITE_MINIAPP_MODE || 'billing').toLowerCase() as 'billing' | 'legacy';
 
 declare global {
   interface Window {
@@ -134,7 +143,48 @@ function App() {
     return <MaintenanceScreen message={maintenance.message} />;
   }
 
-  console.log('✅ Rendering main app');
+  console.log('✅ Rendering main app, mode:', MINIAPP_MODE);
+
+  // Billing mode: simplified UI with only Subscription and Bots
+  if (MINIAPP_MODE === 'billing') {
+    return (
+      <div className="app">
+        <Toaster
+          position="top-center"
+          richColors
+          closeButton
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: 'var(--bg-panel)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border)',
+            },
+          }}
+        />
+        <Routes>
+          <Route path="/" element={<Navigate to="/subscription" replace />} />
+          <Route path="/subscription" element={<SubscriptionPage />} />
+          <Route path="/bots" element={<BotsPage />} />
+          
+          {/* Legacy routes - redirect with banner */}
+          <Route path="/bot/:id" element={<LegacyRedirect message="Редактирование ботов доступно в Owner Web" />} />
+          <Route path="/bot/:id/editor" element={<LegacyRedirect message="Редактирование ботов доступно в Owner Web" />} />
+          <Route path="/bot/:id/publish" element={<LegacyRedirect message="Публикация ботов доступна в Owner Web" />} />
+          <Route path="/bot/:id/clients" element={<LegacyRedirect message="Управление клиентами доступно в Owner Web" />} />
+          <Route path="/bot/:id/integrations" element={<LegacyRedirect message="Интеграции доступны в Owner Web" />} />
+          <Route path="/bot/:id/analytics" element={<LegacyRedirect message="Аналитика доступна в Owner Web" />} />
+          <Route path="/bot/:id/broadcasts" element={<LegacyRedirect message="Рассылки доступны в Owner Web" />} />
+          <Route path="/templates" element={<LegacyRedirect message="Шаблоны доступны в Owner Web" />} />
+          <Route path="/admin" element={<AdminPanel />} /> {/* Keep admin panel */}
+          <Route path="*" element={<Navigate to="/subscription" replace />} />
+        </Routes>
+        <BillingNavigation />
+      </div>
+    );
+  }
+
+  // Legacy mode: full-featured app (backward compatible)
   return (
     <ProjectsProvider>
       <div className="app">

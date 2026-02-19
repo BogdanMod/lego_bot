@@ -558,3 +558,56 @@ export async function grantSubscriptionByAdmin(
     client.release();
   }
 }
+
+export type UserSubscription = {
+  plan: string;
+  status: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  isActive: boolean;
+};
+
+/**
+ * Get user subscription data
+ */
+export async function getUserSubscription(telegramUserId: number): Promise<UserSubscription | null> {
+  const client = await getPostgresClient();
+  const now = new Date();
+
+  try {
+    const result = await client.query<{
+      plan: string;
+      status: string;
+      starts_at: string | null;
+      ends_at: string | null;
+    }>(
+      `
+      SELECT plan, status, starts_at, ends_at
+      FROM user_subscriptions
+      WHERE telegram_user_id = $1
+      ORDER BY updated_at DESC
+      LIMIT 1
+      `,
+      [telegramUserId]
+    );
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    const endsAt = row.ends_at ? new Date(row.ends_at) : null;
+    const isActive =
+      row.status === 'active' && (endsAt === null || endsAt.getTime() > now.getTime());
+
+    return {
+      plan: row.plan || 'free',
+      status: row.status,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      isActive,
+    };
+  } finally {
+    client.release();
+  }
+}

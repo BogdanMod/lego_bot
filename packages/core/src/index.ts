@@ -21,7 +21,7 @@ import { exportBotUsersToCSV, getBotTelegramUserIds, getBotUsers, getBotUserStat
 import { exportAnalyticsToCSV, getAnalyticsEvents, getAnalyticsStats, getFunnelData, getPopularPaths, getTimeSeriesData } from './db/bot-analytics';
 import { getWebhookLogsByBotId, getWebhookStats } from './db/webhook-logs';
 import { cancelBroadcast, createBroadcast, createBroadcastMessages, getBroadcastById, getBroadcastStats, getBroadcastsByBotId, updateBroadcast } from './db/broadcasts';
-import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
+import { createPromoCode, getAdminStats, getMaintenanceState, grantSubscriptionByAdmin, getUserSubscription, listPromoCodes, redeemPromoCode, setMaintenanceState, type MaintenanceState } from './db/admin';
 import {
   addEventNote,
   createAppointment,
@@ -4859,6 +4859,66 @@ const AnalyticsExportQuerySchema = z.object({
 
 // POST /api/bot/:id/schema - обновить схему бота
 app.post('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(UpdateBotSchemaSchema) as any, requireUserId as any, requireBotOwnership() as any, updateSchemaLimiterMiddleware as any, updateSchemaHandler as any);
+// GET /api/miniapp/overview - единый endpoint для Mini App (billing mode)
+// Возвращает subscription данные и read-only список ботов
+app.get('/api/miniapp/overview', ensureDatabasesInitialized as any, requireUserId as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const userId = (req as any).user.id;
+
+  try {
+    // Get subscription data
+    const subscription = await getUserSubscription(userId);
+    
+    // Get bot stats (active/total counts)
+    const botStats = await getBotStatsByUserId(userId);
+    
+    // Get list of bots (read-only: id, name, is_active)
+    const client = await getPostgresClient();
+    try {
+      const botsResult = await client.query<{ id: string; name: string; is_active: boolean }>(
+        `SELECT id, name, is_active
+         FROM bots
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+      
+      const bots = botsResult.rows.map(b => ({
+        id: b.id,
+        name: b.name,
+        isActive: b.is_active,
+      }));
+
+      // Get bot limit
+      const botLimit = BOT_LIMITS.MAX_BOTS_PER_USER;
+
+      res.json({
+        subscription: subscription || {
+          plan: 'free',
+          status: 'inactive',
+          startsAt: null,
+          endsAt: null,
+          isActive: false,
+        },
+        bots: {
+          items: bots,
+          active: botStats.active,
+          total: botStats.total,
+          limit: botLimit,
+        },
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    logger.error({ requestId, userId, error }, 'Failed to get miniapp overview');
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // PUT /api/bot/:id/schema - обновить схему бота
 app.put('/api/bot/:id/schema', ensureDatabasesInitialized as any, validateParams(z.object({ id: BotIdSchema })) as any, validateBody(UpdateBotSchemaSchema) as any, requireUserId as any, requireBotOwnership() as any, updateSchemaLimiterMiddleware as any, updateSchemaHandler as any);
 
