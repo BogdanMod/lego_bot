@@ -1,7 +1,7 @@
 'use client';
 
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -10,10 +10,12 @@ import { BotCard } from '@/components/bot-card';
 import { ModeSelectorPage } from '@/components/mode-selector-page';
 import { useWorkMode } from '@/contexts/mode-context';
 
+// Force dynamic rendering to avoid useSearchParams prerendering issues
+export const dynamic = 'force-dynamic';
+
 export default function CabinetIndexPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
   const { data: authData } = useOwnerAuth();
   const { mode, isModeSelected } = useWorkMode();
   const [showLimitModal, setShowLimitModal] = useState(false);

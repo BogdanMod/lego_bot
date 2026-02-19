@@ -278,3 +278,4 @@ curl -X POST "https://api.telegram.org/bot${USER_BOT_TOKEN}/setWebhook" \
 - Проверьте consumer group: `redis-cli XINFO GROUPS events`
 - Проверьте логи worker
 
+

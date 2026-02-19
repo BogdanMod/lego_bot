@@ -7,6 +7,7 @@ import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { BotSelector } from '@/components/bot-selector';
 import { CommandPalette } from '@/components/command-palette';
+import { ModeToggle } from '@/components/mode-toggle';
 import { i18n } from '@/lib/i18n';
 
 const sections = [
@@ -179,17 +180,20 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
       <div className="p-6">
         <header className="panel px-4 py-3 flex items-center gap-3 justify-between mb-4">
           <BotSelector bots={data.bots || []} currentBotId={currentBotId} />
-          <input
-            id="global-search"
-            placeholder={`${i18n.common.search} (/)`}
-            className="w-[360px] rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-            onChange={async (e) => {
-              if (!currentBotId) return;
-              const q = e.target.value.trim();
-              if (!q) return;
-              await ownerFetch(`/api/owner/bots/${currentBotId}/events?q=${encodeURIComponent(q)}&limit=20`);
-            }}
-          />
+          <div className="flex items-center gap-4">
+            <ModeToggle />
+            <input
+              id="global-search"
+              placeholder={`${i18n.common.search} (/)`}
+              className="w-[360px] rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+              onChange={async (e) => {
+                if (!currentBotId) return;
+                const q = e.target.value.trim();
+                if (!q) return;
+                await ownerFetch(`/api/owner/bots/${currentBotId}/events?q=${encodeURIComponent(q)}&limit=20`);
+              }}
+            />
+          </div>
         </header>
         <div>{children}</div>
       </div>

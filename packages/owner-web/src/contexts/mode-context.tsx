@@ -24,7 +24,10 @@ export function ModeProvider({ children }: { children: ReactNode }) {
 
   // Initialize mode from URL or localStorage
   useEffect(() => {
-    const urlMode = searchParams?.get('mode') as WorkMode | null;
+    // Safe access to searchParams (only in client)
+    const urlMode = typeof window !== 'undefined' && searchParams 
+      ? (searchParams.get('mode') as WorkMode | null)
+      : null;
     const storedMode = typeof window !== 'undefined' 
       ? (localStorage.getItem(MODE_STORAGE_KEY) as WorkMode | null)
       : null;

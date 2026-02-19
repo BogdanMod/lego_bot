@@ -9,6 +9,7 @@ import { LiveModeView } from './live-mode-view';
 import { EditModeView } from './edit-mode-view';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Circle } from 'lucide-react';
+import { useWorkMode } from '@/contexts/mode-context';
 
 type BotMode = 'live' | 'edit';
 
