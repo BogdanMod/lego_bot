@@ -119,3 +119,4 @@ export function OwnerSection({ botId, section }: { botId: string; section: strin
   return <SectionTable rows={rows as Array<Record<string, unknown>>} />;
 }
 
+

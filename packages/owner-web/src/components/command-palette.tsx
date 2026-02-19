@@ -107,3 +107,4 @@ export function CommandPalette({ botId }: { botId?: string }) {
   );
 }
 
+

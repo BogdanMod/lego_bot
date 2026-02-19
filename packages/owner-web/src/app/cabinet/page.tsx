@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerSummary, ownerBots, ownerDeactivateBot, type ApiError } from '@/lib/api';
+import { BotCard } from '@/components/bot-card';
 
 export default function CabinetIndexPage() {
   const router = useRouter();
@@ -99,7 +100,7 @@ export default function CabinetIndexPage() {
     }
 
     if (targetBotId) {
-      router.replace(`/cabinet/${targetBotId}/overview`);
+      router.replace(`/cabinet/${targetBotId}`);
     }
   }, [authData, botsData, router]);
 
@@ -191,32 +192,9 @@ export default function CabinetIndexPage() {
           У вас пока нет ботов. Создайте первого бота, чтобы начать.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {bots.map((bot) => (
-            <div
-              key={bot.botId}
-              className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              <div>
-                <div className="font-medium">{bot.name}</div>
-                <div className="text-sm text-muted-foreground">ID: {bot.botId}</div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => router.push(`/cabinet/${bot.botId}/overview`)}
-                  className="px-3 py-1 text-sm bg-primary text-white rounded hover:bg-primary/90"
-                >
-                  Открыть
-                </button>
-                <button
-                  onClick={() => handleDeactivate(bot.botId, bot.name)}
-                  disabled={deactivateMutation.isPending}
-                  className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
-                >
-                  {deactivateMutation.isPending ? 'Деактивация...' : 'Удалить'}
-                </button>
-              </div>
-            </div>
+            <BotCard key={bot.botId} botId={bot.botId} name={bot.name} />
           ))}
         </div>
       )}

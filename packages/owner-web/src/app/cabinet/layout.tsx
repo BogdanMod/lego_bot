@@ -4,3 +4,4 @@ export default function OwnerCabinetLayout({ children }: { children: React.React
   return <CabinetLayout>{children}</CabinetLayout>;
 }
 
+
