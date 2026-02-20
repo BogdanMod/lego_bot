@@ -2,25 +2,19 @@
 
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ownerSummary, ownerBots, ownerDeactivateBot, type ApiError } from '@/lib/api';
-import { BotCard } from '@/components/bot-card';
-import { ModeSelectorPage } from '@/components/mode-selector-page';
-import { useWorkMode } from '@/contexts/mode-context';
+import { ownerSummary, ownerBots, ownerDeactivateBot, ownerActivateBot, ownerFetch, type ApiError } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { Skeleton } from '@/components/ui/skeleton';
 
-// Force dynamic rendering to avoid useSearchParams prerendering issues
+// Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 export default function CabinetIndexPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: authData } = useOwnerAuth();
-  const { mode, isModeSelected } = useWorkMode();
-  const [showLimitModal, setShowLimitModal] = useState(false);
-  const [limitError, setLimitError] = useState<{ activeBots: number; limit: number } | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['owner-summary'],
@@ -40,156 +34,39 @@ export default function CabinetIndexPage() {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       queryClient.invalidateQueries({ queryKey: ['owner-me'] });
-      toast.success('Бот успешно деактивирован');
+      toast.success('Бот успешно остановлен');
     },
     onError: (error: ApiError) => {
-      toast.error(error?.message || 'Ошибка при деактивации бота');
+      toast.error(error?.message || 'Ошибка при остановке бота');
     },
   });
 
-  useEffect(() => {
-    // Don't auto-redirect if mode is not selected - show mode selector instead
-    if (!isModeSelected) {
-      return;
-    }
-    
-    // Only redirect if there are bots and user hasn't explicitly navigated to /cabinet
-    // If user is on /cabinet page, show the bots list instead of redirecting
-    if (!authData?.bots || authData.bots.length === 0) return;
-    
-    // Check for openBot query parameter (from mini-app deep links) - always redirect for this
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const openBotId = params.get('openBot');
-      if (openBotId && authData.bots.some((b) => b.botId === openBotId)) {
-        // Clean up query parameter
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete('openBot');
-        window.history.replaceState({}, '', newUrl.toString());
-        // Navigate based on mode
-        if (mode === 'edit') {
-          router.replace(`/cabinet/${openBotId}/constructor?mode=edit`);
-        } else {
-          router.replace(`/cabinet/${openBotId}?mode=manage`);
-        }
-        return;
-      }
-    }
-
-    // Check for redirect query parameter (from botlink)
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const redirectPath = params.get('redirect');
-      if (redirectPath && redirectPath.startsWith('/cabinet/')) {
-        // Clean up query parameter
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete('redirect');
-        window.history.replaceState({}, '', newUrl.toString());
-        router.replace(redirectPath);
-        return;
-      }
-    }
-
-    // Don't auto-redirect if user explicitly navigated to /cabinet
-    // Show the bots list page instead
-    // Only redirect if coming from login/auth flow
-    const isFromAuth = typeof window !== 'undefined' && 
-      (document.referrer.includes('/auth/') || document.referrer.includes('/login'));
-    
-    if (!isFromAuth) {
-      // User explicitly navigated to /cabinet, show bots list
-      return;
-    }
-
-    // Try to restore lastBotId from localStorage (only if from auth)
-    let targetBotId: string | undefined;
-    if (typeof window !== 'undefined') {
-      const lastBotId = localStorage.getItem('owner_lastBotId');
-      if (lastBotId && authData.bots.some((b) => b.botId === lastBotId)) {
-        targetBotId = lastBotId;
-      }
-    }
-
-    // Fallback to first available bot
-    if (!targetBotId) {
-      targetBotId = authData.bots[0]?.botId;
-    }
-
-    if (targetBotId) {
-      // Navigate based on mode
-      if (mode === 'edit') {
-        router.replace(`/cabinet/${targetBotId}/constructor?mode=edit`);
-      } else {
-        router.replace(`/cabinet/${targetBotId}?mode=manage`);
-      }
-    }
-  }, [authData, botsData, router, mode, isModeSelected]);
-
-  const handleDeactivate = async (botId: string, botName: string) => {
-    const confirmed = await new Promise<boolean>((resolve) => {
-      toast(
-        <div className="flex flex-col gap-3">
-          <div className="font-medium">Деактивировать бота?</div>
-          <div className="text-sm text-muted-foreground">
-            Бот "{botName}" будет деактивирован. Это действие можно отменить позже.
-          </div>
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={() => {
-                toast.dismiss();
-                resolve(true);
-              }}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
-            >
-              Деактивировать
-            </button>
-            <button
-              onClick={() => {
-                toast.dismiss();
-                resolve(false);
-              }}
-              className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 text-sm"
-            >
-              Отмена
-            </button>
-          </div>
-        </div>,
-        {
-          duration: Infinity,
-          id: `deactivate-${botId}`,
-        }
-      );
-    });
-
-    if (!confirmed) return;
-
-    try {
-      await deactivateMutation.mutateAsync(botId);
-    } catch (error) {
-      console.error('Failed to deactivate bot:', error);
-      // Error is already shown via toast in onError
-    }
-  };
-
-  // Show mode selector if mode is not selected
-  if (!isModeSelected) {
-    return <ModeSelectorPage />;
-  }
+  const activateMutation = useMutation({
+    mutationFn: ownerActivateBot,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-me'] });
+      toast.success('Бот успешно запущен');
+    },
+    onError: (error: ApiError) => {
+      toast.error(error?.message || 'Ошибка при запуске бота');
+    },
+  });
 
   if (summaryLoading || botsLoading) {
-    return <div className="panel p-8">Загрузка...</div>;
+    return (
+      <div className="panel p-8">
+        <Skeleton className="h-8 w-48 mb-4" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
   }
 
-  // Use single source of truth: botsCountVisible from /api/owner/auth/me or total from /api/owner/bots
   const active = authData?.botsCountVisible ?? botsData?.total ?? summary?.bots.active ?? 0;
   const limit = summary?.user.botLimit ?? 3;
   const isLimitReached = active >= limit;
   const bots = botsData?.items ?? [];
-
-  // Empty state messages based on mode
-  const emptyStateMessage = mode === 'edit' 
-    ? 'У вас пока нет ботов. Создайте первого бота, чтобы начать.'
-    : 'У вас нет активных ботов. Сначала создайте бота и запустите его.';
 
   return (
     <div className="panel p-8">
@@ -208,7 +85,6 @@ export default function CabinetIndexPage() {
         <button
           onClick={() => {
             if (isLimitReached) return;
-            // Navigate to bots page where user can choose template or create from scratch
             router.push('/cabinet/bots');
           }}
           disabled={isLimitReached}
@@ -220,48 +96,94 @@ export default function CabinetIndexPage() {
 
       {bots.length === 0 ? (
         <div className="text-center py-12 space-y-4">
-          <p className="text-muted-foreground">{emptyStateMessage}</p>
-          {mode === 'edit' && (
-            <button
-              onClick={() => {
-                if (isLimitReached) return;
-                router.push('/cabinet/bots?mode=edit');
-              }}
-              disabled={isLimitReached}
-              className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
-            >
-              Создать первого бота
-            </button>
-          )}
+          <p className="text-muted-foreground">У вас пока нет ботов. Создайте первого бота, чтобы начать.</p>
+          <button
+            onClick={() => {
+              if (isLimitReached) return;
+              router.push('/cabinet/bots');
+            }}
+            disabled={isLimitReached}
+            className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
+          >
+            Создать первого бота
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {bots.map((bot) => (
-            <BotCard key={bot.botId} botId={bot.botId} name={bot.name} />
+            <SimpleBotCard 
+              key={bot.botId} 
+              botId={bot.botId} 
+              name={bot.name}
+              onActivate={() => activateMutation.mutate(bot.botId)}
+              onDeactivate={() => deactivateMutation.mutate(bot.botId)}
+              isActivating={activateMutation.isPending}
+              isDeactivating={deactivateMutation.isPending}
+            />
           ))}
-        </div>
-      )}
-
-      {showLimitModal && limitError && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-800 p-6 rounded-lg max-w-md w-full mx-4">
-            <h2 className="text-xl font-semibold mb-4">Лимит ботов достигнут</h2>
-            <p className="text-muted-foreground mb-4">
-              У вас уже {limitError.activeBots} активных ботов из {limitError.limit} доступных.
-            </p>
-            <button
-              onClick={() => {
-                setShowLimitModal(false);
-                setLimitError(null);
-              }}
-              className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
-            >
-              Закрыть
-            </button>
-          </div>
         </div>
       )}
     </div>
   );
 }
 
+// Simplified bot card component
+function SimpleBotCard({ 
+  botId, 
+  name,
+  onActivate,
+  onDeactivate,
+  isActivating,
+  isDeactivating,
+}: { 
+  botId: string; 
+  name: string;
+  onActivate: () => void;
+  onDeactivate: () => void;
+  isActivating: boolean;
+  isDeactivating: boolean;
+}) {
+  const router = useRouter();
+  const { data: botData } = useQuery({
+    queryKey: ['bot', botId],
+    queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
+    enabled: !!botId,
+  });
+
+  const isActive = botData?.bot?.isActive || false;
+
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">{name}</h3>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {isActive ? 'Активен' : 'Остановлен'}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => router.push(`/cabinet/${botId}/constructor`)}
+          className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >
+          Редактировать
+        </button>
+        <button
+          onClick={() => router.push(`/cabinet/${botId}/analytics`)}
+          className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+        >
+          Аналитика
+        </button>
+        <button
+          onClick={isActive ? onDeactivate : onActivate}
+          disabled={isActivating || isDeactivating}
+          className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+        >
+          {isActive ? 'Остановить' : 'Запустить'}
+        </button>
+      </div>
+    </div>
+  );
+}

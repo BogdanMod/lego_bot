@@ -5,10 +5,7 @@ import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { useSSEStream } from '@/hooks/use-sse-stream';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
-import { BotSelector } from '@/components/bot-selector';
-import { CommandPalette } from '@/components/command-palette';
-import { ModeToggle } from '@/components/mode-toggle';
-import { CabinetSidebar } from '@/components/cabinet-sidebar';
+import { SimpleSidebar } from '@/components/simple-sidebar';
 import { i18n } from '@/lib/i18n';
 
 function useHotkeys(botId?: string) {
@@ -110,34 +107,12 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <>
-      <CommandPalette botId={currentBotId} />
-      <div className="min-h-screen grid grid-cols-[240px_1fr]">
-        <CabinetSidebar />
-
-        <div className="p-6">
-          <header className="panel px-4 py-3 flex items-center gap-3 justify-between mb-4">
-            {currentBotId && <BotSelector bots={data.bots || []} currentBotId={currentBotId} />}
-            <div className="flex items-center gap-4 ml-auto">
-              <ModeToggle />
-              {currentBotId && (
-                <input
-                  id="global-search"
-                  placeholder={`${i18n.common.search} (/)`}
-                  className="w-[360px] rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                  onChange={async (e) => {
-                    const q = e.target.value.trim();
-                    if (!q) return;
-                    await ownerFetch(`/api/owner/bots/${currentBotId}/events?q=${encodeURIComponent(q)}&limit=20`);
-                  }}
-                />
-              )}
-            </div>
-          </header>
-          <div>{children}</div>
-        </div>
+    <div className="min-h-screen grid grid-cols-[224px_1fr]">
+      <SimpleSidebar />
+      <div className="p-6">
+        <div>{children}</div>
       </div>
-    </>
+    </div>
   );
 }
 
