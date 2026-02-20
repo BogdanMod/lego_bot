@@ -34,6 +34,7 @@ import {
   getCustomerTimeline,
   getEventsSummary,
   getBotTodayMetrics,
+  getBotAnalyticsDashboard,
   getOrder,
   getOwnerAccessibleBots,
   insertOwnerAudit,
@@ -4519,6 +4520,19 @@ app.get('/api/owner/bots/:botId/summary', ensureDatabasesInitialized as any, req
     });
   } catch (error) {
     logger.error({ requestId, botId: req.params.botId, error }, 'Failed to get bot summary');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/owner/bots/:botId/analytics - денежный дашборд для режима Анализ
+app.get('/api/owner/bots/:botId/analytics', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(z.object({ range: z.enum(['today', '7d']).optional() })) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  try {
+    const range = (req.query as any).range || 'today';
+    const analytics = await getBotAnalyticsDashboard(req.params.botId, range as 'today' | '7d');
+    res.json(analytics);
+  } catch (error) {
+    logger.error({ requestId, botId: req.params.botId, error }, 'Failed to get bot analytics dashboard');
     res.status(500).json({ error: 'Internal server error' });
   }
 });

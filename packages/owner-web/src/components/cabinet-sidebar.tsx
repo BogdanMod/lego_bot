@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ownerFetch, ownerLogout } from '@/lib/api';
 import { useWorkMode } from '@/contexts/mode-context';
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
-import { ArrowRight, Settings, Users, Calendar, BarChart2, FileText, ShoppingCart, Wrench, Play } from 'lucide-react';
+import { ArrowRight, Settings, Users, Calendar, LayoutDashboard, FileText, ShoppingCart, Wrench, Play } from 'lucide-react';
 
 interface NavItem {
   key: string;
@@ -42,11 +42,10 @@ export function CabinetSidebar() {
     if (mode === 'manage') {
       // Work mode - operational sections
       return [
-        { key: 'leads', label: 'Заявки', href: `/cabinet/${currentBotId}?mode=manage`, icon: <FileText className="w-4 h-4" /> },
+        { key: 'overview', label: 'Обзор', href: `/cabinet/${currentBotId}?mode=manage&tab=overview`, icon: <LayoutDashboard className="w-4 h-4" /> },
+        { key: 'leads', label: 'Заявки', href: `/cabinet/${currentBotId}?mode=manage&tab=leads`, icon: <FileText className="w-4 h-4" /> },
         { key: 'orders', label: 'Заказы', href: `/cabinet/${currentBotId}?mode=manage&tab=orders`, icon: <ShoppingCart className="w-4 h-4" /> },
         { key: 'customers', label: 'Клиенты', href: `/cabinet/${currentBotId}?mode=manage&tab=customers`, icon: <Users className="w-4 h-4" /> },
-        { key: 'calendar', label: 'Календарь', href: `/cabinet/${currentBotId}/calendar?mode=manage`, icon: <Calendar className="w-4 h-4" /> },
-        { key: 'analytics', label: 'Аналитика', href: `/cabinet/${currentBotId}?mode=manage&tab=analytics`, icon: <BarChart2 className="w-4 h-4" /> },
       ];
     } else {
       // Edit mode - configuration sections
@@ -71,15 +70,11 @@ export function CabinetSidebar() {
           const tab = hrefParams.get('tab');
           const currentParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
           const currentTab = currentParams.get('tab');
-          // Default to 'leads' if no tab specified
-          return tab === (currentTab || 'leads');
+          // Default to 'overview' if no tab specified
+          return tab === (currentTab || 'overview');
         }
-        // Default leads tab (no tab param means leads)
-        return !href.includes('tab=') && !href.includes('calendar');
-      }
-      // For calendar, check exact path match
-      if (hrefPath.includes('/calendar')) {
-        return pathname === hrefPath;
+        // Default overview tab (no tab param means overview)
+        return !href.includes('tab=');
       }
       return false;
     } else {

@@ -766,6 +766,150 @@ export async function getBotTodayMetrics(botId: string): Promise<{
   }
 }
 
+export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '7d'): Promise<{
+  summaryToday: {
+    leadsCount: number;
+    ordersCount: number;
+    revenuePotentialRub: number;
+    conversionPct: number | null;
+    confirmedOrdersCount: number;
+  };
+  summary7d: {
+    leadsCount: number;
+    ordersCount: number;
+    revenuePotentialRub: number;
+    avgCheckRub: number | null;
+  };
+  latestOrders: Array<Record<string, unknown>>;
+  latestLeads: Array<Record<string, unknown>>;
+}> {
+  const client = await getPostgresClient();
+  try {
+    // Summary for Today
+    const todayLeadsResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM leads
+       WHERE bot_id = $1
+         AND created_at >= date_trunc('day', now())
+         AND created_at < date_trunc('day', now()) + interval '1 day'`,
+      [botId]
+    );
+    const todayLeadsCount = Number(todayLeadsResult.rows[0]?.count ?? 0);
+
+    const todayOrdersResult = await client.query<{
+      count: string;
+      revenue: string;
+      confirmed: string;
+    }>(
+      `SELECT 
+         COUNT(*)::text as count,
+         COALESCE(SUM(CASE WHEN currency = 'RUB' AND amount IS NOT NULL THEN amount ELSE 0 END), 0)::text as revenue,
+         COUNT(*) FILTER (WHERE status IN ('confirmed', 'completed'))::text as confirmed
+       FROM orders
+       WHERE bot_id = $1
+         AND created_at >= date_trunc('day', now())
+         AND created_at < date_trunc('day', now()) + interval '1 day'`,
+      [botId]
+    );
+    const todayOrdersCount = Number(todayOrdersResult.rows[0]?.count ?? 0);
+    const todayRevenue = Number(todayOrdersResult.rows[0]?.revenue ?? 0);
+    const todayConfirmedCount = Number(todayOrdersResult.rows[0]?.confirmed ?? 0);
+    const todayConversionPct = todayOrdersCount > 0 
+      ? Math.round((todayConfirmedCount / todayOrdersCount) * 100) 
+      : null;
+
+    // Summary for 7 days
+    const sevenDaysLeadsResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM leads
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '7 days'`,
+      [botId]
+    );
+    const sevenDaysLeadsCount = Number(sevenDaysLeadsResult.rows[0]?.count ?? 0);
+
+    const sevenDaysOrdersResult = await client.query<{
+      count: string;
+      revenue: string;
+      avgCheck: string;
+    }>(
+      `SELECT 
+         COUNT(*)::text as count,
+         COALESCE(SUM(CASE WHEN currency = 'RUB' AND amount IS NOT NULL THEN amount ELSE 0 END), 0)::text as revenue,
+         CASE 
+           WHEN COUNT(*) > 0 THEN 
+             COALESCE(ROUND(AVG(CASE WHEN currency = 'RUB' AND amount IS NOT NULL THEN amount ELSE NULL END)::numeric, 2), 0)::text
+           ELSE '0'::text
+         END as avgCheck
+       FROM orders
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '7 days'`,
+      [botId]
+    );
+    const sevenDaysOrdersCount = Number(sevenDaysOrdersResult.rows[0]?.count ?? 0);
+    const sevenDaysRevenue = Number(sevenDaysOrdersResult.rows[0]?.revenue ?? 0);
+    const sevenDaysAvgCheck = Number(sevenDaysOrdersResult.rows[0]?.avgCheck ?? 0) || null;
+
+    // Latest orders (last 20)
+    const latestOrdersResult = await client.query(
+      `SELECT 
+         id::text as id,
+         bot_id::text as "botId",
+         status,
+         payment_status as "paymentStatus",
+         amount,
+         currency,
+         tracking,
+         created_at::text as "createdAt",
+         updated_at::text as "updatedAt",
+         payload_json as payload
+       FROM orders
+       WHERE bot_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [botId]
+    );
+
+    // Latest leads (last 20)
+    const latestLeadsResult = await client.query(
+      `SELECT 
+         id::text as id,
+         bot_id::text as "botId",
+         status,
+         title,
+         message,
+         created_at::text as "createdAt",
+         updated_at::text as "updatedAt",
+         payload_json as payload
+       FROM leads
+       WHERE bot_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [botId]
+    );
+
+    return {
+      summaryToday: {
+        leadsCount: todayLeadsCount,
+        ordersCount: todayOrdersCount,
+        revenuePotentialRub: todayRevenue,
+        conversionPct: todayConversionPct,
+        confirmedOrdersCount: todayConfirmedCount,
+      },
+      summary7d: {
+        leadsCount: sevenDaysLeadsCount,
+        ordersCount: sevenDaysOrdersCount,
+        revenuePotentialRub: sevenDaysRevenue,
+        avgCheckRub: sevenDaysAvgCheck,
+      },
+      latestOrders: latestOrdersResult.rows,
+      latestLeads: latestLeadsResult.rows,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getCustomer(botId: string, customerId: string): Promise<Record<string, unknown> | null> {
   const client = await getPostgresClient();
   try {

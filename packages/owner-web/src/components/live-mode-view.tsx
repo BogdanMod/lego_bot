@@ -8,11 +8,12 @@ import { LeadsTab } from './live-mode/leads-tab';
 import { CustomersTab } from './live-mode/customers-tab';
 import { OrdersTab } from './live-mode/orders-tab';
 import { AnalyticsTab } from './live-mode/analytics-tab';
+import { AnalysisDashboard } from './live-mode/analysis-dashboard';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Users, ShoppingCart, TrendingUp, FileText, Settings } from 'lucide-react';
+import { Users, ShoppingCart, TrendingUp, FileText, Settings, LayoutDashboard } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 
-type LiveTab = 'leads' | 'customers' | 'orders' | 'analytics';
+type LiveTab = 'overview' | 'leads' | 'customers' | 'orders' | 'analytics';
 
 interface LiveModeViewProps {
   botId: string;
@@ -21,18 +22,18 @@ interface LiveModeViewProps {
 export function LiveModeView({ botId }: LiveModeViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<LiveTab>('leads');
+  const [activeTab, setActiveTab] = useState<LiveTab>('overview');
 
-  // Get initial tab from URL, default to 'leads'
+  // Get initial tab from URL, default to 'overview'
   useEffect(() => {
     const tab = searchParams?.get('tab') as LiveTab | null;
-    if (tab && ['leads', 'customers', 'orders', 'analytics'].includes(tab)) {
+    if (tab && ['overview', 'leads', 'customers', 'orders', 'analytics'].includes(tab)) {
       setActiveTab(tab);
     } else {
-      // Default to 'leads' if no tab specified
-      setActiveTab('leads');
+      // Default to 'overview' if no tab specified
+      setActiveTab('overview');
       if (!tab) {
-        router.replace(`/cabinet/${botId}?mode=manage&tab=leads`);
+        router.replace(`/cabinet/${botId}?mode=manage&tab=overview`);
       }
     }
   }, [searchParams, botId, router]);
@@ -76,6 +77,13 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
         <div className="border-b border-slate-200 dark:border-slate-800 px-6">
           <TabsList className="bg-transparent h-12 p-0">
             <TabsTrigger
+              value="overview"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-4"
+            >
+              <LayoutDashboard className="w-4 h-4 mr-2" />
+              Обзор
+            </TabsTrigger>
+            <TabsTrigger
               value="leads"
               className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-4"
             >
@@ -96,17 +104,13 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
               <Users className="w-4 h-4 mr-2" />
               Клиенты
             </TabsTrigger>
-            <TabsTrigger
-              value="analytics"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none h-full px-4"
-            >
-              <TrendingUp className="w-4 h-4 mr-2" />
-              Аналитика
-            </TabsTrigger>
           </TabsList>
         </div>
 
         <div className="flex-1 overflow-auto">
+          <TabsContent value="overview" className="h-full m-0 p-6">
+            <AnalysisDashboard botId={botId} />
+          </TabsContent>
           <TabsContent value="leads" className="h-full m-0 p-6">
             <LeadsTab botId={botId} />
           </TabsContent>
@@ -115,9 +119,6 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
           </TabsContent>
           <TabsContent value="customers" className="h-full m-0 p-6">
             <CustomersTab botId={botId} />
-          </TabsContent>
-          <TabsContent value="analytics" className="h-full m-0 p-6">
-            <AnalyticsTab botId={botId} />
           </TabsContent>
         </div>
       </Tabs>
