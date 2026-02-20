@@ -4168,7 +4168,7 @@ app.put('/api/owner/bots/:botId/token', ensureDatabasesInitialized as any, requi
       return ownerError(res, 500, 'misconfigured', 'Encryption key is not configured');
     }
 
-    const { encryptToken } = await import('./utils/encryption');
+    const { encryptToken, decryptToken } = await import('./utils/encryption');
     const encryptedToken = encryptToken(body.token, encryptionKey);
 
     // Update bot token
@@ -4182,8 +4182,73 @@ app.put('/api/owner/bots/:botId/token', ensureDatabasesInitialized as any, requi
       client.release();
     }
 
-    logger.info({ userId, botId, requestId }, 'Bot token updated via owner-web');
-    res.json({ ok: true, message: 'Token updated successfully' });
+    // Setup webhook after token update
+    const { setBotWebhookSecret, updateWebhookStatus } = await import('./db/bots');
+    const { setWebhook } = await import('./services/telegram-webhook');
+    
+    // Get or generate webhook secret
+    let webhookSecret: string | undefined = bot.webhook_secret || undefined;
+    if (!webhookSecret) {
+      const crypto = await import('crypto');
+      const generatedSecret = crypto.randomBytes(32).toString('hex');
+      const updated = await setBotWebhookSecret(botId, userId, generatedSecret);
+      if (!updated) {
+        logger.warn({ requestId, botId, userId }, 'Failed to set webhook secret');
+      } else {
+        webhookSecret = generatedSecret;
+      }
+    }
+
+    // Setup webhook URL
+    const routerUrl = process.env.ROUTER_URL || process.env.WEBHOOK_URL || 'http://localhost:3001';
+    const webhookUrl = `${routerUrl}/webhook/${botId}`;
+
+    logger.info({ requestId, botId, userId, webhookUrl }, 'Setting up webhook after token update');
+
+    try {
+      const webhookResult = await setWebhook(
+        body.token, // Use plain token for Telegram API
+        webhookUrl,
+        webhookSecret,
+        ['message', 'callback_query']
+      );
+
+      if (webhookResult.ok) {
+        await updateWebhookStatus(botId, userId, true);
+        logger.info({ requestId, botId, userId, webhookUrl }, 'Webhook set successfully after token update');
+        res.json({ 
+          ok: true, 
+          message: 'Токен обновлен и webhook настроен',
+          webhookUrl,
+        });
+      } else {
+        logger.warn({ 
+          requestId, 
+          botId, 
+          userId, 
+          error: webhookResult.description 
+        }, 'Failed to set webhook after token update');
+        // Still return success for token update, but warn about webhook
+        res.json({ 
+          ok: true, 
+          message: 'Токен обновлен, но не удалось настроить webhook',
+          warning: webhookResult.description || 'Failed to set webhook',
+        });
+      }
+    } catch (webhookError) {
+      logger.error({ 
+        requestId, 
+        botId, 
+        userId, 
+        error: webhookError 
+      }, 'Error setting webhook after token update');
+      // Still return success for token update, but warn about webhook
+      res.json({ 
+        ok: true, 
+        message: 'Токен обновлен, но произошла ошибка при настройке webhook',
+        warning: webhookError instanceof Error ? webhookError.message : String(webhookError),
+      });
+    }
   } catch (error) {
     logger.error({ requestId, userId, botId, error }, 'Failed to update bot token');
     return ownerError(res, 500, 'update_failed', 'Failed to update token', { error: error instanceof Error ? error.message : String(error) });
