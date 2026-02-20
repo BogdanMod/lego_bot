@@ -143,7 +143,7 @@ export default function StatusPage() {
         <div className="pt-4 text-center">
           <button
             onClick={() => {
-              const supportUrl = 'https://t.me/your_support_bot';
+              const supportUrl = 'https://t.me/ZER_CON';
               const webApp = window.Telegram?.WebApp as any;
               if (webApp?.openLink && typeof webApp.openLink === 'function') {
                 webApp.openLink(supportUrl);
