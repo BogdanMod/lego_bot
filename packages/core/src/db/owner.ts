@@ -702,6 +702,7 @@ export async function getBotTodayMetrics(botId: string): Promise<{
   paidOrdersToday: number;
   revenueToday: number;
   conversionRate: number;
+  activeUsers24h: number;
 }> {
   const client = await getPostgresClient();
   try {
@@ -738,6 +739,16 @@ export async function getBotTodayMetrics(botId: string): Promise<{
     const paidOrdersToday = Number(ordersResult.rows[0]?.count ?? 0);
     const revenueToday = Number(ordersResult.rows[0]?.revenue ?? 0);
 
+    // Count active users in last 24 hours (unique users who interacted with bot)
+    const usersResult = await client.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT telegram_user_id)::text as count
+       FROM bot_users
+       WHERE bot_id = $1
+         AND last_interaction_at >= now() - interval '24 hours'`,
+      [botId]
+    );
+    const activeUsers24h = Number(usersResult.rows[0]?.count ?? 0);
+
     // Calculate conversion rate
     const conversionRate = newLeadsToday > 0 
       ? Math.round((paidOrdersToday / newLeadsToday) * 100) 
@@ -748,6 +759,7 @@ export async function getBotTodayMetrics(botId: string): Promise<{
       paidOrdersToday,
       revenueToday,
       conversionRate,
+      activeUsers24h,
     };
   } finally {
     client.release();

@@ -61,6 +61,7 @@ export function LeadsTab({ botId }: LeadsTabProps) {
     paidOrdersToday: 0,
     revenueToday: 0,
     conversionRate: 0,
+    activeUsers24h: 0,
   };
 
   const leads = leadsData?.items || [];
@@ -96,8 +97,8 @@ export function LeadsTab({ botId }: LeadsTabProps) {
   if (isLeadsLoading || isSummaryLoading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
+        <div className="grid grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-24 w-full" />
           ))}
         </div>
@@ -117,11 +118,17 @@ export function LeadsTab({ botId }: LeadsTabProps) {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
       {/* Main content */}
-      <div className={`flex-1 ${selectedLeadId ? 'mr-96' : ''} transition-all`}>
+      <div className={`flex-1 ${selectedLeadId ? 'pr-96' : ''} transition-all`}>
         {/* Metrics Panel */}
-        <div className="mb-6 grid grid-cols-4 gap-4">
+        <div className="mb-6 grid grid-cols-5 gap-4">
+          <div className="space-y-1">
+            <div className="text-xs text-slate-500 dark:text-slate-400">Активных пользователей (24ч)</div>
+            <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+              {metrics.activeUsers24h}
+            </div>
+          </div>
           <div className="space-y-1">
             <div className="text-xs text-slate-500 dark:text-slate-400">Новые заявки сегодня</div>
             <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
@@ -196,7 +203,7 @@ export function LeadsTab({ botId }: LeadsTabProps) {
 
       {/* Right Panel - Lead Details */}
       {selectedLeadId && (
-        <div className="fixed right-0 top-0 bottom-0 w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-6 overflow-y-auto">
+        <div className="absolute right-0 top-0 bottom-0 w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-6 overflow-y-auto z-10 shadow-lg">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
               Детали заявки
