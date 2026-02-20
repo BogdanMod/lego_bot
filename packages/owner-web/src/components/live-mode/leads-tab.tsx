@@ -39,6 +39,8 @@ export function LeadsTab({ botId }: LeadsTabProps) {
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}/leads?limit=100`),
   });
 
+  const leads = leadsData?.items || [];
+
   // Get selected lead from the list
   const selectedLead = leads.find((lead: Lead) => lead.id === selectedLeadId);
 
@@ -63,8 +65,6 @@ export function LeadsTab({ botId }: LeadsTabProps) {
     conversionRate: 0,
     activeUsers24h: 0,
   };
-
-  const leads = leadsData?.items || [];
 
   const getStatusLabel = (status?: string) => {
     switch (status) {
