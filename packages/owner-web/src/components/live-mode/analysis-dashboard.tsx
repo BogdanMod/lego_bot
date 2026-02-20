@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ownerFetch } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useRouter } from 'next/navigation';
 
 interface AnalysisDashboardProps {
   botId: string;
@@ -14,10 +15,40 @@ type Range = 'today' | '7d';
 
 export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
   const [range, setRange] = useState<Range>('today');
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
+  // Fetch bot status
+  const { data: botData } = useQuery({
+    queryKey: ['bot', botId],
+    queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
+    enabled: !!botId,
+  });
+
+  const botStatus = botData?.status || {
+    isActive: false,
+    webhookSet: false,
+    hasToken: false,
+    lastEventAt: null,
+    hasRecentActivity: false,
+  };
+
+  // Fetch analytics
   const { data, isLoading, error } = useQuery({
     queryKey: ['analytics-dashboard', botId, range],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}/analytics?range=${range}`),
+  });
+
+  // Activate bot mutation
+  const activateBotMutation = useMutation({
+    mutationFn: async () => {
+      const { ownerActivateBot } = await import('@/lib/api');
+      return ownerActivateBot(botId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bot', botId] });
+      queryClient.invalidateQueries({ queryKey: ['analytics-dashboard', botId] });
+    },
   });
 
   if (isLoading) {
@@ -97,8 +128,88 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
   const hasData = summaryToday.leadsCount > 0 || summaryToday.ordersCount > 0 || 
                   summary7d.leadsCount > 0 || summary7d.ordersCount > 0;
 
+  // Determine bot status for display
+  const getBotStatusInfo = () => {
+    if (!botStatus.hasToken) {
+      return {
+        type: 'no-token' as const,
+        title: 'Бот не опубликован',
+        message: 'Добавьте токен бота в настройках, чтобы начать получать заявки.',
+        action: {
+          label: 'Перейти к настройкам',
+          onClick: () => router.push(`/cabinet/${botId}/settings?mode=edit`),
+        },
+      };
+    }
+
+    if (!botStatus.webhookSet) {
+      return {
+        type: 'no-webhook' as const,
+        title: 'Webhook не настроен',
+        message: 'Webhook не установлен. Бот не получает события.',
+        action: null,
+      };
+    }
+
+    if (!botStatus.isActive) {
+      return {
+        type: 'inactive' as const,
+        title: 'Бот сейчас остановлен',
+        message: 'Запустите бота, чтобы получать заявки и видеть статистику.',
+        action: {
+          label: 'Запустить бота',
+          onClick: () => activateBotMutation.mutate(),
+        },
+      };
+    }
+
+    if (!botStatus.hasRecentActivity) {
+      return {
+        type: 'no-activity' as const,
+        title: 'Бот запущен, но пока нет данных',
+        message: 'Бот активен, но за последние 24 часа не было активности.',
+        action: null,
+      };
+    }
+
+    return null;
+  };
+
+  const statusInfo = getBotStatusInfo();
+
   return (
     <div className="space-y-8">
+      {/* Status Warning */}
+      {statusInfo && (
+        <div className={`p-4 border rounded-lg ${
+          statusInfo.type === 'inactive' 
+            ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+            : statusInfo.type === 'no-webhook'
+            ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+        }`}>
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">
+                {statusInfo.title}
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                {statusInfo.message}
+              </p>
+            </div>
+            {statusInfo.action && (
+              <button
+                onClick={statusInfo.action.onClick}
+                disabled={activateBotMutation.isPending}
+                className="ml-4 px-4 py-2 text-sm font-medium rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors disabled:opacity-50"
+              >
+                {activateBotMutation.isPending ? 'Запуск...' : statusInfo.action.label}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Range Selector */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Обзор</h2>

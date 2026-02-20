@@ -910,6 +910,66 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
   }
 }
 
+export async function getBotRealStatus(botId: string): Promise<{
+  isActive: boolean;
+  webhookSet: boolean;
+  hasToken: boolean;
+  lastEventAt: string | null;
+  hasRecentActivity: boolean;
+}> {
+  const client = await getPostgresClient();
+  try {
+    // Get bot basic info
+    const botResult = await client.query<{
+      is_active: boolean;
+      webhook_set: boolean;
+      token: string | null;
+    }>(
+      `SELECT is_active, webhook_set, token
+       FROM bots
+       WHERE id = $1`,
+      [botId]
+    );
+
+    if (botResult.rows.length === 0) {
+      return {
+        isActive: false,
+        webhookSet: false,
+        hasToken: false,
+        lastEventAt: null,
+        hasRecentActivity: false,
+      };
+    }
+
+    const bot = botResult.rows[0];
+    const isActive = bot.is_active;
+    const webhookSet = bot.webhook_set;
+    const hasToken = !!bot.token;
+
+    // Check last event (activity in last 24 hours)
+    const lastEventResult = await client.query<{ last_event_at: string | null }>(
+      `SELECT MAX(created_at)::text as last_event_at
+       FROM bot_events
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '24 hours'`,
+      [botId]
+    );
+
+    const lastEventAt = lastEventResult.rows[0]?.last_event_at || null;
+    const hasRecentActivity = lastEventAt !== null;
+
+    return {
+      isActive,
+      webhookSet,
+      hasToken,
+      lastEventAt,
+      hasRecentActivity,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getCustomer(botId: string, customerId: string): Promise<Record<string, unknown> | null> {
   const client = await getPostgresClient();
   try {

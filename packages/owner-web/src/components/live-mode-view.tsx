@@ -7,13 +7,12 @@ import { ownerFetch } from '@/lib/api';
 import { LeadsTab } from './live-mode/leads-tab';
 import { CustomersTab } from './live-mode/customers-tab';
 import { OrdersTab } from './live-mode/orders-tab';
-import { AnalyticsTab } from './live-mode/analytics-tab';
 import { AnalysisDashboard } from './live-mode/analysis-dashboard';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Users, ShoppingCart, TrendingUp, FileText, Settings, LayoutDashboard } from 'lucide-react';
+import { Users, ShoppingCart, FileText, Settings, LayoutDashboard } from 'lucide-react';
 import { EmptyState } from '@/components/ui/empty-state';
 
-type LiveTab = 'overview' | 'leads' | 'customers' | 'orders' | 'analytics';
+type LiveTab = 'overview' | 'leads' | 'customers' | 'orders';
 
 interface LiveModeViewProps {
   botId: string;
@@ -27,7 +26,7 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
   // Get initial tab from URL, default to 'overview'
   useEffect(() => {
     const tab = searchParams?.get('tab') as LiveTab | null;
-    if (tab && ['overview', 'leads', 'customers', 'orders', 'analytics'].includes(tab)) {
+    if (tab && ['overview', 'leads', 'customers', 'orders'].includes(tab)) {
       setActiveTab(tab);
     } else {
       // Default to 'overview' if no tab specified
@@ -45,7 +44,13 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
     enabled: !!botId,
   });
 
-  const isBotActive = botData?.hasToken || false;
+  const botStatus = botData?.status || {
+    isActive: false,
+    webhookSet: false,
+    hasToken: false,
+    lastEventAt: null,
+    hasRecentActivity: false,
+  };
 
   // Update URL when tab changes
   const handleTabChange = (tab: LiveTab) => {
@@ -53,23 +58,6 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
     const newUrl = `/cabinet/${botId}?mode=manage&tab=${tab}`;
     router.replace(newUrl);
   };
-
-  // Show "Bot not active" message if bot is not published
-  if (!botLoading && !isBotActive) {
-    return (
-      <div className="flex items-center justify-center h-full p-6">
-        <EmptyState
-          title="Бот не запущен"
-          description="Запустите бота, чтобы получать заявки и работать с клиентами."
-          icon={<Settings className="w-16 h-16 text-slate-400 dark:text-slate-600" />}
-          action={{
-            label: 'Перейти к настройке',
-            onClick: () => router.push(`/cabinet/${botId}/settings?mode=edit`),
-          }}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">

@@ -35,6 +35,7 @@ import {
   getEventsSummary,
   getBotTodayMetrics,
   getBotAnalyticsDashboard,
+  getBotRealStatus,
   getOrder,
   getOwnerAccessibleBots,
   insertOwnerAudit,
@@ -3654,12 +3655,19 @@ app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwne
   const botId = req.params.botId;
   const owner = (req as any).owner as any;
   const userId = owner.sub as number;
-  const bot = await getBotById(botId, userId);
+  // Use getBotByIdAnyUser to get bot even if inactive
+  const bot = await getBotByIdAnyUser(botId);
   if (!bot) {
     return ownerError(res, 404, 'not_found', 'Bot not found');
   }
+  // Check ownership through bot_admins
+  const role = await getBotRoleForUser(botId, userId);
+  if (!role) {
+    return ownerError(res, 403, 'forbidden', 'No access to this bot');
+  }
   const settings = await getBotSettings(botId);
   const team = await listBotTeam(botId);
+  const realStatus = await getBotRealStatus(botId);
   res.json({ 
     botId, 
     name: bot.name,
@@ -3667,10 +3675,13 @@ app.get('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwne
     bot: {
       // Don't expose token, only indicate if it exists
       hasToken: !!bot.token,
+      isActive: bot.is_active,
+      webhookSet: bot.webhook_set,
     },
+    status: realStatus,
     settings, 
     team, 
-    role: (req as any).ownerRole 
+    role 
   });
 });
 
@@ -3886,6 +3897,7 @@ app.post('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth 
 const OwnerUpdateBotSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   inputs: z.record(z.unknown()).optional(),
+  isActive: z.boolean().optional(),
 });
 
 app.patch('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerUpdateBotSchema) as any, async (req: Request, res: Response) => {
@@ -3896,22 +3908,45 @@ app.patch('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireOw
   const body = req.body as z.infer<typeof OwnerUpdateBotSchema>;
 
   try {
-    const bot = await getBotById(botId, userId);
+    // Use getBotByIdAnyUser to get bot even if inactive
+    const bot = await getBotByIdAnyUser(botId);
     if (!bot) {
       return ownerError(res, 404, 'not_found', 'Bot not found');
     }
+    // Check ownership through bot_admins
+    const role = await getBotRoleForUser(botId, userId);
+    if (!role) {
+      return ownerError(res, 403, 'forbidden', 'No access to this bot');
+    }
 
-    // Update name if provided
-    if (body.name) {
-      const client = await getPostgresClient();
-      try {
+    const client = await getPostgresClient();
+    try {
+      // Update name if provided
+      if (body.name) {
         await client.query(
-          `UPDATE bots SET name = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
-          [body.name, botId, userId]
+          `UPDATE bots SET name = $1, updated_at = NOW() WHERE id = $2`,
+          [body.name, botId]
         );
-      } finally {
-        client.release();
       }
+
+      // Update is_active if provided
+      if (body.isActive !== undefined) {
+        await client.query(
+          `UPDATE bots SET is_active = $1, updated_at = NOW() WHERE id = $2`,
+          [body.isActive, botId]
+        );
+        await insertOwnerAudit({
+          botId,
+          actorTelegramUserId: userId,
+          entity: 'bots',
+          entityId: botId,
+          action: body.isActive ? 'activate' : 'deactivate',
+          afterJson: { isActive: body.isActive },
+          requestId: getRequestId() ?? null,
+        });
+      }
+    } finally {
+      client.release();
     }
 
     // Update schema with new inputs if provided

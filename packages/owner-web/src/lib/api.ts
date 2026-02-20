@@ -232,6 +232,17 @@ export async function ownerDeactivateBot(botId: string) {
   );
 }
 
+export async function ownerActivateBot(botId: string) {
+  await ensureCsrfToken();
+  return ownerFetch<{ ok: boolean }>(
+    `/api/owner/bots/${botId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: true }),
+    }
+  );
+}
+
 // Templates API
 export interface TemplateMetadata {
   id: string;
