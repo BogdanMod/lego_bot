@@ -47,17 +47,21 @@ export function CabinetLayout({ children }: { children: ReactNode }) {
   useSSEStream(currentBotId); // v2: SSE realtime updates
 
   useEffect(() => {
-    if (!isLoading && (isError || !data)) {
-      // Log error details for debugging
-      if (isError) {
-        const error = (data as any)?.error || (data as any);
+    // Only redirect to login on actual auth failures (401, 403, CSRF errors)
+    // Don't redirect if user is authenticated but just has no bots or is refreshing data
+    if (!isLoading && isError) {
+      const error = (data as any)?.error || (data as any);
+      const errorCode = error?.code;
+      
+      // Only redirect on actual auth failures, not on empty bot lists or temporary errors
+      if (errorCode === 'unauthorized' || errorCode === 'forbidden' || errorCode === 'csrf_failed' || errorCode === 'csrf_token_mismatch') {
         console.error('[OwnerAuth] Auth check failed:', {
-          code: error?.code,
+          code: errorCode,
           message: error?.message,
           request_id: error?.request_id,
         });
+        router.replace('/login');
       }
-      router.replace('/login');
     }
   }, [isError, isLoading, data, router]);
 
