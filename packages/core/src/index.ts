@@ -33,6 +33,7 @@ import {
   getCustomer,
   getCustomerTimeline,
   getEventsSummary,
+  getBotTodayMetrics,
   getOrder,
   getOwnerAccessibleBots,
   insertOwnerAudit,
@@ -4498,6 +4499,28 @@ app.patch('/api/owner/bots/:botId/orders/:id', ensureDatabasesInitialized as any
   const updated = await patchOrder(req.params.botId, req.params.id, req.body as any);
   if (!updated) return ownerError(res, 404, 'not_found', 'Заказ не найден');
   res.json(updated);
+});
+
+// GET /api/owner/bots/:botId/summary - метрики за сегодня для финансовой панели
+app.get('/api/owner/bots/:botId/summary', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  try {
+    const metrics = await getBotTodayMetrics(req.params.botId);
+    const summary = await getEventsSummary(req.params.botId);
+    res.json({
+      metrics,
+      kpi: {
+        newLeads7d: 0, // TODO: calculate if needed
+        orders7d: 0,
+        revenue30d: 0,
+        conversion: metrics.conversionRate,
+      },
+      eventsSummary: summary,
+    });
+  } catch (error) {
+    logger.error({ requestId, botId: req.params.botId, error }, 'Failed to get bot summary');
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.get('/api/owner/bots/:botId/leads', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerLeadsQuerySchema) as any, async (req: Request, res: Response) => {

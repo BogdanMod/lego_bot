@@ -23,13 +23,19 @@ export function LiveModeView({ botId }: LiveModeViewProps) {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<LiveTab>('leads');
 
-  // Get initial tab from URL
+  // Get initial tab from URL, default to 'leads'
   useEffect(() => {
     const tab = searchParams?.get('tab') as LiveTab | null;
     if (tab && ['leads', 'customers', 'orders', 'analytics'].includes(tab)) {
       setActiveTab(tab);
+    } else {
+      // Default to 'leads' if no tab specified
+      setActiveTab('leads');
+      if (!tab) {
+        router.replace(`/cabinet/${botId}?mode=manage&tab=leads`);
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, botId, router]);
 
   // Fetch bot data to check if it's active
   const { data: botData, isLoading: botLoading } = useQuery({

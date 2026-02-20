@@ -697,6 +697,63 @@ export function listLeads(params: {
   return listEntityTable('leads', params, ['id', 'title', 'message', 'payload_json', 'status']);
 }
 
+export async function getBotTodayMetrics(botId: string): Promise<{
+  newLeadsToday: number;
+  paidOrdersToday: number;
+  revenueToday: number;
+  conversionRate: number;
+}> {
+  const client = await getPostgresClient();
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartISO = todayStart.toISOString();
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayEndISO = todayEnd.toISOString();
+
+    // Count new leads today
+    const leadsResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM leads
+       WHERE bot_id = $1
+         AND created_at >= $2
+         AND created_at <= $3`,
+      [botId, todayStartISO, todayEndISO]
+    );
+    const newLeadsToday = Number(leadsResult.rows[0]?.count ?? 0);
+
+    // Count paid orders today and calculate revenue
+    const ordersResult = await client.query<{ count: string; revenue: string }>(
+      `SELECT 
+         COUNT(*)::text as count,
+         COALESCE(SUM((payload_json->>'amount')::numeric), 0)::text as revenue
+       FROM orders
+       WHERE bot_id = $1
+         AND status = 'paid'
+         AND created_at >= $2
+         AND created_at <= $3`,
+      [botId, todayStartISO, todayEndISO]
+    );
+    const paidOrdersToday = Number(ordersResult.rows[0]?.count ?? 0);
+    const revenueToday = Number(ordersResult.rows[0]?.revenue ?? 0);
+
+    // Calculate conversion rate
+    const conversionRate = newLeadsToday > 0 
+      ? Math.round((paidOrdersToday / newLeadsToday) * 100) 
+      : 0;
+
+    return {
+      newLeadsToday,
+      paidOrdersToday,
+      revenueToday,
+      conversionRate,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getCustomer(botId: string, customerId: string): Promise<Record<string, unknown> | null> {
   const client = await getPostgresClient();
   try {
