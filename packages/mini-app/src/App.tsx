@@ -9,7 +9,7 @@ import Analytics from './pages/Analytics';
 import Broadcasts from './pages/Broadcasts';
 import PublishPage from './pages/PublishPage';
 import AdminPanel from './pages/AdminPanel';
-import SubscriptionPage from './pages/SubscriptionPage';
+import StatusPage from './pages/StatusPage';
 import BotsPage from './pages/BotsPage';
 import TelegramOnly from './components/TelegramOnly';
 import { LegacyRedirect } from './components/LegacyRedirect';
@@ -163,8 +163,9 @@ function App() {
           }}
         />
         <Routes>
-          <Route path="/" element={<Navigate to="/subscription" replace />} />
-          <Route path="/subscription" element={<SubscriptionPage />} />
+          <Route path="/" element={<Navigate to="/status" replace />} />
+          <Route path="/status" element={<StatusPage />} />
+          <Route path="/subscription" element={<Navigate to="/status" replace />} />
           <Route path="/bots" element={<BotsPage />} />
           
           {/* Legacy routes - redirect with banner */}

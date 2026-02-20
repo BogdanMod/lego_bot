@@ -62,8 +62,18 @@ export default function BotsPage() {
   const bots = data?.bots;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20">
-      <div className="max-w-md mx-auto px-4 py-8 space-y-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      <div className="max-w-md mx-auto px-4 py-8 space-y-6 pb-20">
+        {/* Brand */}
+        <div className="text-center space-y-0.5">
+          <div className="text-xs font-medium text-slate-400 dark:text-slate-500 tracking-wider">
+            Zer | Con
+          </div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">
+            Zero Context System
+          </div>
+        </div>
+
         {/* Header */}
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
@@ -73,7 +83,7 @@ export default function BotsPage() {
 
         {/* Bots List */}
         {!bots?.items || bots.items.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-center">
+          <div className="text-center py-12">
             <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
               Нет ботов
             </div>
@@ -88,11 +98,11 @@ export default function BotsPage() {
             </button>
           </div>
         ) : (
-          <div className="space-y-2">
-            {bots.items.map((bot: { id: string; name: string; username?: string; isActive: boolean }) => (
+          <div className="space-y-1">
+            {bots.items.map((bot: { id: string; name: string; isActive: boolean }) => (
               <div
                 key={bot.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4"
+                className="py-3 border-b border-slate-200 dark:border-slate-800 last:border-0"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
