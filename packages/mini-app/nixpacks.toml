@@ -1,0 +1,18 @@
+# Railway Nixpacks configuration for mini-app service
+# Railway sets root to packages/mini-app, so we need to go up to monorepo root
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "pnpm"]
+
+[phases.install]
+cmds = [
+  "cd ../.. && pnpm install --frozen-lockfile --prefer-offline"
+]
+
+[phases.build]
+cmds = [
+  "cd ../.. && pnpm --filter @dialogue-constructor/mini-app build"
+]
+
+[start]
+cmd = "cd ../.. && pnpm --filter @dialogue-constructor/mini-app start"
+

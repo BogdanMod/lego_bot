@@ -1,0 +1,20 @@
+# Railway Nixpacks configuration for monorepo optimization
+# This file helps Railway optimize builds by caching dependencies
+# Railway will use this for services that don't have their own nixpacks.toml
+
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "pnpm"]
+
+[phases.install]
+cmds = [
+  "pnpm install --frozen-lockfile --prefer-offline"
+]
+
+[phases.build]
+cmds = [
+  "pnpm run build"
+]
+
+[start]
+cmd = "node scripts/railway-start.js"
+

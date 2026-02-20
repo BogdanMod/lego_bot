@@ -12,3 +12,6 @@ README*.md
 .idea
 packages/*/node_modules
 packages/*/dist
+# Keep these for Railway builds
+!packages/*/nixpacks.toml
+!.github
