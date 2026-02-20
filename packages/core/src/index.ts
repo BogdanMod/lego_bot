@@ -3987,23 +3987,23 @@ app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireO
     }
 
     logger.info({
-      action: 'bot_deactivate',
+      action: 'bot_delete',
       requestId,
       actorUserId,
       botId,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
-    }, 'Bot deactivated');
+    }, 'Bot deleted');
 
-    return res.json({ success: true, message: 'Бот деактивирован' });
+    return res.json({ success: true, message: 'Бот удален' });
   } catch (error) {
     logger.error({
-      action: 'bot_deactivate_failed',
+      action: 'bot_delete_failed',
       requestId,
       actorUserId,
       botId,
       error,
-    }, 'Failed to deactivate bot');
+    }, 'Failed to delete bot');
     
     return res.status(500).json({
       error: 'Internal server error',
