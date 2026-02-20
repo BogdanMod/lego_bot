@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerSummary, ownerBots, ownerDeactivateBot, ownerActivateBot, ownerFetch, type ApiError } from '@/lib/api';
-import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // Force dynamic rendering
