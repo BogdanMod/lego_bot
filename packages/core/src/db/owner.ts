@@ -968,6 +968,7 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       `SELECT 
          id::text as id,
          bot_id::text as "botId",
+         customer_id::text as "customerId",
          status,
          title,
          message,
@@ -981,11 +982,12 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       [botId]
     );
 
-    // Latest appointments (last 20) with customer name
+    // Latest appointments (last 20) with customer name and id
     const latestAppointmentsResult = await client.query(
       `SELECT 
          a.id::text as id,
          a.bot_id::text as "botId",
+         a.customer_id::text as "customerId",
          a.status,
          a.starts_at::text as "startsAt",
          a.ends_at::text as "endsAt",

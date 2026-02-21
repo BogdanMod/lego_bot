@@ -445,6 +445,72 @@ app.post('/internal/test-webhook', async (req: Request, res: Response) => {
     return res.status(200).json({ success: false, status: null, response: null, error: message });
   }
 });
+
+// Internal: send message to customer (owner reply via bot). Called by Core.
+app.post('/internal/owner/send-customer-message', async (req: Request, res: Response) => {
+  const requestId = (req as any).id;
+  const internalSecret = process.env.ROUTER_INTERNAL_SECRET;
+  if (internalSecret) {
+    const provided = Array.isArray(req.headers['x-internal-secret'])
+      ? req.headers['x-internal-secret'][0]
+      : req.headers['x-internal-secret'];
+    if (!provided || provided !== internalSecret) {
+      logger.warn({ requestId }, 'Unauthorized internal send-customer-message');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+  const { botId, telegramUserId, text, customerId } = req.body ?? {};
+  if (!botId || typeof botId !== 'string' || !telegramUserId || typeof text !== 'string' || text.trim() === '') {
+    return res.status(400).json({ error: 'Invalid body: botId, telegramUserId, text required' });
+  }
+  const chatId = Number(telegramUserId);
+  if (!Number.isFinite(chatId)) {
+    return res.status(400).json({ error: 'Invalid telegramUserId' });
+  }
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    logger.warn({ requestId, botId }, 'ENCRYPTION_KEY not set');
+    return res.status(500).json({ error: 'Server misconfigured' });
+  }
+  const bot = await getBotById(botId);
+  if (!bot || !bot.token) {
+    return res.status(404).json({ error: 'Bot not found' });
+  }
+  let botToken: string;
+  try {
+    botToken = decryptToken(bot.token, encryptionKey);
+  } catch (err) {
+    logger.warn({ requestId, botId, error: err instanceof Error ? err.message : String(err) }, 'Failed to decrypt bot token');
+    return res.status(500).json({ error: 'Failed to get bot token' });
+  }
+  const childLog = createChildLogger(logger, { requestId, botId, chatId });
+  try {
+    await sendTelegramMessage(childLog, botToken, chatId, text.trim(), 'HTML');
+  } catch (sendErr) {
+    const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    logger.warn({ requestId, botId, chatId, error: msg }, 'Send customer message failed');
+    return res.status(502).json({ error: 'Failed to send Telegram message', message: msg });
+  }
+  if (customerId && typeof customerId === 'string') {
+    try {
+      const client = await getPostgresClient();
+      try {
+        const textPreview = text.trim().length > 80 ? text.trim().slice(0, 80) + '…' : text.trim();
+        await client.query(
+          `INSERT INTO bot_events (bot_id, type, entity_type, entity_id, status, priority, payload_json, created_at, updated_at)
+           VALUES ($1, 'owner_message_sent', 'customer', $2::uuid, 'new', 'normal', $3::jsonb, now(), now())`,
+          [botId, customerId, JSON.stringify({ to_customer_id: customerId, telegram_user_id: chatId, text_preview: textPreview })]
+        );
+      } finally {
+        client.release();
+      }
+    } catch (insertErr) {
+      logger.warn({ requestId, botId, customerId, error: insertErr }, 'Failed to log owner_message_sent');
+    }
+  }
+  return res.json({ ok: true });
+});
+
 // Webhook endpoint
 app.post('/webhook/:botId',
   webhookGlobalLimiterMiddleware,

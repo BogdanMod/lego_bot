@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ownerFetch } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
 interface AnalysisDashboardProps {
@@ -15,6 +17,9 @@ type Range = 'today' | '7d';
 
 export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
   const [range, setRange] = useState<Range>('today');
+  const [replyModal, setReplyModal] = useState<{ open: boolean; customerId: string | null }>({ open: false, customerId: null });
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -364,10 +369,11 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
               Записи
             </h3>
             {(() => {
-              type Row = { id: string; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string };
+              type Row = { id: string; customerId: string | null; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string };
               const rows: Row[] = [
                 ...latestAppointments.map((a: any) => ({
                   id: a.id,
+                  customerId: a.customerId ?? null,
                   createdAt: a.createdAt,
                   type: 'appointment' as const,
                   customerName: a.customerName ?? null,
@@ -376,6 +382,7 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                 })),
                 ...latestLeads.map((l: any) => ({
                   id: l.id,
+                  customerId: l.customerId ?? null,
                   createdAt: l.createdAt,
                   type: 'lead' as const,
                   customerName: null,
@@ -410,8 +417,11 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                           <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Детали
                           </th>
-                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Статус
+                          </th>
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
+                            Действия
                           </th>
                         </tr>
                       </thead>
@@ -433,8 +443,21 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                             <td className="px-4 py-3 text-sm text-fg border-r border-border">
                               {row.details}
                             </td>
-                            <td className="px-4 py-3 text-sm text-muted-foreground">
+                            <td className="px-4 py-3 text-sm text-muted-foreground border-r border-border">
                               {getStatusLabel(row.status)}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              {row.customerId ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => { setReplyModal({ open: true, customerId: row.customerId }); setReplyText(''); }}
+                                >
+                                  Ответить
+                                </Button>
+                              ) : (
+                                '—'
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -445,6 +468,58 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
               );
             })()}
           </div>
+
+          {/* Модал «Ответить клиенту» */}
+          {replyModal.open && replyModal.customerId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => !replySending && setReplyModal({ open: false, customerId: null })}>
+              <div className="bg-card border border-border rounded-xl shadow-lg p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-semibold text-fg mb-3">Ответить клиенту</h3>
+                <textarea
+                  className="w-full min-h-[80px] max-h-[120px] px-3 py-2 text-sm border border-border rounded-lg bg-bg text-fg placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Введите сообщение..."
+                  rows={3}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  disabled={replySending}
+                />
+                <div className="flex gap-2 mt-4 justify-end">
+                  <Button variant="secondary" size="sm" onClick={() => !replySending && setReplyModal({ open: false, customerId: null })} disabled={replySending}>
+                    Отмена
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={replySending || !replyText.trim()}
+                    onClick={async () => {
+                      if (!replyModal.customerId || !replyText.trim()) return;
+                      setReplySending(true);
+                      try {
+                        await ownerFetch<{ ok: boolean }>(`/api/owner/bots/${botId}/customers/${replyModal.customerId}/message`, {
+                          method: 'POST',
+                          body: { text: replyText.trim() },
+                        });
+                        toast.success('Сообщение отправлено');
+                        setReplyModal({ open: false, customerId: null });
+                        setReplyText('');
+                      } catch (err: any) {
+                        const code = err?.code ?? '';
+                        const msg = err?.message ?? '';
+                        if (code === 'customer_no_telegram' || msg.includes('не доступен') || msg.includes('не оставил')) {
+                          toast.error('Нельзя написать: клиент не доступен в Telegram');
+                        } else {
+                          toast.error(msg || 'Не удалось отправить сообщение');
+                        }
+                      } finally {
+                        setReplySending(false);
+                      }
+                    }}
+                  >
+                    {replySending ? 'Отправка…' : 'Отправить'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Дополнительно: заказы (если есть) */}
           {latestOrders.length > 0 && (

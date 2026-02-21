@@ -58,11 +58,11 @@ export async function notifyOwnersOfNewLeadOrAppointment(
   }
 
   const text = buildMessageText(eventType, botName, payload);
-  const tab = eventType === 'lead' ? 'leads' : 'appointments';
-  const nextPaths = [
-    `/m?botId=${encodeURIComponent(botId)}&tab=${tab}`,
-    `/cabinet/${botId}/analytics`,
-  ];
+  const litePath = eventType === 'lead'
+    ? `/m?botId=${encodeURIComponent(botId)}&tab=leads`
+    : `/m?botId=${encodeURIComponent(botId)}&tab=appointments`;
+  const fullPath = `/cabinet/${botId}/analytics`;
+  const nextPaths = [litePath, fullPath];
 
   let byTelegramUserId: Record<string, string[]> = {};
   if (CORE_API_ORIGIN && INTERNAL_API_TOKEN) {
@@ -101,11 +101,13 @@ export async function notifyOwnersOfNewLeadOrAppointment(
     const chatId = Number(telegramUserIdStr);
     if (!Number.isFinite(chatId)) continue;
     if (hasButtons) {
-      const urls = byTelegramUserId[telegramUserIdStr];
-      if (urls && urls.length >= 2) {
-        // nextPaths в Core: [0]=Owner Lite (/m?botId=...&tab=...), [1]=полная версия (/cabinet/.../analytics).
-        const liteUrl = urls[0];
-        const fullUrl = urls[1];
+      const links = byTelegramUserId[telegramUserIdStr];
+      const [liteUrl, fullUrl] = links ?? [];
+      const hasValidLinks = links && links.length >= 2 && typeof liteUrl === 'string' && liteUrl.trim() !== '' && typeof fullUrl === 'string' && fullUrl.trim() !== '';
+      if (hasValidLinks) {
+        if (process.env.NODE_ENV !== 'production') {
+          logger.info({ litePath, fullPath, liteUrl, fullUrl }, 'owner notification links');
+        }
         const buttons = [
           { text: 'Открыть', url: liteUrl },
           { text: 'Открыть полную версию', url: fullUrl },

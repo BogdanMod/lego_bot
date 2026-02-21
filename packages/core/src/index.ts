@@ -2734,6 +2734,10 @@ const OwnerTeamInviteSchema = z.object({
   permissionsJson: z.record(z.any()).optional(),
 });
 
+const OwnerCustomerMessageSchema = z.object({
+  text: z.string().min(1).max(4096),
+});
+
 const OwnerBotSettingsPatchSchema = z.object({
   timezone: z.string().trim().min(1).max(80).optional(),
   businessName: z.string().trim().max(200).nullable().optional(),
@@ -4468,6 +4472,47 @@ app.patch('/api/owner/bots/:botId/customers/:customerId', ensureDatabasesInitial
 app.get('/api/owner/bots/:botId/customers/:customerId/timeline', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
   const items = await getCustomerTimeline(req.params.botId, req.params.customerId);
   res.json({ items });
+});
+
+app.post('/api/owner/bots/:botId/customers/:customerId/message', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, validateBody(OwnerCustomerMessageSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const { botId, customerId } = req.params;
+  const { text } = req.body as z.infer<typeof OwnerCustomerMessageSchema>;
+  const customer = await getCustomer(botId, customerId);
+  if (!customer) {
+    return ownerError(res, 404, 'not_found', 'Клиент не найден');
+  }
+  const telegramUserId = customer.telegram_user_id != null ? Number(customer.telegram_user_id) : null;
+  if (telegramUserId == null || !Number.isFinite(telegramUserId)) {
+    return ownerError(res, 400, 'customer_no_telegram', 'Нельзя написать: клиент не доступен в Telegram');
+  }
+  const routerInternalUrl = process.env.ROUTER_INTERNAL_URL;
+  if (!routerInternalUrl) {
+    logger.warn({ requestId }, 'ROUTER_INTERNAL_URL not set');
+    return ownerError(res, 500, 'misconfigured', 'Сервис отправки сообщений не настроен');
+  }
+  const targetUrl = `${routerInternalUrl.replace(/\/$/, '')}/internal/owner/send-customer-message`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.ROUTER_INTERNAL_SECRET) {
+    headers['x-internal-secret'] = process.env.ROUTER_INTERNAL_SECRET;
+  }
+  try {
+    const response = await axios.post(
+      targetUrl,
+      { botId, telegramUserId, text: text.trim(), customerId },
+      { headers, timeout: 15000, validateStatus: () => true }
+    );
+    if (response.status !== 200 || !(response.data?.ok === true)) {
+      const msg = response.data?.message ?? response.data?.error ?? `HTTP ${response.status}`;
+      logger.warn({ requestId, botId, customerId, status: response.status, data: response.data }, 'Router send-customer-message failed');
+      return ownerError(res, 502, 'send_failed', msg || 'Не удалось отправить сообщение');
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ requestId, botId, customerId, error: message }, 'Router send-customer-message error');
+    return ownerError(res, 502, 'send_failed', 'Не удалось отправить сообщение');
+  }
 });
 
 app.get('/api/owner/bots/:botId/appointments', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAppointmentsQuerySchema) as any, async (req: Request, res: Response) => {
