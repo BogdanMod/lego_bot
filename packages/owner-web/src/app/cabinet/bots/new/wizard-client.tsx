@@ -101,8 +101,8 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       toast.success('Бот создан');
-      toast.info('Подключите бота к Telegram: на обзоре нажмите «Вставить токен» и вставьте токен из BotFather', { duration: 6000 });
-      router.push(`/cabinet/${data.bot.botId}/overview`);
+      toast.info('Вверху страницы найдите блок «Подключите бота к Telegram» и нажмите «Вставить токен»', { duration: 8000 });
+      router.push(`/cabinet/${data.bot.botId}`);
     },
     onError: (error: ApiError) => {
       if (error?.code === 'bot_limit_reached') {

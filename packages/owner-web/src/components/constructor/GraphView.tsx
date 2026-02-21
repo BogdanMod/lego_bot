@@ -140,7 +140,7 @@ export function GraphView({
     setEdges(newEdges);
   }, [schema, setNodes, setEdges]);
 
-  // Highlight selected node (толстая синяя рамка + тень)
+  // Выделение выбранного узла: толстая синяя рамка + заливка, хорошо видно на белом фоне
   const nodesWithSelection = useMemo(() => {
     return nodes.map((node) => {
       const isSelected = node.id === selectedState;
@@ -150,11 +150,10 @@ export function GraphView({
         selected: isSelected,
         style: {
           ...node.style,
-          border: `2px solid ${
-            isSelected ? '#2563eb' : isInitial ? '#0f172a' : '#e2e8f0'
-          }`,
+          border: `3px solid ${isSelected ? '#1d4ed8' : isInitial ? '#0f172a' : '#e2e8f0'}`,
+          background: isSelected ? '#eff6ff' : node.style?.background,
           boxShadow: isSelected
-            ? '0 0 0 2px rgba(37, 99, 235, 0.3)'
+            ? '0 0 0 3px rgba(29, 78, 216, 0.35), 0 4px 12px rgba(0,0,0,0.12)'
             : isInitial
             ? '0 2px 8px rgba(15, 23, 42, 0.2)'
             : '0 1px 4px rgba(0, 0, 0, 0.08)',
