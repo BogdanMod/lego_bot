@@ -94,22 +94,22 @@ export function BotCard({ botId, name }: BotCardProps) {
       onClick={() => {
         router.push(`/cabinet/${botId}/analytics`);
       }}
-      className="group relative rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors cursor-pointer"
+      className="group relative rounded-2xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:border-primary/20 transition-all cursor-pointer"
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-            <Bot className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h3 className="font-medium text-zinc-900 dark:text-zinc-100">
+            <h3 className="font-medium text-fg">
               {name}
             </h3>
             <div className="flex items-center gap-2 mt-1">
               {isLoading ? (
                 <Skeleton className="h-4 w-16 rounded-lg" />
               ) : (
-                <span className={`text-xs ${status === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                <span className={`text-xs ${status === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
                   {status === 'active' ? 'Активен' : 'Остановлен'}
                 </span>
               )}
@@ -124,29 +124,29 @@ export function BotCard({ botId, name }: BotCardProps) {
           <Skeleton className="h-4 w-3/4 rounded-lg" />
         </div>
       ) : (
-        <div className="flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
           <span>{leadsCount} заявок</span>
           {ordersCount > 0 && <span>{ordersCount} заказов</span>}
         </div>
       )}
 
-      <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800 flex gap-2">
+      <div className="mt-4 pt-4 border-t border-border flex gap-2">
         <button
           onClick={(e) => { e.stopPropagation(); router.push(`/cabinet/${botId}/analytics`); }}
-          className="flex-1 px-3 py-2 text-sm font-medium rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+          className="flex-1 px-3 py-2 text-sm font-medium rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Аналитика
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); router.push(`/cabinet/${botId}/constructor`); }}
-          className="flex-1 px-3 py-2 text-sm font-medium rounded-xl text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          className="flex-1 px-3 py-2 text-sm font-medium rounded-xl text-fg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
         >
           Редактировать
         </button>
         <button
           onClick={handleDelete}
           disabled={deleteMutation.isPending}
-          className="px-3 py-2 text-sm font-medium rounded-xl text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
+          className="px-3 py-2 text-sm font-medium rounded-xl text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
           title="Удалить бота"
         >
           <Trash2 className="w-4 h-4" />

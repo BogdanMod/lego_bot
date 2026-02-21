@@ -282,56 +282,56 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
         <>
           {/* Чёткие метрики: не смешиваем leads и appointments */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
-              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+            <div className="p-5 border border-border rounded-xl bg-card shadow-sm">
+              <div className="text-sm font-medium text-muted-foreground mb-1">
                 Пользователей написало
               </div>
-              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+              <div className="text-3xl font-semibold text-fg tabular-nums">
                 {range === 'today' ? summaryToday.usersWroteCount : summary7d.usersWroteCount}
               </div>
-              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
             </div>
-            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
-              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+            <div className="p-5 border border-border border-l-4 border-l-primary rounded-xl bg-card shadow-sm">
+              <div className="text-sm font-medium text-muted-foreground mb-1">
                 Конверсия в контакт
               </div>
-              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+              <div className="text-3xl font-semibold text-fg tabular-nums">
                 {range === 'today'
                   ? (contactConversionPctToday != null ? `${contactConversionPctToday}%` : '—')
                   : (contactConversionPct7d != null ? `${contactConversionPct7d}%` : '—')}
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 Процент пользователей, которые оставили контакт
               </p>
             </div>
-            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
-              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+            <div className="p-5 border border-border rounded-xl bg-card shadow-sm">
+              <div className="text-sm font-medium text-muted-foreground mb-1">
                 Новых пользователей
               </div>
-              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+              <div className="text-3xl font-semibold text-fg tabular-nums">
                 {range === 'today' ? summaryToday.newUsersCount : summary7d.newUsersCount}
               </div>
-              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
             </div>
-            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
-              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+            <div className="p-5 border border-border rounded-xl bg-card shadow-sm">
+              <div className="text-sm font-medium text-muted-foreground mb-1">
                 Заявок (leads)
               </div>
-              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+              <div className="text-3xl font-semibold text-fg tabular-nums">
                 {leadsCount}
               </div>
-              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 Заявка — это когда человек поделился телефоном или оставил контакт.
               </p>
               {lastLeadAt ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Последний контакт:{' '}
                   {new Date(lastLeadAt)
                     .toLocaleString('ru-RU', {
@@ -345,14 +345,14 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                 </p>
               ) : null}
             </div>
-            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
-              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+            <div className="p-5 border border-border rounded-xl bg-card shadow-sm">
+              <div className="text-sm font-medium text-muted-foreground mb-1">
                 Записей (appointments)
               </div>
-              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+              <div className="text-3xl font-semibold text-fg tabular-nums">
                 {appointmentsCount}
               </div>
-              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
             </div>
@@ -360,7 +360,7 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
 
           {/* Таблица записей (стиль Google Sheets) */}
           <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <h3 className="text-lg font-semibold text-fg">
               Записи
             </h3>
             {(() => {
@@ -386,54 +386,54 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
 
               if (rows.length === 0) {
                 return (
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <div className="rounded-xl border border-border bg-card p-10 text-center text-sm text-muted-foreground">
                     Нет записей. Заявки и записи появятся здесь после действий пользователей в боте.
                   </div>
                 );
               }
 
               return (
-                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 shadow-sm overflow-hidden">
+                <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse" style={{ minWidth: 560 }}>
                       <thead>
-                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
-                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                        <tr className="bg-black/5 dark:bg-white/5 border-b border-border">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Дата и время
                           </th>
-                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Тип
                           </th>
-                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Клиент
                           </th>
-                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 border-r border-border">
                             Детали
                           </th>
-                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3">
+                          <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
                             Статус
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/80">
+                      <tbody className="divide-y divide-border">
                         {rows.map((row, i) => (
                           <tr
                             key={`${row.type}-${row.id}`}
-                            className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-700/20' : ''}`}
+                            className={`hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${i % 2 === 1 ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}`}
                           >
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap border-r border-slate-100 dark:border-slate-700/50">
+                            <td className="px-4 py-3 text-sm text-fg whitespace-nowrap border-r border-border">
                               {formatDate(row.createdAt)}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                            <td className="px-4 py-3 text-sm text-fg border-r border-border">
                               {row.type === 'appointment' ? 'Запись' : 'Заявка'}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                            <td className="px-4 py-3 text-sm text-fg border-r border-border">
                               {row.customerName || '—'}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                            <td className="px-4 py-3 text-sm text-fg border-r border-border">
                               {row.details}
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
+                            <td className="px-4 py-3 text-sm text-muted-foreground">
                               {getStatusLabel(row.status)}
                             </td>
                           </tr>
@@ -449,26 +449,26 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
           {/* Дополнительно: заказы (если есть) */}
           {latestOrders.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              <h3 className="text-lg font-semibold text-fg">
                 Последние заказы
               </h3>
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 overflow-hidden">
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-800/80">
+                  <thead className="bg-black/5 dark:bg-white/5">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Дата/время</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Сумма</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Статус</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Дата/время</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Сумма</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Статус</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/80">
+                  <tbody className="divide-y divide-border">
                     {latestOrders.map((order: any) => (
-                      <tr key={order.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30">
-                        <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{formatDate(order.createdAt)}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100">
+                      <tr key={order.id} className="hover:bg-black/5 dark:hover:bg-white/5">
+                        <td className="px-4 py-3 text-sm text-fg">{formatDate(order.createdAt)}</td>
+                        <td className="px-4 py-3 text-sm font-medium text-fg">
                           {order.amount ? `${Number(order.amount).toLocaleString('ru-RU')} ${order.currency || '₽'}` : '—'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{getStatusLabel(order.status)}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{getStatusLabel(order.status)}</td>
                       </tr>
                     ))}
                   </tbody>

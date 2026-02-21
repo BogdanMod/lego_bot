@@ -27,11 +27,11 @@ export function SimpleSidebar() {
   };
 
   return (
-    <aside className="border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-screen w-56">
+    <aside className="border-r border-border bg-card flex flex-col h-screen w-56">
       {/* Header */}
-      <div className="p-5 border-b border-slate-200 dark:border-slate-800">
-        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Owner Web</div>
-        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+      <div className="p-5 border-b border-border">
+        <div className="text-sm font-semibold text-fg">Owner Web</div>
+        <div className="mt-1 text-xs text-muted-foreground">
           {authData?.user?.firstName || 'Пользователь'}
         </div>
       </div>
@@ -47,15 +47,15 @@ export function SimpleSidebar() {
                 onClick={() => router.push(item.href)}
                 className={`w-full relative flex items-center gap-2.5 px-2 py-2 text-sm transition-colors rounded-md ${
                   active
-                    ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    ? 'text-primary bg-primary/10'
+                    : 'text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5'
                 }`}
               >
                 {active && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 dark:bg-slate-100 rounded-r" />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
                 )}
                 {item.icon && (
-                  <span className={active ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}>
+                  <span className={active ? 'text-primary' : 'text-muted-foreground'}>
                     {item.icon}
                   </span>
                 )}
@@ -67,10 +67,10 @@ export function SimpleSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
+      <div className="p-3 border-t border-border space-y-1">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+          className="w-full flex items-center gap-2.5 px-2 py-1.5 text-xs text-muted-foreground hover:text-fg transition-colors"
         >
           <LogOut className="w-4 h-4" />
           Выход

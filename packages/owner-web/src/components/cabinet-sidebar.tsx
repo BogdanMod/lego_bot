@@ -89,11 +89,11 @@ export function CabinetSidebar() {
   };
 
   return (
-    <aside className="border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-screen">
+    <aside className="border-r border-border bg-card flex flex-col h-screen">
       {/* Header */}
-      <div className="p-5 border-b border-slate-200 dark:border-slate-800">
-        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Owner Web</div>
-        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+      <div className="p-5 border-b border-border">
+        <div className="text-sm font-semibold text-fg">Owner Web</div>
+        <div className="mt-1 text-xs text-muted-foreground">
           {authData?.user?.firstName || 'Пользователь'}
         </div>
       </div>
@@ -104,7 +104,7 @@ export function CabinetSidebar() {
           <>
             {/* Mode section header */}
             <div className="mb-3">
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide px-2">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2">
                 {mode === 'manage' ? 'Работа' : 'Настройка'}
               </div>
             </div>
@@ -119,15 +119,15 @@ export function CabinetSidebar() {
                     onClick={() => router.push(item.href)}
                     className={`w-full relative flex items-center gap-2.5 px-2 py-2 text-sm transition-colors rounded-md ${
                       active
-                        ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        ? 'text-primary bg-primary/10'
+                        : 'text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5'
                     }`}
                   >
                     {active && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 dark:bg-slate-100 rounded-r" />
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
                     )}
                     {item.icon && (
-                      <span className={active ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}>
+                      <span className={active ? 'text-primary' : 'text-muted-foreground'}>
                         {item.icon}
                       </span>
                     )}
@@ -138,11 +138,11 @@ export function CabinetSidebar() {
             </div>
 
             {/* Divider */}
-            <div className="my-3 border-t border-slate-200 dark:border-slate-800" />
+            <div className="my-3 border-t border-border" />
 
             {/* Bot section */}
             <div className="mb-3">
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide px-2">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2">
                 Бот
               </div>
             </div>
@@ -152,14 +152,14 @@ export function CabinetSidebar() {
                 onClick={() => router.push(`/cabinet/${currentBotId}/settings?mode=${mode}`)}
                 className={`w-full relative flex items-center gap-2.5 px-2 py-2 text-sm transition-colors rounded-md ${
                   pathname.includes('/settings')
-                    ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                    ? 'text-primary bg-primary/10'
+                    : 'text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5'
                 }`}
               >
                 {pathname.includes('/settings') && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 dark:bg-slate-100 rounded-r" />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
                 )}
-                <Settings className={`w-4 h-4 ${pathname.includes('/settings') ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`} />
+                <Settings className={`w-4 h-4 ${pathname.includes('/settings') ? 'text-primary' : 'text-muted-foreground'}`} />
                 <span className="flex-1 text-left">Настройки</span>
               </button>
 
@@ -168,9 +168,9 @@ export function CabinetSidebar() {
                   onClick={() => {
                     router.push(`/cabinet/${currentBotId}?mode=manage`);
                   }}
-                  className="w-full flex items-center gap-2.5 px-2 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors rounded-md"
+                  className="w-full flex items-center gap-2.5 px-2 py-2 text-sm text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5 transition-colors rounded-md"
                 >
-                  <ArrowRight className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                  <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   <span className="flex-1 text-left">Перейти к заявкам</span>
                 </button>
               )}
@@ -180,14 +180,14 @@ export function CabinetSidebar() {
                   onClick={() => router.push(`/cabinet/${currentBotId}/team?mode=manage`)}
                   className={`w-full relative flex items-center gap-2.5 px-2 py-2 text-sm transition-colors rounded-md ${
                     pathname.includes('/team')
-                      ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      ? 'text-primary bg-primary/10'
+                      : 'text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5'
                   }`}
                 >
                   {pathname.includes('/team') && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 dark:bg-slate-100 rounded-r" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
                   )}
-                  <Users className={`w-4 h-4 ${pathname.includes('/team') ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`} />
+                  <Users className={`w-4 h-4 ${pathname.includes('/team') ? 'text-primary' : 'text-muted-foreground'}`} />
                   <span className="flex-1 text-left">Команда</span>
                 </button>
               )}
@@ -201,12 +201,12 @@ export function CabinetSidebar() {
             onClick={() => router.push(`/cabinet/bots?mode=${mode}`)}
             className={`w-full relative flex items-center gap-2.5 px-2 py-2 text-sm transition-colors rounded-md ${
               pathname.startsWith('/cabinet/bots') && !currentBotId
-                ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                ? 'text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-fg hover:bg-black/5 dark:hover:bg-white/5'
             }`}
           >
             {pathname.startsWith('/cabinet/bots') && !currentBotId && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-slate-900 dark:bg-slate-100 rounded-r" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r" />
             )}
             <span className="flex-1 text-left">Мои боты</span>
           </button>
@@ -214,14 +214,14 @@ export function CabinetSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
+      <div className="p-3 border-t border-border space-y-1">
         {/* Subscription placeholder - TODO: Implement when ready */}
         {/* <button className="w-full text-left px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300">
           Подписка
         </button> */}
         <button
           onClick={handleLogout}
-          className="w-full text-left px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+          className="w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:text-fg transition-colors"
         >
           Выход
         </button>

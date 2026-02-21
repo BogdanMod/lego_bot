@@ -2,50 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ReactFlow styles override for dark mode */
+/* ReactFlow styles override for dark mode (aligned with theme) */
 .dark .react-flow__node {
-  background: rgb(15 23 42);
-  color: rgb(241 245 249);
+  background: hsl(var(--card));
+  color: hsl(var(--fg));
 }
 
 .dark .react-flow__edge-path {
-  stroke: rgb(148 163 184);
+  stroke: hsl(var(--muted-foreground) / 0.6);
 }
 
 .dark .react-flow__controls {
-  background: rgb(15 23 42);
-  border-color: rgb(30 41 59);
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
 }
 
 .dark .react-flow__minimap {
-  background: rgb(15 23 42);
-  border-color: rgb(30 41 59);
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
 }
 
 .dark .react-flow__background {
-  background-color: rgb(15 23 42);
+  background-color: hsl(var(--bg));
 }
 
 .dark .react-flow__background-pattern {
-  stroke: rgb(30 41 59);
+  stroke: hsl(var(--border));
 }
 
+/* Brand: violet (aligned with Mini App), business-neutral base */
 :root {
-  --bg: 220 30% 98%;
-  --fg: 222 47% 11%;
+  --bg: 260 20% 98%;
+  --fg: 260 25% 12%;
   --card: 0 0% 100%;
-  --border: 220 20% 88%;
-  --primary: 239 84% 67%;
-  --muted-foreground: 215 18% 55%;
+  --border: 260 15% 90%;
+  --primary: 262 83% 58%;
+  --primary-foreground: 0 0% 100%;
+  --muted-foreground: 260 10% 45%;
 }
 
 .dark {
-  --bg: 222 47% 8%;
-  --fg: 210 40% 98%;
-  --card: 223 47% 12%;
-  --border: 215 28% 20%;
-  --primary: 239 84% 67%;
-  --muted-foreground: 215 18% 65%;
+  --bg: 260 22% 9%;
+  --fg: 260 15% 96%;
+  --card: 260 20% 12%;
+  --border: 260 18% 22%;
+  --primary: 263 70% 65%;
+  --primary-foreground: 0 0% 100%;
+  --muted-foreground: 260 10% 62%;
 }
 
 body {
@@ -57,7 +60,21 @@ body {
   @apply rounded-xl border border-border bg-card shadow-sm;
 }
 
+/* Primary link style (business tool, not toy) */
+a.text-primary,
+.text-primary-link {
+  color: hsl(var(--primary));
+}
+a.text-primary:hover,
+.text-primary-link:hover {
+  color: hsl(262 83% 48%);
+}
+.dark a.text-primary:hover,
+.dark .text-primary-link:hover {
+  color: hsl(263 70% 75%);
+}
+
 .muted {
-  color: hsl(215 18% 55%);
+  color: hsl(var(--muted-foreground));
 }
 
