@@ -81,6 +81,7 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   const [answers, setAnswers] = useState<TemplateAnswers>({});
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [isGeneratingSchema, setIsGeneratingSchema] = useState(false);
+  const [schemaError, setSchemaError] = useState<{ message: string; errors?: string[] } | null>(null);
 
   const templates = wizardEnabled ? getAllTemplates() : [];
   
@@ -248,6 +249,7 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
     try {
       if (selectedTemplate === 'ai' || selectedTemplate === 'empty') {
         setIsGeneratingSchema(true);
+        setSchemaError(null);
         try {
           const answersForApi: Record<string, string> = {};
           for (const [k, v] of Object.entries(answers)) {
@@ -262,8 +264,14 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
             config: { schema, metadata: { source: selectedTemplate === 'ai' ? 'ai_wizard' : 'wizard_from_scratch' } },
           });
         } catch (err: unknown) {
-          const msg = (err as ApiError)?.message || (err instanceof Error ? err.message : 'Ошибка генерации схемы');
-          toast.error(msg);
+          const apiErr = err as ApiError;
+          const details = apiErr?.details as { errors?: string[] } | undefined;
+          const errors = Array.isArray(details?.errors) ? details.errors : undefined;
+          setSchemaError({
+            message: apiErr?.message || (err instanceof Error ? err.message : 'Ошибка генерации схемы'),
+            errors,
+          });
+          if (!errors?.length) toast.error(apiErr?.message || 'Ошибка генерации схемы');
         } finally {
           setIsGeneratingSchema(false);
         }
@@ -298,6 +306,34 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
       >
         ← Назад
       </button>
+
+      {schemaError && (
+        <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4">
+          <div className="flex items-start gap-2">
+            <span className="text-red-500 shrink-0" aria-hidden>!</span>
+            <div className="min-w-0">
+              <p className="font-medium text-red-700 dark:text-red-400">{schemaError.message}</p>
+              {schemaError.errors && schemaError.errors.length > 0 && (
+                <ul className="mt-2 list-inside list-disc text-sm text-red-600 dark:text-red-300 space-y-1">
+                  {schemaError.errors.slice(0, 10).map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                  {schemaError.errors.length > 10 && (
+                    <li>… и ещё {schemaError.errors.length - 10}</li>
+                  )}
+                </ul>
+              )}
+              <button
+                type="button"
+                onClick={() => setSchemaError(null)}
+                className="mt-2 text-sm underline hover:no-underline text-red-600 dark:text-red-400"
+              >
+                Скрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="mb-6">
         <h1 className="text-2xl font-semibold mb-2">Создание бота</h1>

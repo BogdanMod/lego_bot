@@ -23,7 +23,7 @@ function buildPrompt(answers: GenerateSchemaInput): string {
 
   return `Ты генерируешь JSON-схему диалогового бота для Telegram. Схема должна быть полезной и не примитивной.
 
-Формат (TypeScript):
+Формат (TypeScript) — все ключи строго в camelCase (initialState, nextState, request_contact и т.д.):
 interface BotSchema {
   version: 1;
   initialState: string;
@@ -40,11 +40,13 @@ interface BotSchema {
 }
 
 Правила:
-- version всегда 1. Ключи states — латиницей (start, menu, drinks, drink_coffee, order, help, goodbye, thanks, confirm).
+- version всегда 1. Используй ТОЛЬКО camelCase в JSON: initialState (не initial_state), nextState (не next_state). Ключи в states — латиницей (start, menu, lead_contact, lead_thanks и т.д.).
+- Лимиты: не более 50 состояний (states), не более 10 кнопок на один state, длина message до 4096 символов, текст кнопки до 64 символов.
+- initialState должен совпадать с одним из ключей в states. Каждый nextState в кнопках должен быть существующим ключом в states — не выдумывай несуществующие состояния.
 - Сообщения на русском: развёрнутые, дружелюбные, по контексту. Не одно слово — минимум 1–2 предложения там, где уместно.
 - Сделай 6–12 состояний. Логичный поток: приветствие (start) → главное меню или каталог → по нажатию кнопки переход к экрану с описанием/подробностями → кнопки «Назад», «В главное меню» где нужно.
 - В приветствии кратко объясни, что умеет бот. В меню — понятные кнопки (например напитки, услуги, контакты, помощь).
-- Кнопок не более 8 на один экран (лимит Telegram). nextState — ключ из states.
+- Кнопок не более 8 на один экран (лимит Telegram). nextState — только ключ из того же объекта states.
 - Обязательно включи минимум один сценарий «Заявка» с кнопкой type "request_contact":
   1) State для сбора контакта (например lead_contact): message про «поделиться номером», одна кнопка { "type": "request_contact", "text": "Поделиться номером", "nextState": "lead_thanks", "track": { "event": "lead" } } и при необходимости «Назад».
   2) Финальный state lead_thanks (или thanks): сообщение «Спасибо, мы получили ваш номер. Менеджер свяжется…», кнопка «В главное меню», у state задай track: { "event": "lead" }.
@@ -65,6 +67,41 @@ function extractJson(text: string): unknown {
     return JSON.parse(jsonMatch[0]) as unknown;
   }
   return JSON.parse(trimmed) as unknown;
+}
+
+/** Normalize common LLM mistakes: snake_case -> camelCase for schema top-level and buttons. */
+function normalizeSchema(obj: unknown): unknown {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const o = obj as Record<string, unknown>;
+  const result = { ...o };
+  if (result.initial_state !== undefined && result.initialState === undefined) {
+    result.initialState = result.initial_state;
+  }
+  if (result.states && typeof result.states === 'object' && !Array.isArray(result.states)) {
+    const states = result.states as Record<string, unknown>;
+    const normalizedStates: Record<string, unknown> = {};
+    for (const [key, state] of Object.entries(states)) {
+      if (!state || typeof state !== 'object' || Array.isArray(state)) {
+        normalizedStates[key] = state;
+        continue;
+      }
+      const s = state as Record<string, unknown>;
+      const normalizedState = { ...s };
+      if (Array.isArray(normalizedState.buttons)) {
+        normalizedState.buttons = normalizedState.buttons.map((btn: unknown) => {
+          if (!btn || typeof btn !== 'object' || Array.isArray(btn)) return btn;
+          const b = btn as Record<string, unknown>;
+          if (b.next_state !== undefined && b.nextState === undefined) {
+            return { ...b, nextState: b.next_state };
+          }
+          return b;
+        });
+      }
+      normalizedStates[key] = normalizedState;
+    }
+    result.states = normalizedStates;
+  }
+  return result;
 }
 
 export async function generateSchemaFromAnswers(answers: GenerateSchemaInput): Promise<GenerateSchemaResult> {
@@ -117,6 +154,7 @@ export async function generateSchemaFromAnswers(answers: GenerateSchemaInput): P
     return { ok: false, error: 'Invalid JSON in LLM response', errors: [raw.slice(0, 300)] };
   }
 
+  parsed = normalizeSchema(parsed);
   const validation = validateBotSchema(parsed);
   if (!validation.valid) {
     return { ok: false, error: 'Generated schema failed validation', errors: validation.errors };
