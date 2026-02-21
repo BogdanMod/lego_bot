@@ -150,6 +150,25 @@ function SimpleBotCard({
   });
 
   const isActive = botData?.bot?.isActive || false;
+  const status = botData?.status;
+  const lastActivityAt = status?.lastActivityAt ?? status?.lastEventAt ?? status?.lastLeadAt ?? status?.lastOrderAt ?? null;
+  const hasRecentActivity = status?.hasRecentActivity ?? false;
+  const showDiagnosticHint = isActive && !hasRecentActivity;
+
+  const formatLastActivity = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    try {
+      return new Date(dateStr).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6">
@@ -159,6 +178,16 @@ function SimpleBotCard({
           <div className="text-xs text-slate-500 dark:text-slate-400">
             {isActive ? 'Активен' : 'Остановлен'}
           </div>
+          {lastActivityAt && (
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Последняя активность: {formatLastActivity(lastActivityAt)}
+            </div>
+          )}
+          {showDiagnosticHint && (
+            <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Запущен, но активности нет. Проверьте вебхук и аналитику.
+            </div>
+          )}
         </div>
       </div>
 

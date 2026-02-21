@@ -914,7 +914,10 @@ export async function getBotRealStatus(botId: string): Promise<{
   isActive: boolean;
   webhookSet: boolean;
   hasToken: boolean;
+  lastLeadAt: string | null;
+  lastOrderAt: string | null;
   lastEventAt: string | null;
+  lastActivityAt: string | null;
   hasRecentActivity: boolean;
 }> {
   const client = await getPostgresClient();
@@ -936,7 +939,10 @@ export async function getBotRealStatus(botId: string): Promise<{
         isActive: false,
         webhookSet: false,
         hasToken: false,
+        lastLeadAt: null,
+        lastOrderAt: null,
         lastEventAt: null,
+        lastActivityAt: null,
         hasRecentActivity: false,
       };
     }
@@ -946,23 +952,46 @@ export async function getBotRealStatus(botId: string): Promise<{
     const webhookSet = bot.webhook_set;
     const hasToken = !!bot.token;
 
-    // Check last event (activity in last 24 hours)
-    const lastEventResult = await client.query<{ last_event_at: string | null }>(
-      `SELECT MAX(created_at)::text as last_event_at
-       FROM bot_events
-       WHERE bot_id = $1
-         AND created_at >= now() - interval '24 hours'`,
+    // Last activity timestamps (max created_at per source, no time window)
+    const lastActivityResult = await client.query<{
+      last_lead_at: string | null;
+      last_order_at: string | null;
+      last_event_at: string | null;
+    }>(
+      `SELECT
+         (SELECT MAX(created_at)::text FROM leads WHERE bot_id = $1) AS last_lead_at,
+         (SELECT MAX(created_at)::text FROM orders WHERE bot_id = $1) AS last_order_at,
+         (SELECT MAX(created_at)::text FROM bot_events WHERE bot_id = $1) AS last_event_at`,
       [botId]
     );
+    const lastLeadAt = lastActivityResult.rows[0]?.last_lead_at || null;
+    const lastOrderAt = lastActivityResult.rows[0]?.last_order_at || null;
+    const lastEventAt = lastActivityResult.rows[0]?.last_event_at || null;
 
-    const lastEventAt = lastEventResult.rows[0]?.last_event_at || null;
-    const hasRecentActivity = lastEventAt !== null;
+    const dates = [lastLeadAt, lastOrderAt, lastEventAt].filter(Boolean) as string[];
+    const lastActivityAt = dates.length > 0
+      ? dates.reduce((a, b) => (a > b ? a : b))
+      : null;
+
+    // Recent activity = any of leads/orders/events in last 24 hours
+    const recentResult = await client.query<{ has_any: boolean }>(
+      `SELECT (
+         (SELECT COUNT(*) FROM leads WHERE bot_id = $1 AND created_at >= now() - interval '24 hours') > 0
+         OR (SELECT COUNT(*) FROM orders WHERE bot_id = $1 AND created_at >= now() - interval '24 hours') > 0
+         OR (SELECT COUNT(*) FROM bot_events WHERE bot_id = $1 AND created_at >= now() - interval '24 hours') > 0
+       ) AS has_any`,
+      [botId]
+    );
+    const hasRecentActivity = recentResult.rows[0]?.has_any ?? false;
 
     return {
       isActive,
       webhookSet,
       hasToken,
+      lastLeadAt,
+      lastOrderAt,
       lastEventAt,
+      lastActivityAt,
       hasRecentActivity,
     };
   } finally {

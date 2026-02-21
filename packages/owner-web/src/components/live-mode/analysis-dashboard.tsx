@@ -29,7 +29,10 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
     isActive: false,
     webhookSet: false,
     hasToken: false,
+    lastLeadAt: null,
+    lastOrderAt: null,
     lastEventAt: null,
+    lastActivityAt: null,
     hasRecentActivity: false,
   };
 
@@ -164,10 +167,14 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
     }
 
     if (!botStatus.hasRecentActivity) {
+      const lastAt = botStatus.lastActivityAt ?? botStatus.lastEventAt ?? botStatus.lastLeadAt ?? botStatus.lastOrderAt;
+      const lastStr = lastAt
+        ? ` Последняя активность: ${new Date(lastAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.`
+        : '';
       return {
         type: 'no-activity' as const,
-        title: 'Бот запущен, но пока нет данных',
-        message: 'Бот активен, но за последние 24 часа не было активности.',
+        title: 'Бот запущен, но за 24 ч нет активности',
+        message: `Бот активен, но за последние 24 часа не было заявок/заказов/событий.${lastStr} Проверьте вебхук и что роутер пишет события.`,
         action: null,
       };
     }
