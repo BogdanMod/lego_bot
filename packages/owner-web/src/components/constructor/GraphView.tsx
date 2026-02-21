@@ -34,11 +34,18 @@ function getLayoutedElements(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: direction, nodesep: 50, ranksep: 80 });
 
+  function nodeLabel(stateName: string, maxLen = 18): string {
+    const msg = schema.states[stateName]?.message ?? '';
+    const firstLine = msg.split('\n')[0].trim();
+    if (!firstLine) return stateName;
+    return firstLine.length <= maxLen ? firstLine : firstLine.slice(0, maxLen - 1) + '…';
+  }
+
   const nodes: Node[] = Object.keys(schema.states).map((stateName) => ({
     id: stateName,
     type: 'default',
     data: {
-      label: stateName,
+      label: nodeLabel(stateName),
       isInitial: stateName === schema.initialState,
     },
     position: { x: 0, y: 0 },

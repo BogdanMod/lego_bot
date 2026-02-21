@@ -74,7 +74,7 @@ function SortableButton({
         type="text"
         value={button.text}
         onChange={(e) => onUpdate(index, { text: e.target.value })}
-        placeholder="Button text"
+        placeholder="Текст кнопки"
         className="flex-1 px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
       />
       <select
@@ -166,7 +166,7 @@ export function StateEditor({
             </h2>
             {isInitial && (
               <span className="text-xs text-slate-500 dark:text-slate-400 mt-1 inline-block">
-                Initial state
+                Стартовый экран
               </span>
             )}
           </div>
@@ -175,7 +175,7 @@ export function StateEditor({
               onClick={onSetInitial}
               className="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 transition-colors"
             >
-              Set as initial
+              Сделать стартовым
             </button>
           )}
         </div>
@@ -186,12 +186,12 @@ export function StateEditor({
         {/* Message */}
         <div className="mb-8">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-            Message
+            Сообщение пользователю
           </label>
           <textarea
             value={state.message || ''}
             onChange={(e) => onUpdate({ message: e.target.value })}
-            placeholder="Enter message text..."
+            placeholder="Текст, который увидит пользователь..."
             className="w-full px-4 py-3 text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent resize-none min-h-[120px] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
           />
         </div>
@@ -200,27 +200,27 @@ export function StateEditor({
         <div>
           <div className="flex items-center justify-between mb-3">
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-              Buttons
+              Кнопки (при нажатии → переход на другой экран)
             </label>
             <button
               onClick={handleAddButton}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-300 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              Add button
+              Добавить кнопку
             </button>
           </div>
 
           {buttons.length === 0 ? (
             <div className="py-8 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-                No buttons yet
+                Пока нет кнопок
               </p>
               <button
                 onClick={handleAddButton}
                 className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline"
               >
-                Add first button
+                Добавить кнопку
               </button>
             </div>
           ) : (

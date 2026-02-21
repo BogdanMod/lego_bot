@@ -3,6 +3,7 @@
 import { Save, Loader2 } from 'lucide-react';
 import { StatesPanel } from './StatesPanel';
 import { StateEditor } from './StateEditor';
+import { GraphView } from './GraphView';
 import type { BotSchema } from '@/lib/templates/types';
 
 interface ConstructorLayoutProps {
@@ -35,7 +36,7 @@ export function ConstructorLayout({
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950">
-      {/* Left Panel - States */}
+      {/* Left Panel - Экранцы (список) */}
       <div className="w-64 flex-shrink-0 border-r border-slate-200 dark:border-slate-800">
         <StatesPanel
           schema={schema}
@@ -46,9 +47,8 @@ export function ConstructorLayout({
         />
       </div>
 
-      {/* Center - Editor */}
+      {/* Center - Редактор */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
         <div className="h-14 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="flex items-center gap-4">
             <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -58,9 +58,7 @@ export function ConstructorLayout({
               {isSaving ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    Сохранение...
-                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Сохранение...</span>
                 </>
               ) : isSaved ? (
                 <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
@@ -70,7 +68,7 @@ export function ConstructorLayout({
               ) : (
                 <>
                   <span className="text-xs text-amber-600 dark:text-amber-400">
-                    Есть несохраненные изменения
+                    Есть несохранённые изменения
                   </span>
                   {onManualSave && (
                     <button
@@ -88,7 +86,6 @@ export function ConstructorLayout({
           </div>
         </div>
 
-        {/* Editor */}
         <div className="flex-1 overflow-auto p-6">
           {currentState ? (
             <StateEditor
@@ -102,17 +99,36 @@ export function ConstructorLayout({
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-                  Выберите состояние для редактирования
+                  Выберите экран слева или добавьте новый
                 </p>
                 <button
                   onClick={onAddState}
                   className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline"
                 >
-                  Добавить первое состояние
+                  Добавить экран
                 </button>
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Right Panel - Схема диалога (кто за кем идёт) */}
+      <div className="w-80 flex-shrink-0 border-l border-slate-200 dark:border-slate-800 flex flex-col bg-white dark:bg-slate-900">
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Схема диалога
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Нажатие на кнопку → следующий экран
+          </p>
+        </div>
+        <div className="flex-1 min-h-0">
+          <GraphView
+            schema={schema}
+            selectedState={selectedState}
+            onNodeClick={onSelectState}
+          />
         </div>
       </div>
     </div>

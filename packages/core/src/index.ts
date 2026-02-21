@@ -1435,12 +1435,14 @@ const apiGeneralLimiterMiddleware = async (req: Request, res: Response, next: Ne
     const miniappEndpoints = [
       '/api/miniapp/overview',
     ];
+    // Owner Web: не применять общий лимит, чтобы при создании бота показывалась ошибка «Лимит ботов достигнут», а не «Rate limit exceeded»
+    const ownerPrefix = '/api/owner';
     
-    // Check if path matches any excluded endpoint (with or without query params)
     const pathWithoutQuery = req.path.split('?')[0];
     const isExcluded = 
       publicEndpoints.some(ep => pathWithoutQuery === ep || req.path.startsWith(ep + '?')) ||
-      miniappEndpoints.some(ep => pathWithoutQuery === ep || req.path.startsWith(ep + '?'));
+      miniappEndpoints.some(ep => pathWithoutQuery === ep || req.path.startsWith(ep + '?')) ||
+      pathWithoutQuery === ownerPrefix || pathWithoutQuery.startsWith(ownerPrefix + '/');
     
     if (isExcluded) {
       logger.debug({ path: req.path, pathWithoutQuery }, 'Skipping rate limit for excluded endpoint');

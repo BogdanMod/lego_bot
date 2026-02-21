@@ -21,27 +21,26 @@ function buildPrompt(answers: GenerateSchemaInput): string {
     .map(([k, v]) => `${k}: ${v}`);
   const context = parts.length > 0 ? parts.join('\n') : 'Нет дополнительных ответов.';
 
-  return `Ты генерируешь JSON-схему диалогового бота для Telegram. Строго соблюдай формат.
+  return `Ты генерируешь JSON-схему диалогового бота для Telegram. Схема должна быть полезной и не примитивной.
 
 Формат (TypeScript):
 interface BotSchema {
   version: 1;
-  initialState: string;  // ключ из states
+  initialState: string;
   states: {
     [key: string]: {
-      message: string;    // текст сообщения (можно с \\n)
+      message: string;
       buttons?: Array<{ text: string; nextState: string }>;
     };
   };
 }
 
 Правила:
-- version всегда 1.
-- initialState должен совпадать с одним из ключей в states.
-- states — объект: ключи латиницей (start, menu, order, ...), значения — { message, buttons? }.
-- Кнопки: массив { text, nextState }; nextState — ключ из states или тот же state.
-- Сообщения на русском, дружелюбные и по контексту ниже.
-- Не более 15 состояний. Кнопок не более 8 на экран (лимит Telegram).
+- version всегда 1. Ключи states — латиницей (start, menu, drinks, drink_coffee, order, help, goodbye).
+- Сообщения на русском: развёрнутые, дружелюбные, по контексту. Не одно слово — минимум 1–2 предложения там, где уместно.
+- Сделай 6–12 состояний. Логичный поток: приветствие (start) → главное меню или каталог → по нажатию кнопки переход к экрану с описанием/подробностями → кнопки «Назад», «В главное меню» где нужно.
+- В приветствии кратко объясни, что умеет бот. В меню — понятные кнопки (например напитки, услуги, контакты, помощь).
+- Кнопок не более 8 на один экран (лимит Telegram). nextState — ключ из states.
 - Ответь ТОЛЬКО валидным JSON, без markdown и пояснений.
 
 Контекст от пользователя:

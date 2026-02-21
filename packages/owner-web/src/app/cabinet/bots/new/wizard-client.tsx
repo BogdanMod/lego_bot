@@ -100,7 +100,8 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
-      toast.success('Бот успешно создан');
+      toast.success('Бот создан');
+      toast.info('Подключите бота к Telegram: на обзоре нажмите «Вставить токен» и вставьте токен из BotFather', { duration: 6000 });
       router.push(`/cabinet/${data.bot.botId}/overview`);
     },
     onError: (error: ApiError) => {

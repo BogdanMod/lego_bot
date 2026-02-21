@@ -186,12 +186,12 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
   const handleAddState = () => {
     if (!schema || !isMountedRef.current) return;
     
-    const stateName = prompt('Enter state name (e.g., menu, help):');
+    const stateName = prompt('Название экрана (латиницей, например menu, help):');
     if (!stateName || !stateName.trim()) return;
     
     const trimmedName = stateName.trim();
     if (schema.states[trimmedName]) {
-      toast.error('State with this name already exists');
+      toast.error('Экран с таким названием уже есть');
       return;
     }
 
@@ -213,11 +213,11 @@ export function BotConstructorClient({ wizardEnabled }: { wizardEnabled: boolean
     if (!schema || !isMountedRef.current) return;
     
     if (stateName === schema.initialState) {
-      toast.error('Cannot delete initial state');
+      toast.error('Нельзя удалить стартовый экран');
       return;
     }
     
-    if (!confirm(`Delete state "${stateName}"? All references will be removed.`)) {
+    if (!confirm(`Удалить экран «${stateName}»? Ссылки на него будут убраны.`)) {
       return;
     }
 
