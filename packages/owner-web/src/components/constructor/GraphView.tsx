@@ -23,8 +23,8 @@ interface GraphViewProps {
   selectedState?: string | null;
 }
 
-const nodeWidth = 180;
-const nodeHeight = 60;
+const nodeWidth = 200;
+const nodeHeight = 72;
 
 function getLayoutedElements(
   schema: BotSchema,
@@ -32,9 +32,9 @@ function getLayoutedElements(
 ) {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: direction, nodesep: 50, ranksep: 80 });
+  g.setGraph({ rankdir: direction, nodesep: 40, ranksep: 56 });
 
-  function nodeLabel(stateName: string, maxLen = 18): string {
+  function nodeLabel(stateName: string, maxLen = 24): string {
     const msg = schema.states[stateName]?.message ?? '';
     const firstLine = msg.split('\n')[0].trim();
     if (!firstLine) return stateName;
@@ -64,13 +64,17 @@ function getLayoutedElements(
           type: MarkerType.ArrowClosed,
         },
         style: {
-          stroke: '#94a3b8',
-          strokeWidth: 1.5,
+          stroke: '#64748b',
+          strokeWidth: 2,
         },
         labelStyle: {
-          fill: '#64748b',
-          fontSize: 11,
+          fill: '#475569',
+          fontSize: 12,
+          fontWeight: 500,
         },
+        labelBgStyle: { fill: '#f1f5f9' },
+        labelBgPadding: [6, 4] as [number, number],
+        labelBgBorderRadius: 4,
       });
     });
   });
@@ -88,6 +92,7 @@ function getLayoutedElements(
   return {
     nodes: nodes.map((node) => {
       const nodeWithPosition = g.node(node.id);
+      const isInitial = node.data.isInitial;
       return {
         ...node,
         position: {
@@ -96,18 +101,18 @@ function getLayoutedElements(
         },
         style: {
           ...node.style,
-          background: node.data.isInitial
-            ? '#0f172a'
-            : '#ffffff',
-          color: node.data.isInitial ? '#ffffff' : '#0f172a',
-          border: `1.5px solid ${node.data.isInitial ? '#0f172a' : '#e2e8f0'}`,
-          borderRadius: '8px',
-          fontWeight: node.data.isInitial ? 600 : 500,
-          fontSize: '13px',
-          padding: '12px 16px',
-          boxShadow: node.data.isInitial
-            ? '0 2px 8px rgba(15, 23, 42, 0.15)'
-            : '0 1px 3px rgba(0, 0, 0, 0.1)',
+          background: isInitial ? '#0f172a' : '#ffffff',
+          color: isInitial ? '#ffffff' : '#0f172a',
+          border: `2px solid ${isInitial ? '#0f172a' : '#e2e8f0'}`,
+          borderRadius: '10px',
+          fontWeight: isInitial ? 600 : 500,
+          fontSize: '14px',
+          padding: '14px 18px',
+          minWidth: nodeWidth,
+          minHeight: nodeHeight,
+          boxShadow: isInitial
+            ? '0 2px 8px rgba(15, 23, 42, 0.2)'
+            : '0 1px 4px rgba(0, 0, 0, 0.08)',
         },
       };
     }),
@@ -135,22 +140,27 @@ export function GraphView({
     setEdges(newEdges);
   }, [schema, setNodes, setEdges]);
 
-  // Highlight selected node
+  // Highlight selected node (толстая синяя рамка + тень)
   const nodesWithSelection = useMemo(() => {
-    return nodes.map((node) => ({
-      ...node,
-      selected: node.id === selectedState,
-      style: {
-        ...node.style,
-        border: `1.5px solid ${
-          node.id === selectedState
-            ? '#3b82f6'
-            : node.data.isInitial
-            ? '#0f172a'
-            : '#e2e8f0'
-        }`,
-      },
-    }));
+    return nodes.map((node) => {
+      const isSelected = node.id === selectedState;
+      const isInitial = node.data.isInitial;
+      return {
+        ...node,
+        selected: isSelected,
+        style: {
+          ...node.style,
+          border: `2px solid ${
+            isSelected ? '#2563eb' : isInitial ? '#0f172a' : '#e2e8f0'
+          }`,
+          boxShadow: isSelected
+            ? '0 0 0 2px rgba(37, 99, 235, 0.3)'
+            : isInitial
+            ? '0 2px 8px rgba(15, 23, 42, 0.2)'
+            : '0 1px 4px rgba(0, 0, 0, 0.08)',
+        },
+      };
+    });
   }, [nodes, selectedState]);
 
   const onConnect = useCallback(
@@ -175,9 +185,10 @@ export function GraphView({
         onConnect={onConnect}
         onNodeClick={handleNodeClick}
         fitView
-        minZoom={0.2}
-        maxZoom={2}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+        minZoom={0.25}
+        maxZoom={1.8}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
         nodeTypes={{}}
         edgeTypes={{}}
         className="bg-slate-50 dark:bg-slate-950"

@@ -30,6 +30,7 @@ const OwnerMeSchema = z.object({
 });
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 3000;
+const AUTH_REQUEST_TIMEOUT_MS = 15000; // вход (botlink, telegram) — холодный старт Core может быть медленным
 const LONG_REQUEST_TIMEOUT_MS = 60000; // generate-schema, create bot (LLM can take 10–30s)
 
 type RequestInitWithTimeout = RequestInit & { timeoutMs?: number };
@@ -130,6 +131,7 @@ export function ownerAuthTelegram(payload: Record<string, unknown>) {
   return request<{ ok: boolean }>(normalizeOwnerPath('/api/owner/auth/telegram'), {
     method: 'POST',
     body: JSON.stringify(payload),
+    timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -137,6 +139,7 @@ export function ownerAuthBotlink(token: string, next?: string) {
   return request<{ ok: boolean; redirect?: string }>(normalizeOwnerPath('/api/owner/auth/botlink'), {
     method: 'POST',
     body: JSON.stringify({ token, ...(next ? { next } : {}) }),
+    timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
   });
 }
 

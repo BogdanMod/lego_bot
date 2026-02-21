@@ -120,7 +120,7 @@ export function ConstructorLayout({
             Схема диалога
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Нажатие на кнопку → следующий экран
+            Стрелки: кнопка → следующий экран. Синяя рамка — выбранный экран.
           </p>
         </div>
         <div className="flex-1 min-h-0">

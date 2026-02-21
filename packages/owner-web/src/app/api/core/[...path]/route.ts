@@ -113,11 +113,12 @@ async function proxy(req: NextRequest, pathParts: string[]) {
     }));
 
     const hasBody = !['GET', 'HEAD'].includes(req.method.toUpperCase());
-    // Longer timeout for LLM/generate-schema and bot creation (path: owner/bots, owner/bots/generate-schema)
+    // Longer timeout for auth (cold start Core) and for LLM/bot creation
+    const isAuthRequest = incomingPath.includes('/owner/auth/');
     const isLongOperation =
       req.method.toUpperCase() === 'POST' &&
       (incomingPath.includes('/owner/bots/generate-schema') || (incomingPath === '/api/core/owner/bots' && hasBody));
-    const proxyTimeoutMs = isLongOperation ? 60000 : 3000;
+    const proxyTimeoutMs = isLongOperation ? 60000 : isAuthRequest ? 15000 : 3000;
 
     let upstream: Response;
     try {

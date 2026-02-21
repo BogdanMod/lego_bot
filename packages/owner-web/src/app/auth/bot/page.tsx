@@ -9,6 +9,9 @@ export const dynamic = 'force-dynamic';
 function mapAuthError(error: unknown): string {
   const err = error as ApiError | undefined;
   if (!err?.code) return 'Не удалось выполнить вход. Попробуйте снова через /cabinet.';
+  if (err.code === 'timeout' || err.code === 'proxy_timeout') {
+    return 'Сервер долго не ответил. Откройте в Telegram новую ссылку (отправьте /cabinet ещё раз) или попробуйте через минуту.';
+  }
   if (err.code === 'botlink_used') {
     return 'Эта ссылка уже использована. Откройте Telegram и снова отправьте /cabinet.';
   }
