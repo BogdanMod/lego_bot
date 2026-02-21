@@ -221,7 +221,7 @@ function SimpleBotCard({
           </div>
           {lastActivityAt && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Активность: {formatLastActivity(lastActivityAt)}
+              Последняя активность: {formatLastActivity(lastActivityAt)}
             </p>
           )}
           {showDiagnosticHint && (

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Router Service - Webhook роутер для созданных ботов
  * 
  * Функциональность:
@@ -513,43 +513,41 @@ app.post('/webhook/:botId',
 
     logger.info({ botId: bot.id, botName: bot.name, requestId }, '✅ Bot found');
 
-    // Unified ingest for Owner Cabinet (dedup + normalized entities + inbox events).
-    try {
-      const profileFromUpdate = update.message?.from
-        ? {
-            first_name: update.message.from.first_name ?? null,
-            last_name: update.message.from.last_name ?? null,
-            username: update.message.from.username ?? null,
-            language_code: update.message.from.language_code ?? null,
-          }
-        : update.callback_query?.from
+    // Unified ingest for Owner Cabinet. Для callback_query ingest вызывается из handleUpdateWithSchema с trackEvent из схемы.
+    if (updateType !== 'callback_query') {
+      try {
+        const profileFromUpdate = update.message?.from
           ? {
-              first_name: update.callback_query.from.first_name ?? null,
-              last_name: update.callback_query.from.last_name ?? null,
-              username: update.callback_query.from.username ?? null,
-              language_code: update.callback_query.from.language_code ?? null,
+              first_name: update.message.from.first_name ?? null,
+              last_name: update.message.from.last_name ?? null,
+              username: update.message.from.username ?? null,
+              language_code: update.message.from.language_code ?? null,
             }
           : undefined;
-      await ingestOwnerEvent({
-        botId,
-        sourceId: `tg:${update.update_id}:${updateType}`,
-        type: 'message_received',
-        telegramUserId: userId ?? null,
-        customerName: [
-          profileFromUpdate?.first_name,
-          profileFromUpdate?.last_name,
-        ]
-          .filter(Boolean)
-          .join(' ') || null,
-        messageText: update.message?.text || update.callback_query?.data || null,
-        payload: {
-          updateType,
-          updateId: update.update_id,
-        },
-        profile: profileFromUpdate,
-      });
-    } catch (ingestError) {
-      logger.warn({ botId, requestId, ingestError }, 'Owner ingest failed, continuing webhook processing');
+        await ingestOwnerEvent(
+          {
+            botId,
+            sourceId: `tg:${update.update_id}:${updateType}`,
+            type: 'message_received',
+            telegramUserId: userId ?? null,
+            customerName: [
+              profileFromUpdate?.first_name,
+              profileFromUpdate?.last_name,
+            ]
+              .filter(Boolean)
+              .join(' ') || null,
+            messageText: update.message?.text || null,
+            payload: {
+              updateType,
+              updateId: update.update_id,
+            },
+            profile: profileFromUpdate,
+          },
+          { requestContact: !!update.message?.contact }
+        );
+      } catch (ingestError) {
+        logger.warn({ botId, requestId, ingestError }, 'Owner ingest failed, continuing webhook processing');
+      }
     }
 
     // Расшифровываем токен
@@ -713,6 +711,48 @@ async function handleUpdateWithSchema(
     const previousState = await getUserState(botId, userId);
     const nextState = callbackData;
     const sourceUpdateId = update.update_id;
+
+    // Явное событие из схемы: button.track.event или state.track.event (для аналитики lead/appointment).
+    const targetState = schema.states[nextState];
+    const stateTrack = (targetState as { track?: { event?: 'lead' | 'appointment' } })?.track?.event ?? null;
+    const prevStateConfig = previousState ? schema.states[previousState] : undefined;
+    const clickedButton = prevStateConfig?.buttons?.find(
+      (b): b is { text: string; nextState: string; track?: { event?: 'lead' | 'appointment' } } =>
+        'nextState' in b && (b as { nextState?: string }).nextState === nextState
+    );
+    const buttonTrack = clickedButton?.track?.event ?? null;
+    const trackEvent = buttonTrack ?? stateTrack ?? null;
+
+    try {
+      const profileFromCallback = update.callback_query.from
+        ? {
+            first_name: update.callback_query.from.first_name ?? null,
+            last_name: update.callback_query.from.last_name ?? null,
+            username: update.callback_query.from.username ?? null,
+            language_code: update.callback_query.from.language_code ?? null,
+          }
+        : undefined;
+      await ingestOwnerEvent(
+        {
+          botId,
+          sourceId: `tg:${update.update_id}:callback_query`,
+          type: 'message_received',
+          telegramUserId: userId,
+          customerName: [
+            profileFromCallback?.first_name,
+            profileFromCallback?.last_name,
+          ]
+            .filter(Boolean)
+            .join(' ') || null,
+          messageText: callbackData,
+          payload: { updateType: 'callback_query', updateId: update.update_id },
+          profile: profileFromCallback,
+        },
+        { trackEvent: trackEvent ?? undefined }
+      );
+    } catch (ingestError) {
+      requestLogger.warn({ ingestError }, 'Owner ingest failed for callback');
+    }
 
     try {
       await logAnalyticsEvent(

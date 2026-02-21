@@ -76,6 +76,7 @@
       },
       "booking_confirm": {
         "message": "Спасибо! Заявка принята. Ожидайте подтверждение от менеджера.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" },
           { "text": "Посмотреть акции", "nextState": "promotions" }
@@ -97,6 +98,7 @@
       },
       "promo_done": {
         "message": "Готово! Акция закреплена за вашим номером.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" }
         ]
@@ -147,6 +149,7 @@
       },
       "callback_done": {
         "message": "Спасибо! Запрос передан менеджеру.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" }
         ]

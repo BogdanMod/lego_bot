@@ -40,27 +40,35 @@ export interface BotSchema {
       buttons?: BotButton[];
       webhook?: WebhookConfig;
       integration?: IntegrationTemplate;
+      /** Опционально: какое событие считать при входе в это состояние (lead/appointment). */
+      track?: TrackEvent;
     };
   };
   initialState: string;
 }
 
+/** Опциональная разметка для аналитики: какое событие создавать при переходе (lead/appointment). */
+export type TrackEvent = { event?: 'lead' | 'appointment' };
+
 export type NavigationButton = {
   type?: 'navigation';
   text: string;
   nextState: string;
+  track?: TrackEvent;
 };
 
 export type RequestContactButton = {
   type: 'request_contact';
   text: string;
   nextState: string;
+  track?: TrackEvent;
 };
 
 export type RequestEmailButton = {
   type: 'request_email';
   text: string;
   nextState: string;
+  track?: TrackEvent;
 };
 
 export type UrlButton = {

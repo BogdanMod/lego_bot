@@ -150,7 +150,18 @@ export function validateBotSchema(schema: unknown): { valid: boolean; errors: st
       media?: unknown;
       mediaGroup?: unknown;
       parseMode?: unknown;
+      track?: unknown;
     };
+    if (stateObj.track !== undefined) {
+      if (!stateObj.track || typeof stateObj.track !== 'object' || Array.isArray(stateObj.track)) {
+        errors.push(`State "${stateKey}" track must be an object`);
+      } else {
+        const track = stateObj.track as { event?: unknown };
+        if (track.event !== undefined && track.event !== 'lead' && track.event !== 'appointment') {
+          errors.push(`State "${stateKey}" track.event must be 'lead' or 'appointment'`);
+        }
+      }
+    }
     if (!stateObj.message || typeof stateObj.message !== 'string') {
       errors.push(`State "${stateKey}" message must be a string`);
     } else if (stateObj.message.length > BOT_LIMITS.MAX_MESSAGE_LENGTH) {
@@ -282,8 +293,18 @@ export function validateBotSchema(schema: unknown): { valid: boolean; errors: st
           continue;
         }
 
-        const buttonObj = button as { text?: unknown; nextState?: unknown; type?: unknown; url?: unknown };
+        const buttonObj = button as { text?: unknown; nextState?: unknown; type?: unknown; url?: unknown; track?: unknown };
         const buttonType = buttonObj.type ?? 'navigation';
+        if (buttonObj.track !== undefined) {
+          if (!buttonObj.track || typeof buttonObj.track !== 'object' || Array.isArray(buttonObj.track)) {
+            errors.push(`Button track in state "${stateKey}" must be an object`);
+          } else {
+            const track = buttonObj.track as { event?: unknown };
+            if (track.event !== undefined && track.event !== 'lead' && track.event !== 'appointment') {
+              errors.push(`Button track.event in state "${stateKey}" must be 'lead' or 'appointment'`);
+            }
+          }
+        }
         if (buttonType !== 'navigation' && buttonType !== 'request_contact' && buttonType !== 'request_email' && buttonType !== 'url') {
           errors.push(`Button type in state "${stateKey}" must be 'navigation', 'request_contact', 'request_email', or 'url'`);
         }

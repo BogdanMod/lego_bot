@@ -21,6 +21,12 @@ type IngestParams = {
   profile?: UserProfile;
 };
 
+/** Явное событие из схемы (track.event) или request_contact → lead. При отсутствии — fallback по флагу. */
+export type IngestTrackEvent = 'lead' | 'appointment' | null;
+
+const FALLBACK_INFER_OPERATIONAL_TYPE =
+  (process.env.FALLBACK_INFER_OPERATIONAL_TYPE ?? 'true').toLowerCase() === 'true';
+
 async function ensureDedup(botId: string, sourceId: string): Promise<boolean> {
   const client = await getPostgresClient();
   try {
@@ -35,6 +41,25 @@ async function ensureDedup(botId: string, sourceId: string): Promise<boolean> {
   } finally {
     client.release();
   }
+}
+
+/** Есть ли уже запись lead/appointment для (bot_id, customer_id) за последние 10 минут со статусом 'new'. */
+async function hasRecentLeadOrAppointment(
+  client: { query: (q: string, v: unknown[]) => Promise<{ rows: unknown[] }> },
+  botId: string,
+  customerId: string | null,
+  kind: 'lead' | 'appointment'
+): Promise<boolean> {
+  if (!customerId) return false;
+  const table = kind === 'lead' ? 'leads' : 'appointments';
+  const result = await client.query(
+    `SELECT 1 FROM ${table}
+     WHERE bot_id = $1 AND customer_id = $2 AND status = 'new'
+       AND created_at >= now() - interval '10 minutes'
+     LIMIT 1`,
+    [botId, customerId]
+  );
+  return (result.rows?.length ?? 0) > 0;
 }
 
 async function upsertCustomer(params: {
@@ -82,12 +107,29 @@ function inferOperationalType(messageText?: string | null): 'lead' | 'order' | '
   const value = (messageText || '').toLowerCase();
   if (!value) return null;
   if (value.includes('заказ') || value.includes('доставка') || value.includes('оплат')) return 'order';
-  if (value.includes('запис') || value.includes('время') || value.includes('мастер')) return 'appointment';
+  // Запись: текст кнопки/сообщения или ключ состояния финала (thanks, confirm)
+  if (
+    value.includes('запис') ||
+    value.includes('время') ||
+    value.includes('мастер') ||
+    value.includes('thanks') ||
+    value.includes('thank') ||
+    value.includes('spasibo') ||
+    value.includes('confirm') ||
+    value.includes('podtverd') ||
+    value.includes('blagodar') ||
+    value.includes('record') ||
+    value.includes('booking')
+  )
+    return 'appointment';
   if (value.includes('заявк') || value.includes('хочу') || value.includes('интерес')) return 'lead';
   return null;
 }
 
-export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
+export async function ingestOwnerEvent(
+  params: IngestParams,
+  options?: { trackEvent?: IngestTrackEvent; requestContact?: boolean }
+): Promise<void> {
   const isFresh = await ensureDedup(params.botId, params.sourceId);
   if (!isFresh) return;
 
@@ -100,7 +142,17 @@ export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
     email: params.profile?.email ?? null,
   });
 
-  const inferred = inferOperationalType(params.messageText);
+  const explicitTrack = options?.trackEvent ?? null;
+  const isRequestContact = options?.requestContact === true;
+  const inferredFromHeuristic =
+    FALLBACK_INFER_OPERATIONAL_TYPE ? inferOperationalType(params.messageText) : null;
+  const effective: IngestTrackEvent | 'order' | null =
+    explicitTrack === 'lead' || explicitTrack === 'appointment'
+      ? explicitTrack
+      : isRequestContact
+        ? 'lead'
+        : inferredFromHeuristic;
+
   let entityType: string | null = customerId ? 'customer' : null;
   let entityId: string | null = customerId;
   let eventType = params.type;
@@ -109,17 +161,20 @@ export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
   try {
     await client.query('BEGIN');
 
-    if (inferred === 'lead') {
-      const lead = await client.query<{ id: string }>(
-        `INSERT INTO leads (bot_id, customer_id, status, title, message, source, payload_json)
-         VALUES ($1, $2::uuid, 'new', $3, $4, 'telegram', $5)
-         RETURNING id::text as id`,
-        [params.botId, customerId, 'Новая заявка', params.messageText ?? null, params.payload ?? null]
-      );
-      entityType = 'lead';
-      entityId = lead.rows[0]?.id ?? null;
-      eventType = 'lead_created';
-    } else if (inferred === 'order') {
+    if (effective === 'lead') {
+      const recent = await hasRecentLeadOrAppointment(client, params.botId, customerId, 'lead');
+      if (!recent) {
+        const lead = await client.query<{ id: string }>(
+          `INSERT INTO leads (bot_id, customer_id, status, title, message, source, payload_json)
+           VALUES ($1, $2::uuid, 'new', $3, $4, 'telegram', $5)
+           RETURNING id::text as id`,
+          [params.botId, customerId, 'Новая заявка', params.messageText ?? null, params.payload ?? null]
+        );
+        entityType = 'lead';
+        entityId = lead.rows[0]?.id ?? null;
+        eventType = 'lead_created';
+      }
+    } else if (effective === 'order') {
       const order = await client.query<{ id: string }>(
         `INSERT INTO orders (bot_id, customer_id, status, payment_status, amount, currency, payload_json)
          VALUES ($1, $2::uuid, 'new', 'pending', NULL, 'RUB', $3)
@@ -129,18 +184,21 @@ export async function ingestOwnerEvent(params: IngestParams): Promise<void> {
       entityType = 'order';
       entityId = order.rows[0]?.id ?? null;
       eventType = 'order_created';
-    } else if (inferred === 'appointment') {
-      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      const endsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-      const appointment = await client.query<{ id: string }>(
-        `INSERT INTO appointments (bot_id, customer_id, status, starts_at, ends_at, payload_json)
-         VALUES ($1, $2::uuid, 'new', $3::timestamptz, $4::timestamptz, $5)
-         RETURNING id::text as id`,
-        [params.botId, customerId, startsAt, endsAt, params.payload ?? null]
-      );
-      entityType = 'appointment';
-      entityId = appointment.rows[0]?.id ?? null;
-      eventType = 'appointment_created';
+    } else if (effective === 'appointment') {
+      const recent = await hasRecentLeadOrAppointment(client, params.botId, customerId, 'appointment');
+      if (!recent) {
+        const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        const endsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        const appointment = await client.query<{ id: string }>(
+          `INSERT INTO appointments (bot_id, customer_id, status, starts_at, ends_at, payload_json)
+           VALUES ($1, $2::uuid, 'new', $3::timestamptz, $4::timestamptz, $5)
+           RETURNING id::text as id`,
+          [params.botId, customerId, startsAt, endsAt, params.payload ?? null]
+        );
+        entityType = 'appointment';
+        entityId = appointment.rows[0]?.id ?? null;
+        eventType = 'appointment_created';
+      }
     }
 
     const eventResult = await client.query<{ id: string; created_at: string }>(

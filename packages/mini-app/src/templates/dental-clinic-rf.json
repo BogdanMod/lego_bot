@@ -76,6 +76,7 @@
       },
       "booking_confirm": {
         "message": "Заявка принята. С вами свяжутся для подтверждения времени и подготовки к визиту.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" },
           { "text": "Посмотреть акции", "nextState": "promotions" }
@@ -97,6 +98,7 @@
       },
       "promo_done": {
         "message": "Готово! Акция закреплена. Администратор свяжется с вами.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" }
         ]
@@ -147,6 +149,7 @@
       },
       "callback_done": {
         "message": "Спасибо! Мы получили ваш запрос.",
+        "track": { "event": "lead" },
         "buttons": [
           { "text": "Вернуться в меню", "nextState": "start" }
         ]

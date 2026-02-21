@@ -795,15 +795,22 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
     revenuePotentialRub: number;
     conversionPct: number | null;
     confirmedOrdersCount: number;
+    usersWroteCount: number;
+    newUsersCount: number;
+    appointmentsCount: number;
   };
   summary7d: {
     leadsCount: number;
     ordersCount: number;
     revenuePotentialRub: number;
     avgCheckRub: number | null;
+    usersWroteCount: number;
+    newUsersCount: number;
+    appointmentsCount: number;
   };
   latestOrders: Array<Record<string, unknown>>;
   latestLeads: Array<Record<string, unknown>>;
+  latestAppointments: Array<Record<string, unknown>>;
 }> {
   const client = await getPostgresClient();
   try {
@@ -817,6 +824,38 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       [botId]
     );
     const todayLeadsCount = Number(todayLeadsResult.rows[0]?.count ?? 0);
+
+    const todayUsersWroteResult = await client.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT (payload_json->>'telegram_user_id'))::text as count
+       FROM bot_events
+       WHERE bot_id = $1
+         AND created_at >= date_trunc('day', now())
+         AND created_at < date_trunc('day', now()) + interval '1 day'
+         AND (payload_json->>'telegram_user_id') IS NOT NULL
+         AND (payload_json->>'telegram_user_id') != ''`,
+      [botId]
+    );
+    const todayUsersWroteCount = Number(todayUsersWroteResult.rows[0]?.count ?? 0);
+
+    const todayNewUsersResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM customers
+       WHERE bot_id = $1
+         AND created_at >= date_trunc('day', now())
+         AND created_at < date_trunc('day', now()) + interval '1 day'`,
+      [botId]
+    );
+    const todayNewUsersCount = Number(todayNewUsersResult.rows[0]?.count ?? 0);
+
+    const todayAppointmentsResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM appointments
+       WHERE bot_id = $1
+         AND created_at >= date_trunc('day', now())
+         AND created_at < date_trunc('day', now()) + interval '1 day'`,
+      [botId]
+    );
+    const todayAppointmentsCount = Number(todayAppointmentsResult.rows[0]?.count ?? 0);
 
     const todayOrdersResult = await client.query<{
       count: string;
@@ -849,6 +888,35 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       [botId]
     );
     const sevenDaysLeadsCount = Number(sevenDaysLeadsResult.rows[0]?.count ?? 0);
+
+    const sevenDaysUsersWroteResult = await client.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT (payload_json->>'telegram_user_id'))::text as count
+       FROM bot_events
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '7 days'
+         AND (payload_json->>'telegram_user_id') IS NOT NULL
+         AND (payload_json->>'telegram_user_id') != ''`,
+      [botId]
+    );
+    const sevenDaysUsersWroteCount = Number(sevenDaysUsersWroteResult.rows[0]?.count ?? 0);
+
+    const sevenDaysNewUsersResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM customers
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '7 days'`,
+      [botId]
+    );
+    const sevenDaysNewUsersCount = Number(sevenDaysNewUsersResult.rows[0]?.count ?? 0);
+
+    const sevenDaysAppointmentsResult = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text as count
+       FROM appointments
+       WHERE bot_id = $1
+         AND created_at >= now() - interval '7 days'`,
+      [botId]
+    );
+    const sevenDaysAppointmentsCount = Number(sevenDaysAppointmentsResult.rows[0]?.count ?? 0);
 
     const sevenDaysOrdersResult = await client.query<{
       count: string;
@@ -910,6 +978,26 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       [botId]
     );
 
+    // Latest appointments (last 20) with customer name
+    const latestAppointmentsResult = await client.query(
+      `SELECT 
+         a.id::text as id,
+         a.bot_id::text as "botId",
+         a.status,
+         a.starts_at::text as "startsAt",
+         a.ends_at::text as "endsAt",
+         a.created_at::text as "createdAt",
+         a.updated_at::text as "updatedAt",
+         a.payload_json as payload,
+         c.name as "customerName"
+       FROM appointments a
+       LEFT JOIN customers c ON c.id = a.customer_id
+       WHERE a.bot_id = $1
+       ORDER BY a.created_at DESC
+       LIMIT 20`,
+      [botId]
+    );
+
     return {
       summaryToday: {
         leadsCount: todayLeadsCount,
@@ -917,15 +1005,22 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
         revenuePotentialRub: todayRevenue,
         conversionPct: todayConversionPct,
         confirmedOrdersCount: todayConfirmedCount,
+        usersWroteCount: todayUsersWroteCount,
+        newUsersCount: todayNewUsersCount,
+        appointmentsCount: todayAppointmentsCount,
       },
       summary7d: {
         leadsCount: sevenDaysLeadsCount,
         ordersCount: sevenDaysOrdersCount,
         revenuePotentialRub: sevenDaysRevenue,
         avgCheckRub: sevenDaysAvgCheck,
+        usersWroteCount: sevenDaysUsersWroteCount,
+        newUsersCount: sevenDaysNewUsersCount,
+        appointmentsCount: sevenDaysAppointmentsCount,
       },
       latestOrders: latestOrdersResult.rows,
       latestLeads: latestLeadsResult.rows,
+      latestAppointments: latestAppointmentsResult.rows,
     };
   } finally {
     client.release();

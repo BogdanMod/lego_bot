@@ -87,6 +87,9 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
     revenuePotentialRub: 0,
     conversionPct: null,
     confirmedOrdersCount: 0,
+    usersWroteCount: 0,
+    newUsersCount: 0,
+    appointmentsCount: 0,
   };
 
   const summary7d = data?.summary7d || {
@@ -94,10 +97,14 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
     ordersCount: 0,
     revenuePotentialRub: 0,
     avgCheckRub: null,
+    usersWroteCount: 0,
+    newUsersCount: 0,
+    appointmentsCount: 0,
   };
 
   const latestOrders = data?.latestOrders || [];
   const latestLeads = data?.latestLeads || [];
+  const latestAppointments = data?.latestAppointments || [];
 
   const getStatusLabel = (status?: string) => {
     switch (status) {
@@ -128,8 +135,20 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
     }
   };
 
-  const hasData = summaryToday.leadsCount > 0 || summaryToday.ordersCount > 0 || 
-                  summary7d.leadsCount > 0 || summary7d.ordersCount > 0;
+  const leadsCount = range === 'today' ? summaryToday.leadsCount : summary7d.leadsCount;
+  const appointmentsCount = range === 'today' ? summaryToday.appointmentsCount : summary7d.appointmentsCount;
+  const hasData =
+    summaryToday.leadsCount > 0 ||
+    summaryToday.ordersCount > 0 ||
+    summaryToday.usersWroteCount > 0 ||
+    summaryToday.appointmentsCount > 0 ||
+    summary7d.leadsCount > 0 ||
+    summary7d.ordersCount > 0 ||
+    summary7d.usersWroteCount > 0 ||
+    summary7d.appointmentsCount > 0 ||
+    latestLeads.length > 0 ||
+    latestAppointments.length > 0 ||
+    latestOrders.length > 0;
 
   // Determine bot status for display
   const getBotStatusInfo = () => {
@@ -217,9 +236,16 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
         </div>
       )}
 
-      {/* Range Selector */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Обзор</h2>
+      {/* Range Selector + Последняя активность */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Обзор</h2>
+          {(botStatus.lastEventAt || botStatus.lastActivityAt) && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Последняя активность: {formatDate(botStatus.lastEventAt || botStatus.lastActivityAt || '')}
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setRange('today')}
@@ -244,180 +270,179 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
         </div>
       </div>
 
-      {!hasData && latestOrders.length === 0 && latestLeads.length === 0 ? (
+      {!hasData && latestOrders.length === 0 && latestLeads.length === 0 && latestAppointments.length === 0 ? (
         <EmptyState
           title="Нет данных за период"
           description="Запустите бота и получите первые заявки."
         />
       ) : (
         <>
-          {/* KPI Cards */}
-          {range === 'today' ? (
-            <div className="grid grid-cols-4 gap-4">
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Новые заявки сегодня
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summaryToday.leadsCount}
-                </div>
+          {/* Чёткие метрики: не смешиваем leads и appointments */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Пользователей написало
               </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Новые заказы сегодня
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summaryToday.ordersCount}
-                </div>
+              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                {range === 'today' ? summaryToday.usersWroteCount : summary7d.usersWroteCount}
               </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Потенциальный доход сегодня
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summaryToday.revenuePotentialRub.toLocaleString('ru-RU')} ₽
-                </div>
-              </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Конверсия сегодня
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summaryToday.conversionPct !== null ? `${summaryToday.conversionPct}%` : '—'}
-                </div>
+              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-4 gap-4">
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Новые заявки (7д)
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summary7d.leadsCount}
-                </div>
+            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Новых пользователей
               </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Новые заказы (7д)
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summary7d.ordersCount}
-                </div>
+              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                {range === 'today' ? summaryToday.newUsersCount : summary7d.newUsersCount}
               </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Потенциальный доход (7д)
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summary7d.revenuePotentialRub.toLocaleString('ru-RU')} ₽
-                </div>
-              </div>
-              <div className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  Средний чек (7д)
-                </div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {summary7d.avgCheckRub !== null ? `${summary7d.avgCheckRub.toLocaleString('ru-RU')} ₽` : '—'}
-                </div>
+              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
             </div>
-          )}
-
-          {/* Info text */}
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            Доход — это сумма заказов. Оплата проходит вне бота.
+            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Заявок (leads)
+              </div>
+              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                {leadsCount}
+              </div>
+              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {range === 'today' ? 'за сегодня' : 'за 7 дней'}
+              </div>
+            </div>
+            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Записей (appointments)
+              </div>
+              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                {appointmentsCount}
+              </div>
+              <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {range === 'today' ? 'за сегодня' : 'за 7 дней'}
+              </div>
+            </div>
           </div>
 
-          {/* Latest Orders Table */}
-          <div className="space-y-4">
+          {/* Таблица записей (стиль Google Sheets) */}
+          <div className="space-y-3">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Последние заказы
+              Записи
             </h3>
-            {latestOrders.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 rounded-lg">
-                Нет заказов
-              </div>
-            ) : (
-              <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+            {(() => {
+              type Row = { id: string; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string };
+              const rows: Row[] = [
+                ...latestAppointments.map((a: any) => ({
+                  id: a.id,
+                  createdAt: a.createdAt,
+                  type: 'appointment' as const,
+                  customerName: a.customerName ?? null,
+                  details: a.startsAt ? `Запись ${new Date(a.startsAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Запись',
+                  status: a.status || 'new',
+                })),
+                ...latestLeads.map((l: any) => ({
+                  id: l.id,
+                  createdAt: l.createdAt,
+                  type: 'lead' as const,
+                  customerName: null,
+                  details: l.title || l.message || 'Заявка',
+                  status: l.status || 'new',
+                })),
+              ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 50);
+
+              if (rows.length === 0) {
+                return (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 p-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Нет записей. Заявки и записи появятся здесь после действий пользователей в боте.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse" style={{ minWidth: 560 }}>
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                            Дата и время
+                          </th>
+                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                            Тип
+                          </th>
+                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                            Клиент
+                          </th>
+                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3 border-r border-slate-200 dark:border-slate-700">
+                            Детали
+                          </th>
+                          <th className="text-left text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider px-4 py-3">
+                            Статус
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700/80">
+                        {rows.map((row, i) => (
+                          <tr
+                            key={`${row.type}-${row.id}`}
+                            className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50 dark:bg-slate-700/20' : ''}`}
+                          >
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap border-r border-slate-100 dark:border-slate-700/50">
+                              {formatDate(row.createdAt)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                              {row.type === 'appointment' ? 'Запись' : 'Заявка'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                              {row.customerName || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-700/50">
+                              {row.details}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
+                              {getStatusLabel(row.status)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Дополнительно: заказы (если есть) */}
+          {latestOrders.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                Последние заказы
+              </h3>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-800">
+                  <thead className="bg-slate-50 dark:bg-slate-800/80">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Дата/время
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Сумма
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Статус
-                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Дата/время</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Сумма</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 dark:text-slate-400">Статус</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/80">
                     {latestOrders.map((order: any) => (
-                      <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
-                        <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
-                          {formatDate(order.createdAt)}
-                        </td>
+                      <tr key={order.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-700/30">
+                        <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">{formatDate(order.createdAt)}</td>
                         <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100">
                           {order.amount ? `${Number(order.amount).toLocaleString('ru-RU')} ${order.currency || '₽'}` : '—'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
-                          {getStatusLabel(order.status)}
-                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">{getStatusLabel(order.status)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </div>
-
-          {/* Latest Leads Table */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Последние заявки
-            </h3>
-            {latestLeads.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 rounded-lg">
-                Нет заявок
-              </div>
-            ) : (
-              <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-slate-50 dark:bg-slate-800">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Дата/время
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Заголовок
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-600 dark:text-slate-400">
-                        Статус
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {latestLeads.map((lead: any) => (
-                      <tr key={lead.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
-                        <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
-                          {formatDate(lead.createdAt)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
-                          {lead.title || lead.message || 'Без названия'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
-                          {lead.status || 'Новая'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </div>

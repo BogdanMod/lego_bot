@@ -4,6 +4,7 @@ export type {
   MediaContent,
   MediaGroupItem,
   BotSchema,
+  TrackEvent,
   NavigationButton,
   RequestContactButton,
   RequestEmailButton,

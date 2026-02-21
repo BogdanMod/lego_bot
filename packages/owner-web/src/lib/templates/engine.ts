@@ -76,7 +76,7 @@ export function patchWithModule(
       break;
       
     case 'schedule':
-      // Add schedule state
+      // Add schedule state (финальный шаг записи → аналитика appointment)
       if (!patched.schema.states.schedule) {
         patched.schema.states.schedule = {
           message: substitute(
@@ -84,6 +84,7 @@ export function patchWithModule(
             answers
           ),
           buttons: [{ text: '⬅️ Назад', nextState: patched.schema.initialState }],
+          track: { event: 'appointment' },
         };
       }
       break;
@@ -130,7 +131,7 @@ export function patchWithModule(
       break;
       
     case 'leads':
-      // Add lead collection state
+      // Add lead collection state (шаг заявки → аналитика lead)
       if (!patched.schema.states.lead) {
         patched.schema.states.lead = {
           message: substitute(
@@ -138,6 +139,7 @@ export function patchWithModule(
             answers
           ),
           buttons: [{ text: '⬅️ Назад', nextState: patched.schema.initialState }],
+          track: { event: 'lead' },
         };
       }
       break;

@@ -6,6 +6,12 @@ export const CreateBotSchema = z.object({
   name: z.string().min(1).max(100).transform(sanitizeText),
 });
 
+const TrackEventSchema = z
+  .object({
+    event: z.enum(['lead', 'appointment']).optional(),
+  })
+  .optional();
+
 const ButtonSchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== 'object') {
@@ -22,6 +28,7 @@ const ButtonSchema = z.preprocess(
       type: z.literal('navigation'),
       text: z.string().transform(sanitizeText),
       nextState: z.string(),
+      track: TrackEventSchema,
     }),
     z.object({
       type: z.literal('url'),
@@ -32,11 +39,13 @@ const ButtonSchema = z.preprocess(
       type: z.literal('request_contact'),
       text: z.string().transform(sanitizeText),
       nextState: z.string(),
+      track: TrackEventSchema,
     }),
     z.object({
       type: z.literal('request_email'),
       text: z.string().transform(sanitizeText),
       nextState: z.string(),
+      track: TrackEventSchema,
     }),
   ])
 );
@@ -78,6 +87,7 @@ const StateSchema = z.object({
   buttons: z.array(ButtonSchema).optional(),
   webhook: WebhookConfigSchema.optional(),
   integration: IntegrationTemplateSchema.optional(),
+  track: TrackEventSchema,
 });
 
 export const UpdateBotSchemaSchema = z.object({
