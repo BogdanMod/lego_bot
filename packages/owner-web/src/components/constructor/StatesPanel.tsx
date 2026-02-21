@@ -115,7 +115,7 @@ export function StatesPanel({
                 >
                   <div className="flex items-center gap-2">
                     {isInitial && (
-                      <Rocket className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 flex-shrink-0" title="Старт" />
+                      <span title="Старт"><Rocket className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 flex-shrink-0" /></span>
                     )}
                     <span
                       className={`text-sm font-medium block truncate ${
