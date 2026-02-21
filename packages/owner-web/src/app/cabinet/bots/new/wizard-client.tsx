@@ -174,7 +174,7 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
           >
             <div className="text-2xl mb-2">➕</div>
             <div className="font-medium mb-1">Создать с нуля</div>
-            <div className="text-sm text-muted-foreground">Пустой бот</div>
+            <div className="text-sm text-muted-foreground">5–6 вопросов → ИИ соберёт схему</div>
           </button>
         </div>
         <button
@@ -214,7 +214,7 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   }
   
   const wizardSteps: WizardStep[] =
-    selectedTemplate === 'ai'
+    selectedTemplate === 'ai' || selectedTemplate === 'empty'
       ? AI_WIZARD_STEPS
       : template?.wizard.steps || [
           {
@@ -245,7 +245,7 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   
   const handleCreate = async () => {
     try {
-      if (selectedTemplate === 'ai') {
+      if (selectedTemplate === 'ai' || selectedTemplate === 'empty') {
         setIsGeneratingSchema(true);
         try {
           const answersForApi: Record<string, string> = {};
@@ -255,10 +255,10 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
           }
           const { schema } = await ownerGenerateSchema(answersForApi);
           await createMutation.mutateAsync({
-          name: (answers.businessName as string) || 'Мой бот',
-          timezone: (answers.timezone as string) || 'Europe/Moscow',
-          language: (answers.language as string) || 'ru',
-          config: { schema, metadata: { source: 'ai_wizard' } },
+            name: (answers.businessName as string) || 'Мой бот',
+            timezone: (answers.timezone as string) || 'Europe/Moscow',
+            language: (answers.language as string) || 'ru',
+            config: { schema, metadata: { source: selectedTemplate === 'ai' ? 'ai_wizard' : 'wizard_from_scratch' } },
           });
         } catch (err: unknown) {
           const msg = (err as ApiError)?.message || (err instanceof Error ? err.message : 'Ошибка генерации схемы');

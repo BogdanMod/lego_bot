@@ -4,11 +4,15 @@ import { useQuery } from '@tanstack/react-query';
 import { openOwnerWebCabinet } from '../utils/ownerWeb';
 
 export default function StatusPage() {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['miniapp-overview'],
     queryFn: async () => {
-      const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-      const initData = window.Telegram?.WebApp?.initData;
+      const tg = window.Telegram?.WebApp;
+      const userId = tg?.initDataUnsafe?.user?.id;
+      let initData = tg?.initData;
+      if (!initData && tg?.initDataUnsafe) {
+        initData = (tg as any).initData ?? '';
+      }
       if (!userId || !initData) {
         throw new Error('Telegram auth required');
       }
@@ -28,14 +32,18 @@ export default function StatusPage() {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to load data');
+        throw new Error(response.status === 401 ? 'Сессия истекла. Закройте и откройте бота снова.' : `Ошибка ${response.status}`);
       }
 
       return response.json();
     },
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(600 * 2 ** attemptIndex, 3000),
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
-  if (isLoading) {
+  if (isLoading && !isRefetching) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="text-sm text-slate-500 dark:text-slate-400">Загрузка...</div>
@@ -46,13 +54,24 @@ export default function StatusPage() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="text-center">
+        <div className="text-center max-w-xs">
           <div className="text-sm text-red-500 mb-2">Ошибка загрузки</div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            {(error as Error).message}
+          </p>
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="text-sm text-blue-500 dark:text-blue-400 underline disabled:opacity-50"
+          >
+            {isRefetching ? 'Загрузка…' : 'Обновить'}
+          </button>
+          <span className="text-slate-400 mx-2">или</span>
           <button
             onClick={() => window.location.reload()}
-            className="text-xs text-slate-500 dark:text-slate-400 underline"
+            className="text-sm text-slate-500 dark:text-slate-400 underline"
           >
-            Обновить
+            перезагрузить страницу
           </button>
         </div>
       </div>
