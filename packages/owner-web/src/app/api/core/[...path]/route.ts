@@ -113,13 +113,17 @@ async function proxy(req: NextRequest, pathParts: string[]) {
     }));
 
     const hasBody = !['GET', 'HEAD'].includes(req.method.toUpperCase());
-    
+    // Longer timeout for LLM/generate-schema and bot creation (path: owner/bots, owner/bots/generate-schema)
+    const isLongOperation =
+      req.method.toUpperCase() === 'POST' &&
+      (incomingPath.includes('/owner/bots/generate-schema') || (incomingPath === '/api/core/owner/bots' && hasBody));
+    const proxyTimeoutMs = isLongOperation ? 60000 : 3000;
+
     let upstream: Response;
     try {
-      // Add timeout for proxy fetch (3000ms)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
+      const timeoutId = setTimeout(() => controller.abort(), proxyTimeoutMs);
+
       try {
         upstream = await fetch(targetUrl, {
           method: req.method,
@@ -135,7 +139,7 @@ async function proxy(req: NextRequest, pathParts: string[]) {
         clearTimeout(timeoutId);
         if (fetchError?.name === 'AbortError') {
           return NextResponse.json(
-            { ok: false, code: 'proxy_timeout', message: 'Upstream request timeout (3000ms)' },
+            { ok: false, code: 'proxy_timeout', message: `Upstream request timeout (${proxyTimeoutMs}ms)` },
             { status: 504 }
           );
         }

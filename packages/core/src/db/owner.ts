@@ -183,9 +183,8 @@ export async function getBotRoleForUser(botId: string, telegramUserId: number): 
 
 /**
  * Удалить бота по доступу через bot_admins (owner/admin).
- * Список ботов в Owner Web и Mini App строится по bot_admins + is_active/deleted_at,
- * поэтому удаление должно выполняться по тому же принципу, а не по bots.user_id.
- * После вызова бот исчезает из списков везде (soft delete).
+ * Жёсткое удаление (DELETE): бот и все связанные данные удаляются навсегда
+ * за счёт ON DELETE CASCADE (bot_admins, bot_settings, leads, orders и т.д.).
  */
 export async function deleteBotByOwnerAccess(botId: string, telegramUserId: number): Promise<boolean> {
   const role = await getBotRoleForUser(botId, telegramUserId);
@@ -195,10 +194,7 @@ export async function deleteBotByOwnerAccess(botId: string, telegramUserId: numb
   const client = await getPostgresClient();
   try {
     const result = await client.query(
-      `UPDATE bots
-       SET is_active = false, deleted_at = NOW(), webhook_set = false, updated_at = NOW()
-       WHERE id = $1 AND (is_active = true OR deleted_at IS NULL)
-       RETURNING id`,
+      `DELETE FROM bots WHERE id = $1 RETURNING id`,
       [botId]
     );
     return (result.rowCount ?? 0) > 0;

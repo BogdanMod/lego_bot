@@ -29,16 +29,20 @@ const OwnerMeSchema = z.object({
   csrfToken: z.string(),
 });
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const DEFAULT_REQUEST_TIMEOUT_MS = 3000;
+const LONG_REQUEST_TIMEOUT_MS = 60000; // generate-schema, create bot (LLM can take 10–30s)
+
+type RequestInitWithTimeout = RequestInit & { timeoutMs?: number };
+
+async function request<T>(path: string, init?: RequestInitWithTimeout): Promise<T> {
   const url = path;
-  
-  // Add timeout for server-side fetch (3000ms)
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, ...fetchInit } = init ?? {};
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 3000) : null;
-  
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
   try {
     const response = await fetch(url, {
-      ...init,
+      ...fetchInit,
       signal: controller?.signal,
       credentials: 'include',
       headers: {
@@ -103,7 +107,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (error?.name === 'AbortError') {
       const err: ApiError = {
         code: 'timeout',
-        message: 'Request timeout (3000ms)',
+        message: `Request timeout (${(init as RequestInitWithTimeout)?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS}ms)`,
       };
       throw err;
     }
@@ -175,6 +179,8 @@ export async function ownerFetch<T>(
     method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
     body?: unknown;
     csrfToken?: string;
+    /** Таймаут в мс (для generate-schema и создания бота используем 60s). */
+    timeoutMs?: number;
   }
 ) {
   const method = options?.method || 'GET';
@@ -189,6 +195,7 @@ export async function ownerFetch<T>(
     method,
     headers,
     body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
+    timeoutMs: options?.timeoutMs,
   });
 }
 
@@ -295,6 +302,7 @@ export async function ownerCreateBot(payload: CreateBotPayload) {
   return ownerFetch<{ bot: { botId: string; name: string; role: string } }>('/api/owner/bots', {
     method: 'POST',
     body: payload,
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -303,6 +311,7 @@ export async function ownerGenerateSchema(answers: Record<string, string>) {
   return ownerFetch<{ schema: unknown }>('/api/owner/bots/generate-schema', {
     method: 'POST',
     body: { answers },
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
   });
 }
 
