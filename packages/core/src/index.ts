@@ -38,6 +38,7 @@ import {
   getBotRealStatus,
   getOrder,
   getOwnerAccessibleBots,
+  deleteBotByOwnerAccess,
   insertOwnerAudit,
   listAppointments,
   listBotTeam,
@@ -4032,11 +4033,8 @@ app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireO
   }, 'DELETE /api/owner/bots/:botId - starting deletion');
 
   try {
-    const deleted = await deleteBot(botId, actorUserId, {
-      requestId,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
+    // Удаление по доступу через bot_admins (owner/admin), чтобы бот исчезал везде при перезаходе
+    const deleted = await deleteBotByOwnerAccess(botId, actorUserId);
 
     if (!deleted) {
       logger.warn({
@@ -4044,9 +4042,9 @@ app.delete('/api/owner/bots/:botId', ensureDatabasesInitialized as any, requireO
         userId: actorUserId,
         botId,
         requestId,
-        reason: 'not_found_or_already_deleted',
-      }, 'Bot not found or already deleted');
-      return ownerError(res, 404, 'not_found', 'Бот не найден или уже деактивирован');
+        reason: 'not_found_or_no_access_or_already_deleted',
+      }, 'Bot not found, no access, or already deleted');
+      return ownerError(res, 404, 'not_found', 'Бот не найден или уже удалён');
     }
 
     logger.info({
