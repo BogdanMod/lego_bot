@@ -4564,7 +4564,7 @@ app.post('/api/owner/bots/:botId/appointments/:id/confirm', ensureDatabasesIniti
   if (result.code === 'insufficient_data') {
     return ownerError(res, 400, 'insufficient_data', result.message);
   }
-  return ownerError(res, 400, 'bad_request', result.message);
+  return ownerError(res, 400, 'bad_request', 'Не удалось подтвердить запись');
 });
 
 app.get('/api/owner/bots/:botId/availability', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAvailabilityQuerySchema) as any, async (req: Request, res: Response) => {
