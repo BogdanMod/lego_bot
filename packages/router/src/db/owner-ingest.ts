@@ -126,12 +126,16 @@ function inferOperationalType(messageText?: string | null): 'lead' | 'order' | '
   return null;
 }
 
+export type IngestResult = {
+  created?: { type: 'lead' | 'appointment'; entityId: string };
+};
+
 export async function ingestOwnerEvent(
   params: IngestParams,
   options?: { trackEvent?: IngestTrackEvent; requestContact?: boolean }
-): Promise<void> {
+): Promise<IngestResult> {
   const isFresh = await ensureDedup(params.botId, params.sourceId);
-  if (!isFresh) return;
+  if (!isFresh) return {};
 
   const customerId = await upsertCustomer({
     botId: params.botId,
@@ -161,6 +165,7 @@ export async function ingestOwnerEvent(
   try {
     await client.query('BEGIN');
 
+    let createdType: 'lead' | 'appointment' | null = null;
     if (effective === 'lead') {
       const recent = await hasRecentLeadOrAppointment(client, params.botId, customerId, 'lead');
       if (!recent) {
@@ -173,6 +178,7 @@ export async function ingestOwnerEvent(
         entityType = 'lead';
         entityId = lead.rows[0]?.id ?? null;
         eventType = 'lead_created';
+        createdType = 'lead';
         if (process.env.NODE_ENV !== 'production' && isRequestContact) {
           // eslint-disable-next-line no-console
           console.debug('[ingest] message.contact → lead created', { botId: params.botId, customerId });
@@ -205,6 +211,7 @@ export async function ingestOwnerEvent(
         entityType = 'appointment';
         entityId = appointment.rows[0]?.id ?? null;
         eventType = 'appointment_created';
+        createdType = 'appointment';
       }
     }
 
@@ -254,6 +261,11 @@ export async function ingestOwnerEvent(
         console.error('[ingest] Failed to add event to Redis stream:', redisError);
       }
     }
+    const createdResult: IngestResult =
+      createdType && entityId
+        ? { created: { type: createdType, entityId } }
+        : {};
+    return createdResult;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

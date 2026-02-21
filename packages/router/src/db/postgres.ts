@@ -322,6 +322,27 @@ export async function getBotById(botId: string): Promise<Bot | null> {
 }
 
 /**
+ * Получить telegram_user_id админов бота (owner/admin) для уведомлений при недоступности Core.
+ * Таблица bot_admins общая с Core (Neon).
+ */
+export async function getBotAdminTelegramIds(botId: string): Promise<number[]> {
+  const client = await getPostgresClient();
+  try {
+    const result = await client.query<{ telegram_user_id: string }>(
+      `SELECT telegram_user_id::text as telegram_user_id
+       FROM bot_admins
+       WHERE bot_id = $1 AND role IN ('owner', 'admin')`,
+      [botId]
+    );
+    return result.rows.map((r) => Number(r.telegram_user_id)).filter(Number.isFinite);
+  } catch {
+    return [];
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Получить бота по webhook_secret
  */
 export async function getBotByWebhookSecret(webhookSecret: string): Promise<Bot | null> {

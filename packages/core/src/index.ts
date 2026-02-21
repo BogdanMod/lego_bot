@@ -3061,33 +3061,10 @@ app.get('/api/owner/auth/botlink/generate', ensureDatabasesInitialized as any, o
   let redirectPath = '/cabinet';
   
   if (nextPath && typeof nextPath === 'string') {
-    // Basic validation: must be relative, start with /, no protocol
-    if (nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//')) {
-      // Security: validate against whitelist
-      const allowedPaths = [
-        '/cabinet',
-        '/cabinet/create',
-        /^\/cabinet\/[a-z0-9-]+\/(overview|settings|inbox|calendar|orders|leads|customers|team|audit)$/,
-      ];
-      
-      const isValid = allowedPaths.some((pattern) => {
-        if (typeof pattern === 'string') {
-          return nextPath === pattern;
-        }
-        if (pattern instanceof RegExp) {
-          return pattern.test(nextPath);
-        }
-        return false;
-      });
-      
-      if (isValid) {
-        redirectPath = nextPath;
-      } else {
-        logger.warn(
-          { requestId, userId: telegramUserId, nextPath, reason: 'invalid_next_path' },
-          'Owner botlink generation: invalid next path, using default'
-        );
-      }
+    // Строгая валидация: только относительный путь, без протокола и ..
+    const isRelative = nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//') && !nextPath.includes('..');
+    if (isRelative) {
+      redirectPath = nextPath;
     } else {
       logger.warn(
         { requestId, userId: telegramUserId, nextPath, reason: 'malformed_next_path' },
@@ -5533,6 +5510,68 @@ app.post('/api/bot/:id/broadcasts/:broadcastId/cancel',
 
     await cancelBroadcast(broadcastId, userId);
     res.json({ success: true });
+  }
+);
+
+// POST /api/internal/owner/notification-links - Router calls to get botlink URLs for owner notifications
+app.post('/api/internal/owner/notification-links',
+  ensureDatabasesInitialized as any,
+  validateBody(z.object({
+    botId: z.string().min(1),
+    nextPaths: z.array(z.string().min(1)).max(10),
+  })) as any,
+  async (req: Request, res: Response) => {
+    const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+    const internalToken = process.env.INTERNAL_API_TOKEN?.trim();
+    const providedToken = req.headers['x-internal-token'] as string | undefined;
+    if (!internalToken || providedToken !== internalToken) {
+      logger.warn({ requestId }, 'Unauthorized internal notification-links attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const botlinkSecret = getOwnerBotlinkSecret();
+    const ownerWebBaseUrl = OWNER_WEB_BASE_URL;
+    if (!botlinkSecret || !ownerWebBaseUrl) {
+      logger.warn({ requestId }, 'Owner botlink not configured for notification-links');
+      return res.status(503).json({ error: 'Botlink not configured' });
+    }
+
+    const { botId, nextPaths } = req.body as { botId: string; nextPaths: string[] };
+    const safePaths = nextPaths.filter((p) => typeof p === 'string' && p.startsWith('/') && !p.includes('://') && !p.startsWith('//') && !p.includes('..'));
+    if (safePaths.length === 0) {
+      return res.status(400).json({ error: 'No valid next paths' });
+    }
+
+    const [bot, team] = await Promise.all([
+      getBotByIdAnyUser(botId),
+      listBotTeam(botId),
+    ]);
+    if (!bot || (bot as { deleted_at?: Date | null }).deleted_at) {
+      return res.status(404).json({ error: 'Bot not found or deleted' });
+    }
+    const botName = bot.name ?? 'Бот';
+    const admins = team.filter((m) => m.role === 'owner' || m.role === 'admin');
+    if (admins.length === 0) {
+      return res.json({ botName, byTelegramUserId: {} });
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const byTelegramUserId: Record<string, string[]> = {};
+    for (const member of admins) {
+      const urls: string[] = [];
+      for (const nextPath of safePaths) {
+        const jti = crypto.randomBytes(16).toString('hex');
+        const token = createOwnerBotlinkToken(
+          { telegramUserId: Number(member.telegramUserId), jti, ttlSec: 600 },
+          botlinkSecret,
+          nowSec
+        );
+        urls.push(`${ownerWebBaseUrl}/auth/bot?token=${encodeURIComponent(token)}&next=${encodeURIComponent(nextPath)}`);
+      }
+      byTelegramUserId[member.telegramUserId] = urls;
+    }
+    logger.info({ requestId, botId, adminCount: admins.length }, 'Owner notification-links generated');
+    return res.json({ botName, byTelegramUserId });
   }
 );
 

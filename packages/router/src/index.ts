@@ -23,6 +23,7 @@ import { initPostgres, getBotById, closePostgres, getBotSchema, getPoolStats, ge
 import { initRedis, closeRedis, getUserState, setUserState, getRedisClientOptional, getRedisCircuitBreakerStats, getRedisRetryStats, getInMemoryStateStats, setPendingInput, getPendingInput, clearPendingInput, markBroadcastUpdateProcessed } from './db/redis';
 import { decryptToken } from './utils/encryption';
 import { sendTelegramMessage, sendTelegramMessageWithKeyboard, sendTelegramMessageWithReplyKeyboard, sendTelegramMessageWithReplyKeyboardRemove, sendPhoto, sendVideo, sendDocument, sendAudio, sendMediaGroup, answerCallbackQuery, TelegramUpdate } from './services/telegram';
+import { notifyOwnersOfNewLeadOrAppointment } from './services/owner-notification';
 import type { BotButton, BotSchema, RequestContactButton, RequestEmailButton } from '@dialogue-constructor/shared/types/bot-schema';
 import * as crypto from 'crypto';
 import { createOrUpdateBotUser, getBotUserProfile } from './db/bot-users';
@@ -523,20 +524,22 @@ app.post('/webhook/:botId',
               last_name: update.message.from.last_name ?? null,
               username: update.message.from.username ?? null,
               language_code: update.message.from.language_code ?? null,
+              phone_number: update.message?.contact?.phone_number ?? null,
             }
           : undefined;
-        await ingestOwnerEvent(
+        const customerName = [
+          profileFromUpdate?.first_name,
+          profileFromUpdate?.last_name,
+        ]
+          .filter(Boolean)
+          .join(' ') || null;
+        const ingestResult = await ingestOwnerEvent(
           {
             botId,
             sourceId: `tg:${update.update_id}:${updateType}`,
             type: 'message_received',
             telegramUserId: userId ?? null,
-            customerName: [
-              profileFromUpdate?.first_name,
-              profileFromUpdate?.last_name,
-            ]
-              .filter(Boolean)
-              .join(' ') || null,
+            customerName,
             messageText: update.message?.text || null,
             payload: {
               updateType,
@@ -546,6 +549,14 @@ app.post('/webhook/:botId',
           },
           { requestContact: !!update.message?.contact }
         );
+        if (ingestResult?.created) {
+          notifyOwnersOfNewLeadOrAppointment(logger, botId, ingestResult.created.type, {
+            customerName,
+            phone: update.message?.contact?.phone_number ?? profileFromUpdate?.phone_number ?? null,
+            email: null,
+            createdAt: new Date().toISOString(),
+          }).catch((err) => logger.warn({ botId, err }, 'Owner notification failed'));
+        }
       } catch (ingestError) {
         logger.warn({ botId, requestId, ingestError }, 'Owner ingest failed, continuing webhook processing');
       }
@@ -733,24 +744,33 @@ async function handleUpdateWithSchema(
             language_code: update.callback_query.from.language_code ?? null,
           }
         : undefined;
-      await ingestOwnerEvent(
+      const customerName = [
+        profileFromCallback?.first_name,
+        profileFromCallback?.last_name,
+      ]
+        .filter(Boolean)
+        .join(' ') || null;
+      const ingestResult = await ingestOwnerEvent(
         {
           botId,
           sourceId: `tg:${update.update_id}:callback_query`,
           type: 'message_received',
           telegramUserId: userId,
-          customerName: [
-            profileFromCallback?.first_name,
-            profileFromCallback?.last_name,
-          ]
-            .filter(Boolean)
-            .join(' ') || null,
+          customerName,
           messageText: callbackData,
           payload: { updateType: 'callback_query', updateId: update.update_id },
           profile: profileFromCallback,
         },
         { trackEvent: trackEvent ?? undefined }
       );
+      if (ingestResult?.created) {
+        notifyOwnersOfNewLeadOrAppointment(requestLogger, botId, ingestResult.created.type, {
+          customerName,
+          phone: null,
+          email: null,
+          createdAt: new Date().toISOString(),
+        }).catch((err) => requestLogger.warn({ err }, 'Owner notification failed'));
+      }
     } catch (ingestError) {
       requestLogger.warn({ ingestError }, 'Owner ingest failed for callback');
     }
