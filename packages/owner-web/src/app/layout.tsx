@@ -7,8 +7,8 @@ import { SentryInit } from '@/components/sentry-init';
 // v2: Observability - Sentry initialization moved to client component
 
 export const metadata: Metadata = {
-  title: 'Owner Cabinet',
-  description: 'Owner Cabinet for Telegram bots',
+  title: 'Zer | Con',
+  description: 'Zero Context System — панель для Telegram-ботов',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

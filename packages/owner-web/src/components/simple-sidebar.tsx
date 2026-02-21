@@ -30,9 +30,10 @@ export function SimpleSidebar() {
     <aside className="border-r border-border bg-card flex flex-col h-screen w-56">
       {/* Header */}
       <div className="p-5 border-b border-border">
-        <div className="text-sm font-semibold text-fg">Owner Web</div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {authData?.user?.firstName || 'Пользователь'}
+        <div className="text-xs font-semibold text-primary tracking-wider">Zer | Con</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">Zero Context System</div>
+        <div className="mt-2 text-xs text-muted-foreground">
+          {authData?.user?.firstName || 'Мой кабинет'}
         </div>
       </div>
 

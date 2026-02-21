@@ -82,7 +82,9 @@ export default function BotAuthPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="panel w-full max-w-xl p-8">
-        <h1 className="text-2xl font-semibold">Вход в Owner Cabinet</h1>
+        <div className="text-xs font-semibold text-primary tracking-wider">Zer | Con</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">Zero Context System</div>
+        <h1 className="text-xl font-semibold text-fg mt-4">Вход</h1>
         <Suspense fallback={<p className="muted mt-3">Загрузка...</p>}>
           <BotAuthContent />
         </Suspense>

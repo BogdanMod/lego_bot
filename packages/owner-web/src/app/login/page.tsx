@@ -50,8 +50,10 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 bg-bg">
       <div className="panel w-full max-w-xl p-8 border-t-4 border-t-primary">
-        <h1 className="text-2xl font-semibold text-fg">Owner Cabinet</h1>
-        <p className="muted mt-2">Вход без пароля через Telegram</p>
+        <div className="text-xs font-semibold text-primary tracking-wider">Zer | Con</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">Zero Context System</div>
+        <h1 className="text-xl font-semibold text-fg mt-4">Вход</h1>
+        <p className="muted mt-1">Без пароля через Telegram</p>
         <div ref={containerRef} className="mt-6" />
         <div className="mt-4 rounded-lg border border-border p-3 text-sm muted">
           Альтернативный вход: откройте Telegram-бота и отправьте команду <b>/cabinet</b>.
