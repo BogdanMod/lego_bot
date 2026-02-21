@@ -105,11 +105,15 @@ export async function notifyOwnersOfNewLeadOrAppointment(
       const [a, b] = links ?? [];
       const hasValidLinks = links && links.length >= 2 && typeof a === 'string' && a.trim() !== '' && typeof b === 'string' && b.trim() !== '';
       if (hasValidLinks) {
-        // Назначение по содержимому: на мобильном порядок от Core или отображение кнопок может отличаться.
+        // Назначение по содержимому: next в URL от Core в encoded виде (%2Fm%3F, %2Fcabinet%2F).
         const looksLikeLite = (url: string) => /\/m[?%]|%2Fm%3F/.test(url);
-        const looksLikeFull = (url: string) => /\/cabinet\//.test(url);
-        const liteUrl = looksLikeLite(a) ? a : looksLikeLite(b) ? b : a;
-        const fullUrl = looksLikeFull(b) ? b : looksLikeFull(a) ? a : b;
+        const looksLikeFull = (url: string) => /\/cabinet\//.test(url) || /%2Fcabinet%2F/.test(url);
+        let liteUrl = looksLikeLite(a) ? a : looksLikeLite(b) ? b : a;
+        let fullUrl = looksLikeFull(a) ? a : looksLikeFull(b) ? b : b;
+        if (liteUrl === fullUrl) {
+          liteUrl = a;
+          fullUrl = b;
+        }
         if (process.env.NODE_ENV !== 'production') {
           logger.info({ litePath, fullPath, liteUrl, fullUrl }, 'owner notification links');
         }
