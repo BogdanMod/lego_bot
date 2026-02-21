@@ -1,10 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import { useOwnerAuth } from '@/hooks/use-owner-auth';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ownerSummary, ownerBots, ownerDeactivateBot, ownerActivateBot, ownerFetch, type ApiError } from '@/lib/api';
+import { ownerSummary, ownerBots, ownerStopBot, ownerActivateBot, ownerDeleteBot, ownerFetch, type ApiError } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // Force dynamic rendering
@@ -27,16 +28,16 @@ export default function CabinetIndexPage() {
     enabled: !!authData,
   });
 
-  const deactivateMutation = useMutation({
-    mutationFn: ownerDeactivateBot,
+  const stopMutation = useMutation({
+    mutationFn: ownerStopBot,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       queryClient.invalidateQueries({ queryKey: ['owner-me'] });
-      toast.success('Бот успешно остановлен');
+      toast.success('Бот остановлен');
     },
     onError: (error: ApiError) => {
-      toast.error(error?.message || 'Ошибка при остановке бота');
+      toast.error(error?.message || 'Ошибка при остановке');
     },
   });
 
@@ -46,18 +47,35 @@ export default function CabinetIndexPage() {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       queryClient.invalidateQueries({ queryKey: ['owner-me'] });
-      toast.success('Бот успешно запущен');
+      toast.success('Бот запущен');
     },
     onError: (error: ApiError) => {
-      toast.error(error?.message || 'Ошибка при запуске бота');
+      toast.error(error?.message || 'Ошибка при запуске');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ownerDeleteBot,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['owner-me'] });
+      toast.success('Бот удалён');
+    },
+    onError: (error: ApiError) => {
+      toast.error(error?.message || 'Ошибка при удалении');
     },
   });
 
   if (summaryLoading || botsLoading) {
     return (
-      <div className="panel p-8">
-        <Skeleton className="h-8 w-48 mb-4" />
-        <Skeleton className="h-32 w-full" />
+      <div className="p-8 max-w-4xl mx-auto">
+        <Skeleton className="h-8 w-48 mb-6 rounded-2xl" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-44 rounded-2xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -68,18 +86,13 @@ export default function CabinetIndexPage() {
   const bots = botsData?.items ?? [];
 
   return (
-    <div className="panel p-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold mb-2">Мои боты</h1>
-        <div className="flex items-center gap-4 mb-4">
-          <div className="text-sm text-muted-foreground">
-            Боты: <span className="font-medium">{active}/{limit}</span>
-          </div>
-          {isLimitReached && (
-            <div className="text-sm text-amber-600 dark:text-amber-400">
-              Лимит достигнут. Удалите бота или обновите план.
-            </div>
-          )}
+    <div className="p-8 max-w-4xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-xl font-medium text-zinc-900 dark:text-zinc-100">Мои боты</h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
+            {active} из {limit} · {isLimitReached ? 'Лимит достигнут' : 'можно создать ещё'}
+          </p>
         </div>
         <button
           onClick={() => {
@@ -87,22 +100,28 @@ export default function CabinetIndexPage() {
             router.push('/cabinet/bots');
           }}
           disabled={isLimitReached}
-          className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
+          className="shrink-0 px-5 py-2.5 text-sm font-medium rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           Создать бота
         </button>
       </div>
 
+      {isLimitReached && (
+        <div className="mb-6 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-sm text-amber-800 dark:text-amber-200">
+          Удалите бота или обновите план, чтобы создать нового.
+        </div>
+      )}
+
       {bots.length === 0 ? (
-        <div className="text-center py-12 space-y-4">
-          <p className="text-muted-foreground">У вас пока нет ботов. Создайте первого бота, чтобы начать.</p>
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 p-12 text-center">
+          <p className="text-zinc-600 dark:text-zinc-400 mb-4">Пока нет ботов</p>
           <button
             onClick={() => {
               if (isLimitReached) return;
               router.push('/cabinet/bots');
             }}
             disabled={isLimitReached}
-            className="px-4 py-2 bg-primary text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90"
+            className="px-5 py-2.5 text-sm font-medium rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50"
           >
             Создать первого бота
           </button>
@@ -110,14 +129,16 @@ export default function CabinetIndexPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {bots.map((bot) => (
-            <SimpleBotCard 
-              key={bot.botId} 
-              botId={bot.botId} 
+            <SimpleBotCard
+              key={bot.botId}
+              botId={bot.botId}
               name={bot.name}
               onActivate={() => activateMutation.mutate(bot.botId)}
-              onDeactivate={() => deactivateMutation.mutate(bot.botId)}
+              onStop={() => stopMutation.mutate(bot.botId)}
+              onDelete={() => deleteMutation.mutate(bot.botId)}
               isActivating={activateMutation.isPending}
-              isDeactivating={deactivateMutation.isPending}
+              isStopping={stopMutation.isPending}
+              isDeleting={deleteMutation.isPending}
             />
           ))}
         </div>
@@ -126,23 +147,28 @@ export default function CabinetIndexPage() {
   );
 }
 
-// Simplified bot card component
-function SimpleBotCard({ 
-  botId, 
+// Карточка бота: минималистичный стиль (Linear), скруглённые углы, кнопка «Удалить» с подтверждением
+function SimpleBotCard({
+  botId,
   name,
   onActivate,
-  onDeactivate,
+  onStop,
+  onDelete,
   isActivating,
-  isDeactivating,
-}: { 
-  botId: string; 
+  isStopping,
+  isDeleting,
+}: {
+  botId: string;
   name: string;
   onActivate: () => void;
-  onDeactivate: () => void;
+  onStop: () => void;
+  onDelete: () => void;
   isActivating: boolean;
-  isDeactivating: boolean;
+  isStopping: boolean;
+  isDeleting: boolean;
 }) {
   const router = useRouter();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const { data: botData } = useQuery({
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
@@ -170,46 +196,72 @@ function SimpleBotCard({
     }
   };
 
+  const handleDeleteClick = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    onDelete();
+    setConfirmDelete(false);
+  };
+
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6">
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">{name}</h3>
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            {isActive ? 'Активен' : 'Остановлен'}
+    <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-5 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-medium text-zinc-900 dark:text-zinc-100 truncate">{name}</h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500 dark:text-zinc-400'}`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+              {isActive ? 'Активен' : 'Остановлен'}
+            </span>
           </div>
           {lastActivityAt && (
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Последняя активность: {formatLastActivity(lastActivityAt)}
-            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              Активность: {formatLastActivity(lastActivityAt)}
+            </p>
           )}
           {showDiagnosticHint && (
-            <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              Запущен, но активности нет. Проверьте вебхук и аналитику.
-            </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Нет активности за 24 ч. Проверьте вебхук.
+            </p>
           )}
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => router.push(`/cabinet/${botId}/constructor`)}
-          className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          className="px-3 py-2 text-sm font-medium rounded-xl text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
         >
           Редактировать
         </button>
         <button
           onClick={() => router.push(`/cabinet/${botId}/analytics`)}
-          className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+          className="px-3 py-2 text-sm font-medium rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
         >
           Аналитика
         </button>
         <button
-          onClick={isActive ? onDeactivate : onActivate}
-          disabled={isActivating || isDeactivating}
-          className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+          onClick={isActive ? onStop : onActivate}
+          disabled={isActivating || isStopping}
+          className="px-3 py-2 text-sm font-medium rounded-xl text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition-colors"
         >
           {isActive ? 'Остановить' : 'Запустить'}
+        </button>
+        <button
+          onClick={handleDeleteClick}
+          disabled={isDeleting}
+          className={`ml-auto px-3 py-2 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${
+            confirmDelete
+              ? 'bg-red-500 text-white hover:bg-red-600'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30'
+          }`}
+          title="Удалить бота"
+        >
+          {confirmDelete ? 'Подтвердить удаление' : 'Удалить'}
         </button>
       </div>
     </div>

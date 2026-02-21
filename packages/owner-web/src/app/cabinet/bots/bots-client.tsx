@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ownerBots, ownerSummary, ownerDeactivateBot, type ApiError } from '@/lib/api';
+import { ownerBots, ownerSummary, ownerDeleteBot, type ApiError } from '@/lib/api';
 import { BotCard } from '@/components/bot-card';
 
 export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
@@ -22,26 +22,26 @@ export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
     queryFn: ownerBots,
   });
 
-  const deactivateMutation = useMutation({
-    mutationFn: ownerDeactivateBot,
+  const deleteMutation = useMutation({
+    mutationFn: ownerDeleteBot,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['owner-bots'] });
       queryClient.invalidateQueries({ queryKey: ['owner-summary'] });
       queryClient.invalidateQueries({ queryKey: ['owner-me'] });
-      toast.success('Бот успешно деактивирован');
+      toast.success('Бот удалён');
     },
     onError: (error: ApiError) => {
-      toast.error(error?.message || 'Ошибка при деактивации бота');
+      toast.error(error?.message || 'Ошибка при удалении');
     },
   });
 
-  const handleDeactivate = async (botId: string, botName: string) => {
+  const handleDelete = async (botId: string, botName: string) => {
     const confirmed = await new Promise<boolean>((resolve) => {
       toast(
         <div className="flex flex-col gap-3">
-          <div className="font-medium">Деактивировать бота?</div>
+          <div className="font-medium">Удалить бота?</div>
           <div className="text-sm text-muted-foreground">
-            Бот "{botName}" будет деактивирован. Это действие можно отменить позже.
+            Бот «{botName}» будет удалён из кабинета и мини-приложения. Отменить нельзя.
           </div>
           <div className="flex gap-2 mt-2">
             <button
@@ -51,7 +51,7 @@ export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
               }}
               className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
             >
-              Деактивировать
+              Удалить
             </button>
             <button
               onClick={() => {
@@ -66,7 +66,7 @@ export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
         </div>,
         {
           duration: Infinity,
-          id: `deactivate-${botId}`,
+          id: `delete-${botId}`,
         }
       );
     });
@@ -74,7 +74,7 @@ export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
     if (!confirmed) return;
 
     try {
-      await deactivateMutation.mutateAsync(botId);
+      await deleteMutation.mutateAsync(botId);
     } catch (error) {
       console.error('Failed to deactivate bot:', error);
     }

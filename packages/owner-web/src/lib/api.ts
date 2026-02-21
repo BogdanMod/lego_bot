@@ -215,32 +215,35 @@ export async function ownerBots() {
   );
 }
 
-export async function ownerDeactivateBot(botId: string) {
-  console.log(JSON.stringify({
-    action: 'owner_deactivate_bot',
-    botId,
-    timestamp: new Date().toISOString(),
-  }));
-  
-  // Ensure CSRF token is fresh before deletion
+/** Остановить бота (остаётся в списке, можно снова запустить). */
+export async function ownerStopBot(botId: string) {
   await ensureCsrfToken();
-  
-  // Use ownerFetch to automatically include CSRF token
+  return ownerFetch<{ ok: boolean }>(`/api/owner/bots/${botId}`, {
+    method: 'PATCH',
+    body: { isActive: false },
+  });
+}
+
+/** Удалить бота: исчезает из Owner Web и Mini App (soft delete в БД). */
+export async function ownerDeleteBot(botId: string) {
+  await ensureCsrfToken();
   return ownerFetch<{ success: boolean; message: string }>(
     `/api/owner/bots/${botId}`,
     { method: 'DELETE' }
   );
 }
 
+/** @deprecated Use ownerDeleteBot for delete, ownerStopBot for stop. */
+export async function ownerDeactivateBot(botId: string) {
+  return ownerDeleteBot(botId);
+}
+
 export async function ownerActivateBot(botId: string) {
   await ensureCsrfToken();
-  return ownerFetch<{ ok: boolean }>(
-    `/api/owner/bots/${botId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify({ isActive: true }),
-    }
-  );
+  return ownerFetch<{ ok: boolean }>(`/api/owner/bots/${botId}`, {
+    method: 'PATCH',
+    body: { isActive: true },
+  });
 }
 
 // Templates API
