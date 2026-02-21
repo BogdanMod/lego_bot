@@ -12,6 +12,8 @@ export default {
         emerald: colors.emerald,
         rose: colors.rose,
         amber: colors.amber,
+        violet: colors.violet,
+        purple: colors.purple,
       },
       borderRadius: {
         xl: '1rem',
