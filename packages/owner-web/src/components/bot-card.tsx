@@ -6,7 +6,6 @@ import { ownerFetch, ownerDeactivateBot, type ApiError } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Bot, Activity, Trash2 } from 'lucide-react';
-import { useWorkMode } from '@/contexts/mode-context';
 import { toast } from 'sonner';
 
 interface BotCardProps {
@@ -17,14 +16,12 @@ interface BotCardProps {
 export function BotCard({ botId, name }: BotCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { mode } = useWorkMode();
 
-  // Fetch bot summary for statistics (only in manage mode)
+  // Fetch bot summary for statistics
   const { data: summary, isLoading } = useQuery({
     queryKey: ['bot-summary', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}/summary`),
     staleTime: 30_000, // Cache for 30 seconds
-    enabled: mode === 'manage', // Only fetch in manage mode
   });
 
   const deleteMutation = useMutation({
@@ -96,12 +93,7 @@ export function BotCard({ botId, name }: BotCardProps) {
   return (
     <div
       onClick={() => {
-        // Navigate based on mode
-        if (mode === 'edit') {
-          router.push(`/cabinet/${botId}/constructor?mode=edit`);
-        } else {
-          router.push(`/cabinet/${botId}?mode=manage`);
-        }
+        router.push(`/cabinet/${botId}/analytics`);
       }}
       className="group relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-6 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
     >
@@ -127,46 +119,48 @@ export function BotCard({ botId, name }: BotCardProps) {
         </div>
       </div>
 
-      {/* Show statistics only in manage mode */}
-      {mode === 'manage' && (
-        isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <Activity className="w-4 h-4" />
-                <span className="font-medium text-slate-900 dark:text-slate-100">{leadsCount}</span>
-                <span className="text-slate-500">заявок</span>
-              </div>
-              {ordersCount > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-slate-900 dark:text-slate-100">{ordersCount}</span>
-                  <span className="text-slate-500">заказов</span>
-                </div>
-              )}
+      {/* Show statistics */}
+      {isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
+            <div className="flex items-center gap-1.5">
+              <Activity className="w-4 h-4" />
+              <span className="font-medium text-slate-900 dark:text-slate-100">{leadsCount}</span>
+              <span className="text-slate-500">заявок</span>
             </div>
+            {ordersCount > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium text-slate-900 dark:text-slate-100">{ordersCount}</span>
+                <span className="text-slate-500">заказов</span>
+              </div>
+            )}
           </div>
-        )
+        </div>
       )}
 
       <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 flex gap-2">
         <button
           onClick={(e) => {
             e.stopPropagation();
-            // Navigate based on mode
-            if (mode === 'edit') {
-              router.push(`/cabinet/${botId}/constructor?mode=edit`);
-            } else {
-              router.push(`/cabinet/${botId}?mode=manage`);
-            }
+            router.push(`/cabinet/${botId}/analytics`);
           }}
           className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
         >
-          Открыть
+          Аналитика
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            router.push(`/cabinet/${botId}/constructor`);
+          }}
+          className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >
+          Редактировать
         </button>
         <button
           onClick={handleDelete}

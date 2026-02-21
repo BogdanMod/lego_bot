@@ -6,7 +6,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerBots, ownerSummary, ownerDeactivateBot, type ApiError } from '@/lib/api';
 import { BotCard } from '@/components/bot-card';
-import { useWorkMode } from '@/contexts/mode-context';
 
 export function BotsPageClient({ wizardEnabled }: { wizardEnabled: boolean }) {
   const router = useRouter();
