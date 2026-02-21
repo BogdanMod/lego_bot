@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ownerSummary, ownerBots, ownerStopBot, ownerActivateBot, ownerDeleteBot, ownerFetch, type ApiError } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Settings } from 'lucide-react';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -232,6 +233,14 @@ function SimpleBotCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => router.push(`/cabinet/${botId}/settings`)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          title="Настройки: токен, запуск бота"
+        >
+          <Settings className="w-4 h-4" />
+          Настройки
+        </button>
         <button
           onClick={() => router.push(`/cabinet/${botId}/constructor`)}
           className="px-3 py-2 text-sm font-medium rounded-xl text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
