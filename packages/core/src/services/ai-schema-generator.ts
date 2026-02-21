@@ -47,10 +47,11 @@ interface BotSchema {
 - Сделай 6–12 состояний. Логичный поток: приветствие (start) → главное меню или каталог → по нажатию кнопки переход к экрану с описанием/подробностями → кнопки «Назад», «В главное меню» где нужно.
 - В приветствии кратко объясни, что умеет бот. В меню — понятные кнопки (например напитки, услуги, контакты, помощь).
 - Кнопок не более 8 на один экран (лимит Telegram). nextState — только ключ из того же объекта states.
+- Важно: в одном state нельзя смешивать request-кнопку (request_contact/request_email) с обычными навигационными кнопками. Если в state есть кнопка type "request_contact" — в этом state должна быть только она одна, без «Назад» и без других кнопок.
 - Обязательно включи минимум один сценарий «Заявка» с кнопкой type "request_contact":
-  1) State для сбора контакта (например lead_contact): message про «поделиться номером», одна кнопка { "type": "request_contact", "text": "Поделиться номером", "nextState": "lead_thanks", "track": { "event": "lead" } } и при необходимости «Назад».
+  1) State для сбора контакта (например lead_contact): message про «поделиться номером», только одна кнопка: { "type": "request_contact", "text": "Поделиться номером", "nextState": "lead_thanks", "track": { "event": "lead" } }. Никаких других кнопок в этом state (ни «Назад», ни прочих).
   2) Финальный state lead_thanks (или thanks): сообщение «Спасибо, мы получили ваш номер. Менеджер свяжется…», кнопка «В главное меню», у state задай track: { "event": "lead" }.
-- Остальные финальные экраны: track: { "event": "lead" } для заявок, track: { "event": "appointment" } для записи на время/услугу.
+- Остальные финальные экраны: track: { "event": "lead" } для заявок, track: { "event": "appointment" } для записи на время/услугу. В state с track "appointment" используй только обычные кнопки (text, nextState), без request_contact в том же state.
 - Кнопки могут быть: обычная (text, nextState), url (text, url), request_contact (type, text, nextState, track). У request_contact обязательно track: { "event": "lead" }.
 - Ответь ТОЛЬКО валидным JSON, без markdown и пояснений.
 
