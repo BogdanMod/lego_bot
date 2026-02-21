@@ -295,6 +295,14 @@ export async function ownerCreateBot(payload: CreateBotPayload) {
   });
 }
 
+/** Generate BotSchema from wizard answers via LLM (Core). */
+export async function ownerGenerateSchema(answers: Record<string, string>) {
+  return ownerFetch<{ schema: unknown }>('/api/owner/bots/generate-schema', {
+    method: 'POST',
+    body: { answers },
+  });
+}
+
 export async function ownerUpdateBot(botId: string, payload: UpdateBotPayload) {
   return ownerFetch<{ ok: boolean }>(`/api/owner/bots/${botId}`, {
     method: 'PATCH',

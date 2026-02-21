@@ -4,10 +4,61 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ownerCreateBot, type ApiError } from '@/lib/api';
+import { ownerCreateBot, ownerGenerateSchema, type ApiError } from '@/lib/api';
 import { getAllTemplates, getTemplateById, type TemplateAnswers } from '@/lib/templates';
 import { validateAnswers } from '@/lib/templates/engine';
 import { createEmptyBotConfig, finalizeBotConfig } from '@/lib/templates/base';
+import type { WizardStep } from '@/lib/templates/types';
+
+/** Шаги AI Wizard: 5–6 вопросов, ответы уходят в LLM для генерации BotSchema */
+const AI_WIZARD_STEPS: WizardStep[] = [
+  {
+    id: 'ai-basic',
+    title: 'Название и ниша',
+    description: 'Как назвать бота и в какой сфере он будет работать',
+    fields: [
+      { id: 'businessName', label: 'Название бота', type: 'text', required: true, placeholder: 'Например: Поддержка Магазина' },
+      { id: 'niche', label: 'Ниша / сфера', type: 'text', required: true, placeholder: 'Например: интернет-магазин, доставка еды, запись к врачу' },
+    ],
+  },
+  {
+    id: 'ai-goal',
+    title: 'Цель бота',
+    description: 'Что должен делать бот в первую очередь',
+    fields: [
+      { id: 'goal', label: 'Главная цель', type: 'textarea', required: true, placeholder: 'Например: принимать заказы, собирать заявки, записывать на услуги, отвечать на частые вопросы' },
+    ],
+  },
+  {
+    id: 'ai-audience',
+    title: 'Целевая аудитория',
+    fields: [
+      { id: 'audience', label: 'Кто будет пользоваться ботом?', type: 'text', required: true, placeholder: 'Например: клиенты магазина, пациенты клиники' },
+    ],
+  },
+  {
+    id: 'ai-tone',
+    title: 'Тон общения',
+    fields: [
+      { id: 'tone', label: 'Стиль сообщений', type: 'text', required: true, placeholder: 'Например: дружелюбный, формальный, краткий' },
+    ],
+  },
+  {
+    id: 'ai-menu',
+    title: 'Ключевые сценарии',
+    description: 'Какие пункты меню или шаги диалога должны быть у пользователя',
+    fields: [
+      { id: 'menuPoints', label: 'Пункты меню или сценарии (каждый с новой строки)', type: 'textarea', required: false, placeholder: 'Например:\nОформить заказ\nУзнать статус\nСвязаться с поддержкой' },
+    ],
+  },
+  {
+    id: 'ai-extra',
+    title: 'Дополнительно',
+    fields: [
+      { id: 'notes', label: 'Важные детали (необязательно)', type: 'textarea', required: false, placeholder: 'Особые требования, примеры фраз, ограничения' },
+    ],
+  },
+];
 
 export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolean }) {
   const router = useRouter();
@@ -29,7 +80,8 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   });
   const [answers, setAnswers] = useState<TemplateAnswers>({});
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
-  
+  const [isGeneratingSchema, setIsGeneratingSchema] = useState(false);
+
   const templates = wizardEnabled ? getAllTemplates() : [];
   
   // Validate template exists if templateId is provided
@@ -104,6 +156,17 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
           ))}
           <button
             onClick={() => {
+              setSelectedTemplate('ai');
+              setStep(1);
+            }}
+            className="border rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-800 text-left border-primary/30 bg-primary/5"
+          >
+            <div className="text-2xl mb-2">✨</div>
+            <div className="font-medium mb-1">Создать с ИИ</div>
+            <div className="text-sm text-muted-foreground">5–6 вопросов → ИИ соберёт схему бота</div>
+          </button>
+          <button
+            onClick={() => {
               setSelectedTemplate('empty');
               setStep(1);
             }}
@@ -124,13 +187,13 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
     );
   }
   
-  // Get current template or empty
-  const template = selectedTemplate && selectedTemplate !== 'empty' 
-    ? getTemplateById(selectedTemplate) 
+  // Get current template, empty, or AI (AI has no template object)
+  const template = selectedTemplate && selectedTemplate !== 'empty' && selectedTemplate !== 'ai'
+    ? getTemplateById(selectedTemplate)
     : null;
   
-  // Show error if template was requested but not found
-  if (selectedTemplate && selectedTemplate !== 'empty' && !template) {
+  // Show error if template was requested but not found (AI is not a template id)
+  if (selectedTemplate && selectedTemplate !== 'empty' && selectedTemplate !== 'ai' && !template) {
     return (
       <div className="panel p-8 max-w-2xl mx-auto">
         <div className="text-center py-12">
@@ -150,20 +213,18 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
     );
   }
   
-  const wizardSteps = template?.wizard.steps || [
-    {
-      id: 'basic',
-      title: 'Базовая информация',
-      fields: [
-        {
-          id: 'businessName',
-          label: 'Название бота',
-          type: 'text',
-          required: true,
-        },
-      ],
-    },
-  ];
+  const wizardSteps: WizardStep[] =
+    selectedTemplate === 'ai'
+      ? AI_WIZARD_STEPS
+      : template?.wizard.steps || [
+          {
+            id: 'basic',
+            title: 'Базовая информация',
+            fields: [
+              { id: 'businessName', label: 'Название бота', type: 'text', required: true },
+            ],
+          },
+        ];
   
   const currentStep = wizardSteps[step - (useTemplate ? 1 : 0)] || wizardSteps[0];
   
@@ -184,33 +245,44 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
   
   const handleCreate = async () => {
     try {
+      if (selectedTemplate === 'ai') {
+        setIsGeneratingSchema(true);
+        try {
+          const answersForApi: Record<string, string> = {};
+          for (const [k, v] of Object.entries(answers)) {
+            if (v === undefined || v === null) continue;
+            answersForApi[k] = Array.isArray(v) ? v.join('\n') : String(v);
+          }
+          const { schema } = await ownerGenerateSchema(answersForApi);
+          await createMutation.mutateAsync({
+          name: (answers.businessName as string) || 'Мой бот',
+          timezone: (answers.timezone as string) || 'Europe/Moscow',
+          language: (answers.language as string) || 'ru',
+          config: { schema, metadata: { source: 'ai_wizard' } },
+          });
+        } catch (err: unknown) {
+          const msg = (err as ApiError)?.message || (err instanceof Error ? err.message : 'Ошибка генерации схемы');
+          toast.error(msg);
+        } finally {
+          setIsGeneratingSchema(false);
+        }
+        return;
+      }
+
       let config;
-      
       if (template) {
-        // Build config from template
         config = template.buildBotConfig(answers);
       } else {
-        // Empty bot
         config = createEmptyBotConfig(answers.businessName as string || 'Мой бот', answers);
       }
-      
-      // Apply modules if enabled
       if (enabledModules.length > 0) {
         config = finalizeBotConfig(config, answers, enabledModules);
       }
-      
-      // Don't send templateId to backend - we already built the config on frontend
-      // Backend doesn't need to know about templates, just use the config
       await createMutation.mutateAsync({
         name: (answers.businessName as string) || 'Мой бот',
         timezone: (answers.timezone as string) || 'Europe/Moscow',
         language: (answers.language as string) || 'ru',
-        config: {
-          schema: config.schema,
-          metadata: config.metadata,
-        },
-        // Only include template metadata in config.metadata, not as separate fields
-        // This way backend doesn't try to load template
+        config: { schema: config.schema, metadata: config.metadata },
       });
     } catch (error) {
       console.error('Failed to create bot:', error);
@@ -325,10 +397,16 @@ export function CreateBotWizardClient({ wizardEnabled }: { wizardEnabled: boolea
         )}
         <button
           onClick={step < wizardSteps.length + (useTemplate ? 0 : 0) ? handleNext : handleCreate}
-          disabled={createMutation.isPending}
+          disabled={createMutation.isPending || isGeneratingSchema}
           className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50"
         >
-          {step < wizardSteps.length + (useTemplate ? 0 : 0) ? 'Далее' : createMutation.isPending ? 'Создание...' : 'Создать'}
+          {step < wizardSteps.length + (useTemplate ? 0 : 0)
+            ? 'Далее'
+            : isGeneratingSchema
+              ? 'Генерация схемы...'
+              : createMutation.isPending
+                ? 'Создание...'
+                : 'Создать'}
         </button>
       </div>
     </div>

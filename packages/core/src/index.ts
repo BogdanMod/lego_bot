@@ -1,4 +1,4 @@
-﻿import 'express-async-errors';
+import 'express-async-errors';
 import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import * as Sentry from '@sentry/node';
@@ -3712,6 +3712,27 @@ app.get('/api/owner/bots/:botId/me', ensureDatabasesInitialized as any, requireO
   });
 });
 
+// POST /api/owner/bots/generate-schema - сгенерировать схему бота по ответам (LLM)
+const OwnerGenerateSchemaSchema = z.object({
+  answers: z.record(z.string()),
+});
+
+app.post('/api/owner/bots/generate-schema', ensureDatabasesInitialized as any, requireOwnerAuth as any, ownerAuthRateLimit as any, validateBody(OwnerGenerateSchemaSchema) as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
+  const body = req.body as z.infer<typeof OwnerGenerateSchemaSchema>;
+  try {
+    const { generateSchemaFromAnswers } = await import('./services/ai-schema-generator');
+    const result = await generateSchemaFromAnswers(body.answers);
+    if (!result.ok) {
+      return ownerError(res, 400, 'generate_failed', result.error, { errors: result.errors });
+    }
+    res.json({ schema: result.schema });
+  } catch (error) {
+    logger.error({ requestId, error }, 'AI generate-schema failed');
+    return ownerError(res, 500, 'generate_failed', 'Schema generation failed', { error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 // POST /api/owner/bots - создать бота (с шаблоном или без)
 const OwnerCreateBotSchema = z.object({
   templateId: z.string().optional(),
@@ -3812,6 +3833,11 @@ app.post('/api/owner/bots', ensureDatabasesInitialized as any, requireOwnerAuth 
     }
     
     if (finalSchema) {
+      const schemaValidation = validateBotSchema(finalSchema);
+      if (!schemaValidation.valid) {
+        logger.warn({ userId, botId: bot.id, requestId, errors: schemaValidation.errors }, 'Invalid schema on create');
+        return ownerError(res, 400, 'invalid_schema', 'Invalid schema structure', { errors: schemaValidation.errors });
+      }
       await updateBotSchema(bot.id, userId, finalSchema, {
         requestId,
         ipAddress: req.ip,
