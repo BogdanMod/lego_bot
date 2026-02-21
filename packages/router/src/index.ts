@@ -511,6 +511,94 @@ app.post('/internal/owner/send-customer-message', async (req: Request, res: Resp
   return res.json({ ok: true });
 });
 
+// Internal: notify customer about appointment confirm/slot_busy. Called by Core (fire-and-forget).
+// Auth: INTERNAL_API_TOKEN required; request must send X-Internal-Token.
+app.post('/internal/owner/notify-appointment', async (req: Request, res: Response) => {
+  const requestId = (req as any).id;
+  const internalToken = process.env.INTERNAL_API_TOKEN?.trim();
+  if (!internalToken) {
+    logger.error({ requestId }, 'INTERNAL_API_TOKEN not set — notify-appointment endpoint disabled');
+    return res.status(503).json({ error: 'Service not configured' });
+  }
+  const provided = req.headers['x-internal-token'];
+  const token = Array.isArray(provided) ? provided[0] : provided;
+  if (!token || token !== internalToken) {
+    logger.warn({ requestId }, 'Unauthorized internal notify-appointment');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const { botId, appointmentId, result } = req.body ?? {};
+  if (!botId || typeof botId !== 'string' || !appointmentId || typeof appointmentId !== 'string' || (result !== 'confirmed' && result !== 'slot_busy')) {
+    return res.status(400).json({ error: 'Invalid body: botId, appointmentId, result (confirmed|slot_busy) required' });
+  }
+  const client = await getPostgresClient();
+  let row: { telegram_user_id: string | null; starts_at: string; staff_name: string | null; service_name: string | null } | null = null;
+  try {
+    const q = await client.query(
+      `SELECT c.telegram_user_id::text as telegram_user_id, a.starts_at::text as starts_at,
+              s.name as staff_name, sv.name as service_name
+       FROM appointments a
+       LEFT JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN staff s ON s.id = a.staff_id
+       LEFT JOIN services sv ON sv.id = a.service_id
+       WHERE a.bot_id = $1 AND a.id = $2
+       LIMIT 1`,
+      [botId, appointmentId]
+    );
+    row = q.rows[0] ?? null;
+  } finally {
+    client.release();
+  }
+  if (!row || row.telegram_user_id == null || row.telegram_user_id === '') {
+    return res.json({ ok: true, skipped: 'no_telegram_user_id' });
+  }
+  const chatId = Number(row.telegram_user_id);
+  if (!Number.isFinite(chatId)) {
+    return res.json({ ok: true, skipped: 'invalid_telegram_user_id' });
+  }
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    logger.warn({ requestId, botId }, 'ENCRYPTION_KEY not set');
+    return res.status(500).json({ error: 'Server misconfigured' });
+  }
+  const bot = await getBotById(botId);
+  if (!bot || !bot.token) {
+    return res.status(404).json({ error: 'Bot not found' });
+  }
+  let botToken: string;
+  try {
+    botToken = decryptToken(bot.token, encryptionKey);
+  } catch (err) {
+    logger.warn({ requestId, botId, error: err instanceof Error ? err.message : String(err) }, 'Failed to decrypt bot token');
+    return res.status(500).json({ error: 'Failed to get bot token' });
+  }
+  let text: string;
+  if (result === 'confirmed') {
+    const parts = ['Ваша запись подтверждена ✅'];
+    if (row.starts_at) {
+      try {
+        const dt = new Date(row.starts_at);
+        parts.push(`\n${dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`);
+      } catch {
+        // ignore
+      }
+    }
+    if (row.staff_name) parts.push(`\nМастер: ${row.staff_name}`);
+    if (row.service_name) parts.push(`\nУслуга: ${row.service_name}`);
+    text = parts.join('');
+  } else {
+    text = 'К сожалению, это время уже занято ❌ Пожалуйста, выберите другое время.';
+  }
+  const childLog = createChildLogger(logger, { requestId, botId, chatId, result });
+  try {
+    await sendTelegramMessage(childLog, botToken, chatId, text, 'HTML');
+    return res.json({ ok: true });
+  } catch (sendErr) {
+    const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+    logger.warn({ requestId, botId, chatId, result, error: msg }, 'notify-appointment send failed');
+    return res.status(502).json({ error: 'Failed to send', message: msg });
+  }
+});
+
 // Webhook endpoint
 app.post('/webhook/:botId',
   webhookGlobalLimiterMiddleware,

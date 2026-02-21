@@ -405,7 +405,23 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
               </div>
             )}
             {(() => {
-              type Row = { id: string; customerId: string | null; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string };
+              const bookingMode = botData?.settings?.bookingMode as string | undefined;
+              const isSlots = bookingMode === 'slots';
+              const conflictIds = new Set<string>();
+              if (isSlots && latestAppointments.length > 0) {
+                const bySlot = new Map<string, string[]>();
+                for (const a of latestAppointments as any[]) {
+                  if ((a.status || 'new') !== 'new' || !a.staffId || !a.startsAt) continue;
+                  const key = `${a.staffId}\t${a.startsAt}`;
+                  const arr = bySlot.get(key) ?? [];
+                  arr.push(a.id);
+                  bySlot.set(key, arr);
+                }
+                for (const ids of bySlot.values()) {
+                  if (ids.length >= 2) ids.forEach((id: string) => conflictIds.add(id));
+                }
+              }
+              type Row = { id: string; customerId: string | null; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string; hasConflict?: boolean };
               const rows: Row[] = [
                 ...latestAppointments.map((a: any) => ({
                   id: a.id,
@@ -415,6 +431,7 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                   customerName: a.customerName ?? null,
                   details: a.startsAt ? `Запись ${new Date(a.startsAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Запись',
                   status: a.status || 'new',
+                  hasConflict: isSlots && conflictIds.has(a.id),
                 })),
                 ...latestLeads.map((l: any) => ({
                   id: l.id,
@@ -465,7 +482,8 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                         {rows.map((row, i) => (
                           <tr
                             key={`${row.type}-${row.id}`}
-                            className={`hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${i % 2 === 1 ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''}`}
+                            className={`hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${i % 2 === 1 ? 'bg-black/[0.02] dark:bg-white/[0.02]' : ''} ${row.hasConflict ? 'bg-amber-500/5 dark:bg-amber-500/10 border-l-2 border-l-amber-500' : ''}`}
+                            title={row.hasConflict ? 'Несколько клиентов выбрали одно и то же время. Подтвердите только одну запись.' : undefined}
                           >
                             <td className="px-4 py-3 text-sm text-fg whitespace-nowrap border-r border-border">
                               {formatDate(row.createdAt)}
@@ -477,7 +495,14 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                               {row.customerName || '—'}
                             </td>
                             <td className="px-4 py-3 text-sm text-fg border-r border-border">
-                              {row.details}
+                              <span className="inline-flex items-center gap-1.5 flex-wrap">
+                                {row.details}
+                                {row.hasConflict ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40" title="Несколько клиентов выбрали одно и то же время. Подтвердите только одну запись.">
+                                    Возможный конфликт
+                                  </span>
+                                ) : null}
+                              </span>
                             </td>
                             <td className="px-4 py-3 text-sm text-muted-foreground border-r border-border">
                               {getStatusLabel(row.status)}

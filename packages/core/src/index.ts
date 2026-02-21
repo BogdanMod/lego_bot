@@ -4553,8 +4553,33 @@ app.patch('/api/owner/bots/:botId/appointments/:id', ensureDatabasesInitialized 
 });
 
 app.post('/api/owner/bots/:botId/appointments/:id/confirm', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const requestId = getRequestId() ?? (req as any)?.id ?? 'unknown';
   const { botId, id: appointmentId } = req.params;
   const result = await confirmAppointment(botId, appointmentId);
+  // Уведомление клиенту: при успешном confirm (любой booking_mode) и при 409 slot_busy — fire-and-forget в Router
+  if (result.success || result.code === 'slot_busy') {
+    const notifyResult = result.success ? 'confirmed' : 'slot_busy';
+    const routerInternalUrl = process.env.ROUTER_INTERNAL_URL?.replace(/\/$/, '');
+    const internalToken = process.env.INTERNAL_API_TOKEN?.trim();
+    if (routerInternalUrl && internalToken) {
+      setImmediate(() => {
+        const url = `${routerInternalUrl}/internal/owner/notify-appointment`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2800);
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-Token': internalToken },
+          body: JSON.stringify({ botId, appointmentId, result: notifyResult }),
+          signal: controller.signal,
+        })
+          .then(() => clearTimeout(timeoutId))
+          .catch((err) => {
+            clearTimeout(timeoutId);
+            logger.warn({ requestId, botId, appointmentId, notifyResult, error: err instanceof Error ? err.message : String(err) }, 'notify-appointment fire-and-forget failed');
+          });
+      });
+    }
+  }
   if (result.success) {
     return res.json(result.appointment);
   }
