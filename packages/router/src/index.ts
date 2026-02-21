@@ -514,6 +514,7 @@ app.post('/webhook/:botId',
     logger.info({ botId: bot.id, botName: bot.name, requestId }, '✅ Bot found');
 
     // Unified ingest for Owner Cabinet. Для callback_query ingest вызывается из handleUpdateWithSchema с trackEvent из схемы.
+    // При отправке контакта (request_contact) всегда создаём lead (с дедупом 10 мин).
     if (updateType !== 'callback_query') {
       try {
         const profileFromUpdate = update.message?.from

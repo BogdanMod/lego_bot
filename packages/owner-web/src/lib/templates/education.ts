@@ -84,7 +84,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
         message: '📝 Для записи на курс выберите курс из каталога и укажите ваши данные. Мы свяжемся с вами!',
         buttons: [
           { text: '📚 Каталог', nextState: 'catalog' },
-          { text: '📅 Выбрать время', nextState: 'schedule' },
+          { text: '📅 Поделиться номером', nextState: 'lead_contact' },
           { text: '⬅️ Назад', nextState: 'start' },
         ],
       },

@@ -3,6 +3,10 @@
  * Backward compatible with existing bot schema format
  */
 
+// Тип кнопки для конструктора (русские подписи в UI)
+export type ButtonType = 'navigation' | 'request_contact' | 'url';
+export type TrackEvent = 'lead' | 'appointment';
+
 // BotSchema type - compatible with existing format
 export interface BotSchema {
   version: 1;
@@ -14,6 +18,8 @@ export interface BotSchema {
         text: string;
         nextState: string;
         type?: string;
+        url?: string;
+        track?: { event?: TrackEvent };
       }>;
       [key: string]: unknown;
     };

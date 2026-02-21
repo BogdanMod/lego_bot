@@ -83,7 +83,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
       booking: {
         message: '📅 Для записи на консультацию выберите удобное время. Мы подтвердим запись!',
         buttons: [
-          { text: '📅 Выбрать время', nextState: 'schedule' },
+          { text: '📅 Поделиться номером', nextState: 'lead_contact' },
           { text: '⬅️ Назад', nextState: 'start' },
         ],
       },

@@ -80,7 +80,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
       start: {
         message: `Добро пожаловать в {{businessName}}! 🎉\n\nЧем можем помочь?`,
         buttons: [
-          { text: '📝 Оставить заявку', nextState: 'lead' },
+          { text: '📝 Оставить заявку', nextState: 'lead_contact' },
           { text: '📋 Типы мероприятий', nextState: 'events' },
           { text: '📞 Связаться', nextState: 'contacts' },
         ],
@@ -95,7 +95,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
       events: {
         message: '📋 Мы организуем:\n\n{{eventTypes}}\n\nДля заказа оставьте заявку!',
         buttons: [
-          { text: '📝 Оставить заявку', nextState: 'lead' },
+          { text: '📝 Оставить заявку', nextState: 'lead_contact' },
           { text: '⬅️ Назад', nextState: 'start' },
         ],
       },

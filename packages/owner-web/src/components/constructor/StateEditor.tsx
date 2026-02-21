@@ -29,6 +29,24 @@ interface StateEditorProps {
   isInitial: boolean;
 }
 
+type ButtonItem = {
+  text: string;
+  nextState: string;
+  type?: string;
+  url?: string;
+  track?: { event?: 'lead' | 'appointment' };
+};
+
+function normalizeButton(b: ButtonItem): ButtonItem {
+  const type = (b.type === 'request_contact' || b.type === 'url' ? b.type : undefined) || 'navigation';
+  return {
+    text: b.text || '',
+    nextState: b.nextState || '',
+    ...(type === 'request_contact' && { type: 'request_contact', track: b.track || { event: 'lead' } }),
+    ...(type === 'url' && { type: 'url', url: b.url || '' }),
+  };
+}
+
 function SortableButton({
   button,
   index,
@@ -36,10 +54,10 @@ function SortableButton({
   onUpdate,
   onDelete,
 }: {
-  button: { text: string; nextState: string };
+  button: ButtonItem;
   index: number;
   states: string[];
-  onUpdate: (index: number, updates: Partial<{ text: string; nextState: string }>) => void;
+  onUpdate: (index: number, updates: Partial<ButtonItem>) => void;
   onDelete: (index: number) => void;
 }) {
   const {
@@ -50,6 +68,8 @@ function SortableButton({
     transition,
     isDragging,
   } = useSortable({ id: `button-${index}` });
+  const btn = normalizeButton(button);
+  const type = btn.type === 'request_contact' ? 'request_contact' : btn.type === 'url' ? 'url' : 'navigation';
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -57,40 +77,82 @@ function SortableButton({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const handleTypeChange = (newType: 'navigation' | 'request_contact' | 'url') => {
+    if (newType === 'request_contact') {
+      onUpdate(index, { type: 'request_contact', track: { event: 'lead' }, url: undefined });
+    } else if (newType === 'url') {
+      onUpdate(index, { type: 'url', url: btn.url || 'https://', track: undefined });
+    } else {
+      onUpdate(index, { type: undefined, track: undefined, url: undefined });
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+      className="flex flex-wrap items-center gap-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
     >
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+        className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 shrink-0"
       >
         <GripVertical className="w-4 h-4" />
       </button>
+      <select
+        value={type}
+        onChange={(e) => handleTypeChange(e.target.value as 'navigation' | 'request_contact' | 'url')}
+        className="w-[140px] px-2 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100"
+      >
+        <option value="navigation">Переход</option>
+        <option value="request_contact">Контакт (телефон)</option>
+        <option value="url">Ссылка</option>
+      </select>
       <input
         type="text"
-        value={button.text}
+        value={btn.text}
         onChange={(e) => onUpdate(index, { text: e.target.value })}
-        placeholder="Текст кнопки"
-        className="flex-1 px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
+        placeholder={type === 'request_contact' ? 'Поделиться номером' : 'Текст кнопки'}
+        className="flex-1 min-w-[120px] px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
       />
-      <select
-        value={button.nextState}
-        onChange={(e) => onUpdate(index, { nextState: e.target.value })}
-        className="px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100 focus:border-transparent"
-      >
-        {states.map((state) => (
-          <option key={state} value={state}>
-            {state}
-          </option>
-        ))}
-      </select>
+      {type === 'url' ? (
+        <input
+          type="url"
+          value={btn.url || ''}
+          onChange={(e) => onUpdate(index, { url: e.target.value })}
+          placeholder="https://..."
+          className="flex-1 min-w-[140px] px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100"
+        />
+      ) : (
+        <>
+          <select
+            value={btn.nextState}
+            onChange={(e) => onUpdate(index, { nextState: e.target.value })}
+            className="px-3 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100"
+          >
+            {states.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </select>
+          {type === 'request_contact' && (
+            <select
+              value={btn.track?.event || 'lead'}
+              onChange={(e) => onUpdate(index, { track: { event: e.target.value as 'lead' | 'appointment' } })}
+              title="Событие для аналитики"
+              className="px-2 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-800 bg-transparent focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-100"
+            >
+              <option value="lead">Заявка</option>
+              <option value="appointment">Запись</option>
+            </select>
+          )}
+        </>
+      )}
       <button
         onClick={() => onDelete(index)}
-        className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+        className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors shrink-0"
       >
         <Trash2 className="w-4 h-4" />
       </button>
@@ -133,10 +195,7 @@ export function StateEditor({
     }
   };
 
-  const handleButtonUpdate = (
-    index: number,
-    updates: Partial<{ text: string; nextState: string }>
-  ) => {
+  const handleButtonUpdate = (index: number, updates: Partial<ButtonItem>) => {
     const newButtons = [...buttons];
     newButtons[index] = { ...newButtons[index], ...updates };
     onUpdate({ buttons: newButtons });
@@ -145,7 +204,7 @@ export function StateEditor({
   const handleAddButton = () => {
     const newButtons = [
       ...buttons,
-      { text: '', nextState: schema.initialState },
+      { text: '', nextState: schema.initialState } as ButtonItem,
     ];
     onUpdate({ buttons: newButtons });
   };

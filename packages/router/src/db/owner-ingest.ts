@@ -173,6 +173,13 @@ export async function ingestOwnerEvent(
         entityType = 'lead';
         entityId = lead.rows[0]?.id ?? null;
         eventType = 'lead_created';
+        if (process.env.NODE_ENV !== 'production' && isRequestContact) {
+          // eslint-disable-next-line no-console
+          console.debug('[ingest] message.contact → lead created', { botId: params.botId, customerId });
+        }
+      } else if (process.env.NODE_ENV !== 'production' && isRequestContact) {
+        // eslint-disable-next-line no-console
+        console.debug('[ingest] message.contact → lead deduped (10m)', { botId: params.botId, customerId });
       }
     } else if (effective === 'order') {
       const order = await client.query<{ id: string }>(

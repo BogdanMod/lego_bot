@@ -30,7 +30,10 @@ interface BotSchema {
   states: {
     [key: string]: {
       message: string;
-      buttons?: Array<{ text: string; nextState: string; track?: { event: 'lead' | 'appointment' } }>;
+      buttons?: Array<
+        | { text: string; nextState: string; track?: { event: 'lead' | 'appointment' } }
+        | { type: 'request_contact'; text: string; nextState: string; track?: { event: 'lead' } }
+      >;
       track?: { event: 'lead' | 'appointment' };
     };
   };
@@ -42,10 +45,11 @@ interface BotSchema {
 - Сделай 6–12 состояний. Логичный поток: приветствие (start) → главное меню или каталог → по нажатию кнопки переход к экрану с описанием/подробностями → кнопки «Назад», «В главное меню» где нужно.
 - В приветствии кратко объясни, что умеет бот. В меню — понятные кнопки (например напитки, услуги, контакты, помощь).
 - Кнопок не более 8 на один экран (лимит Telegram). nextState — ключ из states.
-- Обязательно проставляй track для аналитики:
-  1) Финальный экран «Спасибо, заявка принята» / «Заявка принята» / «Мы свяжемся с вами» — у этого state задай track: { "event": "lead" } (если это общая заявка) или track: { "event": "appointment" } (если это именно запись на услугу/время).
-  2) Финальный экран после записи на время/услугу (типа «Запись оформлена», «Спасибо, запись принята») — у state задай track: { "event": "appointment" }.
-  3) Шаг «оставить контакты»: либо используй кнопку с type "request_contact" (тогда track на следующий state не нужен), либо если переход по обычной кнопке на экран «оставьте контакт» — у того экрана можно задать track: { "event": "lead" }.
+- Обязательно включи минимум один сценарий «Заявка» с кнопкой type "request_contact":
+  1) State для сбора контакта (например lead_contact): message про «поделиться номером», одна кнопка { "type": "request_contact", "text": "Поделиться номером", "nextState": "lead_thanks", "track": { "event": "lead" } } и при необходимости «Назад».
+  2) Финальный state lead_thanks (или thanks): сообщение «Спасибо, мы получили ваш номер. Менеджер свяжется…», кнопка «В главное меню», у state задай track: { "event": "lead" }.
+- Остальные финальные экраны: track: { "event": "lead" } для заявок, track: { "event": "appointment" } для записи на время/услугу.
+- Кнопки могут быть: обычная (text, nextState), url (text, url), request_contact (type, text, nextState, track). У request_contact обязательно track: { "event": "lead" }.
 - Ответь ТОЛЬКО валидным JSON, без markdown и пояснений.
 
 Контекст от пользователя:

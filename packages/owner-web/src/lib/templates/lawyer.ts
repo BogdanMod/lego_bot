@@ -82,7 +82,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
         message: '💬 Для получения консультации опишите вашу ситуацию. Наш юрист свяжется с вами!',
         buttons: [
           { text: '📝 Оставить заявку', nextState: 'leads' },
-          { text: '📅 Записаться на консультацию', nextState: 'schedule' },
+          { text: '📅 Поделиться номером', nextState: 'lead_contact' },
           { text: '⬅️ Назад', nextState: 'start' },
         ],
       },

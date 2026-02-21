@@ -79,7 +79,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
       start: {
         message: `Добро пожаловать в {{businessName}}! 💪\n\nВыберите действие:`,
         buttons: [
-          { text: '📅 Расписание', nextState: 'schedule' },
+          { text: '📅 Записаться', nextState: 'lead_contact' },
           { text: '📅 Записаться на тренировку', nextState: 'booking' },
           { text: '💳 Купить абонемент', nextState: 'membership' },
           { text: '👨‍🏫 Тренеры', nextState: 'trainers' },
@@ -89,7 +89,7 @@ function buildBotConfig(answers: TemplateAnswers): BotConfig {
       booking: {
         message: '📅 Для записи на тренировку выберите удобное время. Мы подтвердим запись!',
         buttons: [
-          { text: '📅 Выбрать время', nextState: 'schedule' },
+          { text: '📅 Поделиться номером', nextState: 'lead_contact' },
           { text: '⬅️ Назад', nextState: 'start' },
         ],
       },

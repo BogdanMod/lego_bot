@@ -75,19 +75,44 @@ export function patchWithModule(
       }
       break;
       
-    case 'schedule':
-      // Add schedule state (финальный шаг записи → аналитика appointment)
+    case 'schedule': {
+      const initial = patched.schema.initialState;
+      // Шаг «Поделиться номером» (request_contact) — обязательный для заявки
+      if (!patched.schema.states.lead_contact) {
+        patched.schema.states.lead_contact = {
+          message: 'Нажмите кнопку ниже, чтобы поделиться номером.',
+          buttons: [
+            {
+              type: 'request_contact',
+              text: 'Поделиться номером',
+              nextState: 'lead_thanks',
+              track: { event: 'lead' },
+            },
+          ],
+        };
+      }
+      if (!patched.schema.states.lead_thanks) {
+        patched.schema.states.lead_thanks = {
+          message:
+            'Спасибо, мы получили ваш номер. Менеджер свяжется с вами в ближайшее время для подтверждения.',
+          buttons: [
+            { text: 'В главное меню', nextState: initial },
+          ],
+          track: { event: 'lead' },
+        };
+      }
       if (!patched.schema.states.schedule) {
         patched.schema.states.schedule = {
           message: substitute(
             'Для записи укажите желаемое время и дату. Мы свяжемся с вами для подтверждения.',
             answers
           ),
-          buttons: [{ text: '⬅️ Назад', nextState: patched.schema.initialState }],
+          buttons: [{ text: '⬅️ Назад', nextState: initial }],
           track: { event: 'appointment' },
         };
       }
       break;
+    }
       
     case 'faq':
       // Add FAQ state with common questions
@@ -130,19 +155,31 @@ export function patchWithModule(
       }
       break;
       
-    case 'leads':
-      // Add lead collection state (шаг заявки → аналитика lead)
-      if (!patched.schema.states.lead) {
-        patched.schema.states.lead = {
-          message: substitute(
-            'Оставьте ваши контакты, и мы свяжемся с вами в ближайшее время.',
-            answers
-          ),
-          buttons: [{ text: '⬅️ Назад', nextState: patched.schema.initialState }],
+    case 'leads': {
+      const initial = patched.schema.initialState;
+      if (!patched.schema.states.lead_contact) {
+        patched.schema.states.lead_contact = {
+          message: 'Нажмите кнопку ниже, чтобы поделиться номером.',
+          buttons: [
+            {
+              type: 'request_contact',
+              text: 'Поделиться номером',
+              nextState: 'lead_thanks',
+              track: { event: 'lead' },
+            },
+          ],
+        };
+      }
+      if (!patched.schema.states.lead_thanks) {
+        patched.schema.states.lead_thanks = {
+          message:
+            'Спасибо, мы получили ваш номер. Менеджер свяжется с вами в ближайшее время.',
+          buttons: [{ text: 'В главное меню', nextState: initial }],
           track: { event: 'lead' },
         };
       }
       break;
+    }
   }
   
   return patched;

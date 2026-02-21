@@ -811,6 +811,9 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
   latestOrders: Array<Record<string, unknown>>;
   latestLeads: Array<Record<string, unknown>>;
   latestAppointments: Array<Record<string, unknown>>;
+  contactConversionPctToday: number | null;
+  contactConversionPct7d: number | null;
+  lastLeadAt: string | null;
 }> {
   const client = await getPostgresClient();
   try {
@@ -998,6 +1001,21 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       [botId]
     );
 
+    const lastLeadAtResult = await client.query<{ lastLeadAt: string | null }>(
+      `SELECT MAX(created_at)::text as "lastLeadAt" FROM leads WHERE bot_id = $1`,
+      [botId]
+    );
+    const lastLeadAt = lastLeadAtResult.rows[0]?.lastLeadAt ?? null;
+
+    const contactConversionPctToday =
+      todayUsersWroteCount > 0
+        ? Math.round((todayLeadsCount / todayUsersWroteCount) * 100)
+        : null;
+    const contactConversionPct7d =
+      sevenDaysUsersWroteCount > 0
+        ? Math.round((sevenDaysLeadsCount / sevenDaysUsersWroteCount) * 100)
+        : null;
+
     return {
       summaryToday: {
         leadsCount: todayLeadsCount,
@@ -1021,6 +1039,9 @@ export async function getBotAnalyticsDashboard(botId: string, range: 'today' | '
       latestOrders: latestOrdersResult.rows,
       latestLeads: latestLeadsResult.rows,
       latestAppointments: latestAppointmentsResult.rows,
+      contactConversionPctToday,
+      contactConversionPct7d,
+      lastLeadAt,
     };
   } finally {
     client.release();

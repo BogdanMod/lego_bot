@@ -105,6 +105,9 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
   const latestOrders = data?.latestOrders || [];
   const latestLeads = data?.latestLeads || [];
   const latestAppointments = data?.latestAppointments || [];
+  const contactConversionPctToday = data?.contactConversionPctToday ?? null;
+  const contactConversionPct7d = data?.contactConversionPct7d ?? null;
+  const lastLeadAt = data?.lastLeadAt ?? null;
 
   const getStatusLabel = (status?: string) => {
     switch (status) {
@@ -278,7 +281,7 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
       ) : (
         <>
           {/* Чёткие метрики: не смешиваем leads и appointments */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
               <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
                 Пользователей написало
@@ -289,6 +292,19 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
               <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
+            </div>
+            <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
+              <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
+                Конверсия в контакт
+              </div>
+              <div className="text-3xl font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                {range === 'today'
+                  ? (contactConversionPctToday != null ? `${contactConversionPctToday}%` : '—')
+                  : (contactConversionPct7d != null ? `${contactConversionPct7d}%` : '—')}
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+                Процент пользователей, которые оставили контакт
+              </p>
             </div>
             <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
               <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
@@ -311,6 +327,23 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
               <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                 {range === 'today' ? 'за сегодня' : 'за 7 дней'}
               </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+                Заявка — это когда человек поделился телефоном или оставил контакт.
+              </p>
+              {lastLeadAt ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Последний контакт:{' '}
+                  {new Date(lastLeadAt)
+                    .toLocaleString('ru-RU', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                    .replace(', ', ' ')}
+                </p>
+              ) : null}
             </div>
             <div className="p-5 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 shadow-sm">
               <div className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
