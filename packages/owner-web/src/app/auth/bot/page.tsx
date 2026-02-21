@@ -38,15 +38,16 @@ function BotAuthContent() {
       return;
     }
 
-    // Get next path: может прийти как один параметр (next=/m?botId=...&tab=...) или разбит на next, botId, tab при потере %26
+    // Get next path: на мобильном next может прийти обрезанным (next=/m или next=/m?botId=xxx без &tab=), botId/tab — отдельными параметрами
     let nextPath = searchParams.get('next');
     const botIdFromQuery = searchParams.get('botId');
     const tabFromQuery = searchParams.get('tab');
-    if (nextPath === '/m' && (botIdFromQuery || tabFromQuery)) {
-      const params = new URLSearchParams();
+    if (nextPath?.startsWith('/m')) {
+      const params = new URLSearchParams(nextPath.includes('?') ? nextPath.split('?')[1] : '');
       if (botIdFromQuery) params.set('botId', botIdFromQuery);
       if (tabFromQuery) params.set('tab', tabFromQuery);
-      nextPath = `/m?${params.toString()}`;
+      const query = params.toString();
+      nextPath = query ? `/m?${query}` : '/m';
     }
     const validNextPath = nextPath && nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//')
       ? nextPath

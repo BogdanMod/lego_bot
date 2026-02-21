@@ -102,9 +102,14 @@ export async function notifyOwnersOfNewLeadOrAppointment(
     if (!Number.isFinite(chatId)) continue;
     if (hasButtons) {
       const links = byTelegramUserId[telegramUserIdStr];
-      const [liteUrl, fullUrl] = links ?? [];
-      const hasValidLinks = links && links.length >= 2 && typeof liteUrl === 'string' && liteUrl.trim() !== '' && typeof fullUrl === 'string' && fullUrl.trim() !== '';
+      const [a, b] = links ?? [];
+      const hasValidLinks = links && links.length >= 2 && typeof a === 'string' && a.trim() !== '' && typeof b === 'string' && b.trim() !== '';
       if (hasValidLinks) {
+        // Назначение по содержимому: на мобильном порядок от Core или отображение кнопок может отличаться.
+        const looksLikeLite = (url: string) => /\/m[?%]|%2Fm%3F/.test(url);
+        const looksLikeFull = (url: string) => /\/cabinet\//.test(url);
+        const liteUrl = looksLikeLite(a) ? a : looksLikeLite(b) ? b : a;
+        const fullUrl = looksLikeFull(b) ? b : looksLikeFull(a) ? a : b;
         if (process.env.NODE_ENV !== 'production') {
           logger.info({ litePath, fullPath, liteUrl, fullUrl }, 'owner notification links');
         }
