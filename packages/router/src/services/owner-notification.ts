@@ -103,12 +103,15 @@ export async function notifyOwnersOfNewLeadOrAppointment(
     if (hasButtons) {
       const urls = byTelegramUserId[telegramUserIdStr];
       if (urls && urls.length >= 2) {
+        // nextPaths в Core: [0]=Owner Lite (/m?botId=...&tab=...), [1]=полная версия (/cabinet/.../analytics).
+        const liteUrl = urls[0];
+        const fullUrl = urls[1];
         const buttons = [
-          { text: 'Открыть', url: urls[0] },
-          { text: 'Открыть полную версию', url: urls[1] },
+          { text: 'Открыть', url: liteUrl },
+          { text: 'Открыть полную версию', url: fullUrl },
         ];
         try {
-          await sendTelegramMessageWithKeyboard(logger, botToken, chatId, text, buttons, 'HTML');
+          await sendTelegramMessageWithKeyboard(logger, botToken, chatId, text, buttons, 'HTML', true);
           logger.info({ botId, eventType, chatId }, 'Owner notification sent');
         } catch (sendErr) {
           logger.warn({ botId, chatId, error: sendErr instanceof Error ? sendErr.message : String(sendErr) }, 'Owner notification: failed to send');

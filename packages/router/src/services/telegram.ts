@@ -117,6 +117,7 @@ export async function sendTelegramMessage(
 
 /**
  * Отправить сообщение с inline клавиатурой
+ * @param oneButtonPerRow — если true, каждая кнопка в отдельном ряду (для однозначного порядка)
  */
 export async function sendTelegramMessageWithKeyboard(
   logger: Logger,
@@ -124,7 +125,8 @@ export async function sendTelegramMessageWithKeyboard(
   chatId: number,
   text: string,
   buttons: Array<{ text: string; nextState?: string; url?: string }>,
-  parseMode: 'HTML' | 'Markdown' | 'MarkdownV2' = 'HTML'
+  parseMode: 'HTML' | 'Markdown' | 'MarkdownV2' = 'HTML',
+  oneButtonPerRow = false
 ): Promise<any> {
   const startTime = Date.now();
   const sanitizedText = normalizeText(text, parseMode);
@@ -132,11 +134,10 @@ export async function sendTelegramMessageWithKeyboard(
   logger.debug({ chatId, textLength: sanitizedText.length }, 'Sending Telegram message');
   const url = `${TELEGRAM_API_BASE_URL}${botToken}/sendMessage`;
   
-  // Преобразуем кнопки в формат Telegram InlineKeyboardMarkup
-  // Группируем по 2 кнопки в ряд
+  const rowSize = oneButtonPerRow ? 1 : 2;
   const keyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
-  for (let i = 0; i < buttons.length; i += 2) {
-    const row = buttons.slice(i, i + 2).map((btn) =>
+  for (let i = 0; i < buttons.length; i += rowSize) {
+    const row = buttons.slice(i, i + rowSize).map((btn) =>
       btn.url ? { text: btn.text, url: btn.url } : { text: btn.text, callback_data: btn.nextState ?? '' }
     );
     keyboard.push(row);

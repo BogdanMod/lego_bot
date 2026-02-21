@@ -38,11 +38,18 @@ function BotAuthContent() {
       return;
     }
 
-    // Get next path from query parameter
-    const nextPath = searchParams.get('next');
-    // Validate next path: must be relative, start with /, and not contain protocol
-    const validNextPath = nextPath && nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//') 
-      ? nextPath 
+    // Get next path: может прийти как один параметр (next=/m?botId=...&tab=...) или разбит на next, botId, tab при потере %26
+    let nextPath = searchParams.get('next');
+    const botIdFromQuery = searchParams.get('botId');
+    const tabFromQuery = searchParams.get('tab');
+    if (nextPath === '/m' && (botIdFromQuery || tabFromQuery)) {
+      const params = new URLSearchParams();
+      if (botIdFromQuery) params.set('botId', botIdFromQuery);
+      if (tabFromQuery) params.set('tab', tabFromQuery);
+      nextPath = `/m?${params.toString()}`;
+    }
+    const validNextPath = nextPath && nextPath.startsWith('/') && !nextPath.includes('://') && !nextPath.startsWith('//')
+      ? nextPath
       : '/cabinet';
 
     let isCancelled = false;
