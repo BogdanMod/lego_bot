@@ -1328,6 +1328,9 @@ CREATE TRIGGER audit_logs_log_modification_attempt
   FOR EACH ROW
   EXECUTE FUNCTION log_audit_modification_attempt();
 `,
+  '024_add_booking_mode': `
+ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS booking_mode TEXT NOT NULL DEFAULT 'none';
+`,
 };
 
 /**
@@ -1364,6 +1367,7 @@ export async function initializeBotsTable(): Promise<void> {
     '021_add_bot_soft_delete',
     '022_create_admin_security_tables',
     '023_make_audit_logs_immutable',
+    '024_add_booking_mode',
   ];
   
   for (const migrationKey of migrationKeys) {

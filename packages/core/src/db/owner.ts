@@ -378,6 +378,7 @@ export async function getBotSettings(botId: string): Promise<Record<string, unkn
          notify_new_orders as "notifyNewOrders",
          notify_new_appointments as "notifyNewAppointments",
          notify_chat_id::text as "notifyChatId",
+         COALESCE(booking_mode, 'none') as "bookingMode",
          updated_at::text as "updatedAt"
        FROM bot_settings
        WHERE bot_id = $1
@@ -404,6 +405,7 @@ export async function updateBotSettings(botId: string, patch: Record<string, unk
         notify_new_orders,
         notify_new_appointments,
         notify_chat_id,
+        booking_mode,
         updated_at
       ) VALUES (
         $1,
@@ -415,6 +417,7 @@ export async function updateBotSettings(botId: string, patch: Record<string, unk
         COALESCE($7, true),
         COALESCE($8, true),
         $9,
+        COALESCE($10, 'none'),
         now()
       )
       ON CONFLICT (bot_id)
@@ -427,6 +430,7 @@ export async function updateBotSettings(botId: string, patch: Record<string, unk
         notify_new_orders = COALESCE($7, bot_settings.notify_new_orders),
         notify_new_appointments = COALESCE($8, bot_settings.notify_new_appointments),
         notify_chat_id = COALESCE($9, bot_settings.notify_chat_id),
+        booking_mode = COALESCE($10, bot_settings.booking_mode),
         updated_at = now()
       RETURNING
         bot_id::text as "botId",
@@ -438,6 +442,7 @@ export async function updateBotSettings(botId: string, patch: Record<string, unk
         notify_new_orders as "notifyNewOrders",
         notify_new_appointments as "notifyNewAppointments",
         notify_chat_id::text as "notifyChatId",
+        COALESCE(booking_mode, 'none') as "bookingMode",
         updated_at::text as "updatedAt"`,
       [
         botId,
@@ -449,6 +454,7 @@ export async function updateBotSettings(botId: string, patch: Record<string, unk
         patch.notifyNewOrders ?? null,
         patch.notifyNewAppointments ?? null,
         patch.notifyChatId ?? null,
+        patch.bookingMode ?? null,
       ]
     );
     return result.rows[0];
@@ -1214,6 +1220,86 @@ export async function getCustomerTimeline(botId: string, customerId: string): Pr
   } finally {
     client.release();
   }
+}
+
+export async function getAppointment(botId: string, appointmentId: string): Promise<Record<string, unknown> | null> {
+  const client = await getPostgresClient();
+  try {
+    const result = await client.query(
+      `SELECT a.*, c.name as customer_name, c.phone as customer_phone,
+              s.name as staff_name, sv.name as service_name
+       FROM appointments a
+       LEFT JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN staff s ON s.id = a.staff_id
+       LEFT JOIN services sv ON sv.id = a.service_id
+       WHERE a.bot_id = $1 AND a.id = $2
+       LIMIT 1`,
+      [botId, appointmentId]
+    );
+    return result.rows[0] ?? null;
+  } finally {
+    client.release();
+  }
+}
+
+export type ConfirmAppointmentResult =
+  | { success: true; appointment: Record<string, unknown> }
+  | { success: false; code: 'slot_busy' }
+  | { success: false; code: 'insufficient_data'; message: string };
+
+export async function confirmAppointment(botId: string, appointmentId: string): Promise<ConfirmAppointmentResult> {
+  const settings = await getBotSettings(botId);
+  const bookingMode = (settings?.bookingMode as string) ?? 'none';
+
+  const appointment = await getAppointment(botId, appointmentId);
+  if (!appointment) {
+    return { success: false, code: 'insufficient_data', message: 'Запись не найдена' };
+  }
+
+  if (bookingMode === 'none') {
+    const updated = await patchAppointment(botId, appointmentId, { status: 'confirmed' });
+    return updated ? { success: true, appointment: updated } : { success: false, code: 'insufficient_data', message: 'Запись не найдена' };
+  }
+
+  if (bookingMode === 'slots') {
+    const staffId = appointment.staff_id ?? appointment.staffId;
+    const startsAt = appointment.starts_at ?? appointment.startsAt;
+    if (!staffId || !startsAt) {
+      return { success: false, code: 'insufficient_data', message: 'Недостаточно данных для подтверждения' };
+    }
+    const client = await getPostgresClient();
+    try {
+      await client.query('BEGIN');
+      const conflict = await client.query(
+        `SELECT id FROM appointments
+         WHERE bot_id = $1 AND staff_id = $2::uuid AND starts_at = $3::timestamptz
+           AND status = 'confirmed' AND id != $4::uuid
+         LIMIT 1`,
+        [botId, staffId, startsAt, appointmentId]
+      );
+      if (conflict.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return { success: false, code: 'slot_busy' };
+      }
+      const result = await client.query(
+        `UPDATE appointments SET status = 'confirmed', updated_at = now()
+         WHERE bot_id = $1 AND id = $2
+         RETURNING *`,
+        [botId, appointmentId]
+      );
+      await client.query('COMMIT');
+      const updated = result.rows[0] ?? null;
+      return updated ? { success: true, appointment: updated } : { success: false, code: 'insufficient_data', message: 'Запись не найдена' };
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  const updated = await patchAppointment(botId, appointmentId, { status: 'confirmed' });
+  return updated ? { success: true, appointment } : { success: false, code: 'insufficient_data', message: 'Запись не найдена' };
 }
 
 export async function listAppointments(params: {

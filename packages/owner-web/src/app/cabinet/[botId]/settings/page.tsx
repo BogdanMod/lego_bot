@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ownerFetch } from '@/lib/api';
 import { useParams } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,10 +12,27 @@ import { BotPublish } from '@/components/bot-publish';
 export default function SettingsPage() {
   const params = useParams();
   const botId = params.botId as string;
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['bot', botId],
     queryFn: () => ownerFetch<any>(`/api/owner/bots/${botId}`),
+  });
+
+  const patchSettingsMutation = useMutation({
+    mutationFn: async (patch: { bookingMode?: 'none' | 'slots' }) => {
+      return ownerFetch<any>(`/api/owner/bots/${botId}/settings`, {
+        method: 'PATCH',
+        body: patch,
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['bot', botId], (prev: any) => (prev ? { ...prev, settings: updated } : prev));
+      toast.success('Настройки сохранены');
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || 'Не удалось сохранить настройки');
+    },
   });
 
   if (isLoading) {
@@ -26,7 +44,9 @@ export default function SettingsPage() {
   }
 
   const settings = data?.settings || {};
-  const hasToken = !!data?.bot?.hasToken; // Check if bot has token
+  const hasToken = !!data?.bot?.hasToken;
+  const bookingMode = (settings.bookingMode as string) ?? 'none';
+  const slotsEnabled = bookingMode === 'slots';
 
   return (
     <div className="space-y-6">
@@ -38,6 +58,27 @@ export default function SettingsPage() {
         botName={data?.name || 'Бот'} 
         hasToken={hasToken}
       />
+
+      {/* Booking mode: slots vs none */}
+      <div className="panel p-6">
+        <h2 className="text-lg font-semibold mb-4">Тип работы с клиентами</h2>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={slotsEnabled}
+            disabled={patchSettingsMutation.isPending}
+            onChange={(e) => {
+              patchSettingsMutation.mutate({ bookingMode: e.target.checked ? 'slots' : 'none' });
+            }}
+            className="mt-1 rounded border-border"
+          />
+          <span className="text-sm font-medium">У меня есть запись по времени (слоты)</span>
+        </label>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Включите, если клиенты записываются на конкретное время (например, салон, барбершоп, клиника).
+          Если вы принимаете заказы без времени (магазин, кафе, цветы) — оставьте выключенным.
+        </p>
+      </div>
 
       {/* Other Settings */}
       <div className="panel p-6">

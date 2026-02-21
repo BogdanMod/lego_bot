@@ -20,8 +20,29 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
   const [replyModal, setReplyModal] = useState<{ open: boolean; customerId: string | null }>({ open: false, customerId: null });
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const router = useRouter();
   const queryClient = useQueryClient();
+
+  const confirmAppointmentMutation = useMutation({
+    mutationFn: async (appointmentId: string) => {
+      return ownerFetch<any>(`/api/owner/bots/${botId}/appointments/${appointmentId}/confirm`, { method: 'POST' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['analytics-dashboard', botId] });
+      queryClient.invalidateQueries({ queryKey: ['bot', botId] });
+      toast.success('Подтверждено');
+      setConfirmingId(null);
+    },
+    onError: (err: any) => {
+      setConfirmingId(null);
+      if (err?.code === 'slot_busy' || (err?.message && err.message.includes('занят'))) {
+        toast.error('Слот уже занят');
+      } else {
+        toast.error(err?.message || 'Не удалось подтвердить');
+      }
+    },
+  });
 
   // Fetch bot status
   const { data: botData } = useQuery({
@@ -368,6 +389,21 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
             <h3 className="text-lg font-semibold text-fg">
               Записи
             </h3>
+            {botData?.settings?.bookingMode === 'none' && latestAppointments.length > 0 && (
+              <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 dark:bg-amber-500/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  ⚠️ Вы используете записи, но не включили контроль слотов.
+                  Если клиенты выбирают время, рекомендуем включить режим «Запись по времени» в настройках.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => router.push(`/cabinet/${botId}/settings`)}
+                >
+                  Перейти в настройки
+                </Button>
+              </div>
+            )}
             {(() => {
               type Row = { id: string; customerId: string | null; createdAt: string; type: 'lead' | 'appointment'; customerName?: string; details: string; status: string };
               const rows: Row[] = [
@@ -447,17 +483,33 @@ export function AnalysisDashboard({ botId }: AnalysisDashboardProps) {
                               {getStatusLabel(row.status)}
                             </td>
                             <td className="px-4 py-3 text-sm">
-                              {row.customerId ? (
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  onClick={() => { setReplyModal({ open: true, customerId: row.customerId }); setReplyText(''); }}
-                                >
-                                  Ответить
-                                </Button>
-                              ) : (
-                                '—'
-                              )}
+                              <div className="flex flex-wrap gap-1">
+                                {row.customerId ? (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => { setReplyModal({ open: true, customerId: row.customerId }); setReplyText(''); }}
+                                  >
+                                    Ответить
+                                  </Button>
+                                ) : null}
+                                {row.type === 'appointment' && row.status === 'new' ? (
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    disabled={confirmingId === row.id}
+                                    onClick={() => {
+                                      setConfirmingId(row.id);
+                                      confirmAppointmentMutation.mutate(row.id);
+                                    }}
+                                  >
+                                    {confirmingId === row.id ? '…' : 'Подтвердить'}
+                                  </Button>
+                                ) : null}
+                                {!row.customerId && (row.type !== 'appointment' || row.status !== 'new') ? (
+                                  <span className="text-muted-foreground">—</span>
+                                ) : null}
+                              </div>
                             </td>
                           </tr>
                         ))}

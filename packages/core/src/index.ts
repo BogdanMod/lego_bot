@@ -40,6 +40,7 @@ import {
   getOwnerAccessibleBots,
   deleteBotByOwnerAccess,
   insertOwnerAudit,
+  confirmAppointment,
   listAppointments,
   listBotTeam,
   listCustomers,
@@ -2747,6 +2748,7 @@ const OwnerBotSettingsPatchSchema = z.object({
   notifyNewOrders: z.boolean().optional(),
   notifyNewAppointments: z.boolean().optional(),
   notifyChatId: z.number().int().nullable().optional(),
+  bookingMode: z.enum(['none', 'slots']).optional(),
 });
 
 // Public maintenance status (for clients)
@@ -4548,6 +4550,21 @@ app.patch('/api/owner/bots/:botId/appointments/:id', ensureDatabasesInitialized 
   const updated = await patchAppointment(req.params.botId, req.params.id, req.body as any);
   if (!updated) return ownerError(res, 404, 'not_found', 'Запись не найдена');
   res.json(updated);
+});
+
+app.post('/api/owner/bots/:botId/appointments/:id/confirm', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerCsrf as any, requireOwnerBotAccess as any, async (req: Request, res: Response) => {
+  const { botId, id: appointmentId } = req.params;
+  const result = await confirmAppointment(botId, appointmentId);
+  if (result.success) {
+    return res.json(result.appointment);
+  }
+  if (result.code === 'slot_busy') {
+    return res.status(409).json({ code: 'slot_busy', message: 'Слот уже занят' });
+  }
+  if (result.code === 'insufficient_data') {
+    return ownerError(res, 400, 'insufficient_data', result.message);
+  }
+  return ownerError(res, 400, 'bad_request', result.message);
 });
 
 app.get('/api/owner/bots/:botId/availability', ensureDatabasesInitialized as any, requireOwnerAuth as any, requireOwnerBotAccess as any, validateQuery(OwnerAvailabilityQuerySchema) as any, async (req: Request, res: Response) => {
